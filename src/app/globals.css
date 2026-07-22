@@ -1,0 +1,465 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: #0c0c0b;
+  --color-bg-warm: #111110;
+  --color-surface: #161614;
+  --color-surface-2: #1c1b18;
+  --color-surface-3: #242320;
+  --color-surface-hover: #2a2923;
+  --color-gold: #e8b931;
+  --color-gold-hover: #f0c94e;
+  --color-gold-muted: rgba(232, 185, 49, 0.1);
+  --color-gold-strong: rgba(232, 185, 49, 0.2);
+  --color-text-primary: #e4e0d5;
+  --color-text-secondary: #9e9a87;
+  --color-text-muted: #8a8574;
+  --color-text-faint: #6b6757;
+  --color-border: rgba(255, 245, 200, 0.08);
+  --color-border-strong: rgba(255, 245, 200, 0.12);
+  --color-border-active: rgba(232, 185, 49, 0.2);
+  --color-red: #c9605a;
+  --color-red-muted: rgba(201, 96, 90, 0.1);
+  --color-blue: #6b9fd4;
+  --color-blue-muted: rgba(107, 159, 212, 0.1);
+  --color-green: #7cb87a;
+  --color-green-muted: rgba(124, 184, 122, 0.1);
+
+  --font-display: "DM Serif Display", Georgia, serif;
+  --font-body: "Outfit", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", monospace;
+
+  --radius-sm: 6px;
+  --radius-default: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--color-bg);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-hover);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-faint);
+}
+
+/* Tiptap editor styles */
+.tiptap-editor {
+  outline: none;
+  min-height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 2rem 40vh 2rem;
+  font-family: var(--font-body);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  font-size: 16px;
+  caret-color: var(--color-gold);
+}
+
+.tiptap-editor > * + * {
+  margin-top: 0.75em;
+}
+
+.tiptap-editor h1 {
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.tiptap-editor h2 {
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  line-height: 1.3;
+  color: var(--color-text-primary);
+  margin-top: 1.4em;
+  margin-bottom: 0.4em;
+}
+
+.tiptap-editor h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  line-height: 1.4;
+  color: var(--color-text-primary);
+  margin-top: 1.2em;
+  margin-bottom: 0.3em;
+}
+
+.tiptap-editor p {
+  margin: 0;
+}
+
+.tiptap-editor p + p {
+  margin-top: 0.75em;
+}
+
+.tiptap-editor strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.tiptap-editor em {
+  font-style: italic;
+}
+
+.tiptap-editor code {
+  font-family: var(--font-mono);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: 0.875em;
+}
+
+.tiptap-editor pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-default);
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.tiptap-editor pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.tiptap-editor blockquote {
+  border-left: 3px solid var(--color-gold);
+  padding-left: 1rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.tiptap-editor ul,
+.tiptap-editor ol {
+  padding-left: 1.5rem;
+}
+
+.tiptap-editor ul {
+  list-style-type: disc;
+}
+
+.tiptap-editor ol {
+  list-style-type: decimal;
+}
+
+.tiptap-editor li {
+  margin-top: 0.25em;
+}
+
+.tiptap-editor li::marker {
+  color: var(--color-text-muted);
+}
+
+.tiptap-editor hr {
+  border: none;
+  border-top: 1px solid var(--color-border-strong);
+  margin: 2rem 0;
+}
+
+.tiptap-editor a {
+  color: var(--color-gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tiptap-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-faint);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.tiptap-editor .is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-faint);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.slash-active .tiptap-editor p.is-editor-empty:first-child::before,
+.slash-active .tiptap-editor .is-empty::before {
+  content: none;
+}
+
+/* Slash command markdown preview */
+.prose-preview h1 {
+  font-family: var(--font-display);
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 0.4em 0 0.2em;
+  color: var(--color-text-primary);
+}
+
+.prose-preview h2 {
+  font-family: var(--font-display);
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+  color: var(--color-text-primary);
+}
+
+.prose-preview h3 {
+  font-family: var(--font-display);
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+  color: var(--color-text-primary);
+}
+
+.prose-preview p {
+  margin: 0.4em 0;
+}
+
+.prose-preview ul,
+.prose-preview ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+.prose-preview ul {
+  list-style-type: disc;
+}
+
+.prose-preview ol {
+  list-style-type: decimal;
+}
+
+.prose-preview li {
+  margin: 0.2em 0;
+}
+
+.prose-preview strong {
+  font-weight: 600;
+}
+
+.prose-preview em {
+  font-style: italic;
+}
+
+.prose-preview code {
+  font-family: var(--font-mono);
+  background: var(--color-surface-2);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9em;
+}
+
+.prose-preview blockquote {
+  border-left: 3px solid var(--color-gold);
+  padding-left: 1em;
+  margin: 0.4em 0;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* ProseMirror drop cursor */
+.ProseMirror-dropcursor {
+  color: var(--color-gold) !important;
+  border-left: 2px solid var(--color-gold) !important;
+}
+
+/* Selection styling */
+.tiptap-editor ::selection {
+  background: var(--color-gold-muted);
+  color: var(--color-text-primary);
+  cursor: grab;
+}
+
+/* Pending drop highlight — stays visible even when editor loses focus */
+.tiptap-editor.has-pending-drop ::selection {
+  background: var(--color-gold-strong);
+  color: var(--color-text-primary);
+}
+
+/* Dragging text out to snippet — hide selected text so it looks "lifted out" */
+.tiptap-editor.is-snippet-dragging-out ::selection {
+  background: transparent;
+  color: transparent;
+}
+
+/* Drop zone active states */
+.drop-zone-active {
+  background: var(--color-gold-muted) !important;
+  border-color: var(--color-gold) !important;
+}
+
+/* Snippet preview in hover popup */
+.snippet-preview-content h1,
+.snippet-preview-content h2,
+.snippet-preview-content h3 {
+  font-family: var(--font-display);
+}
+
+.snippet-preview-content code {
+  font-family: var(--font-mono);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slashPlaceholder {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes floatIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Inline edit menu buttons */
+.inline-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-body);
+  color: var(--color-text-secondary);
+  transition: all 0.1s ease;
+  white-space: nowrap;
+}
+
+.inline-edit-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+@keyframes slideInFromLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Onboarding demo animations (Snip / Flow / Refine) ─────────────────────── */
+/* Looping micro-animations that turn the feature-showcase schematics into motion
+   graphics. They play as the onboarding demo when no real video clip is present. */
+
+/* SNIP: text gets selected (wipe in) → a card flies into the Snip Bar → arrow pulses */
+@keyframes demoSnipSelect {
+  0%, 8%   { transform: scaleX(0); opacity: 0.2; }
+  22%, 68% { transform: scaleX(1); opacity: 0.9; }
+  86%, 100% { transform: scaleX(0); opacity: 0.2; }
+}
+@keyframes demoSnipCard {
+  0%, 24%  { opacity: 0; transform: translateX(-32px) scale(0.8); }
+  44%, 82% { opacity: 1; transform: translateX(0) scale(1); }
+  94%, 100% { opacity: 0; transform: translateX(-32px) scale(0.8); }
+}
+@keyframes demoSnipArrow {
+  0%, 100% { opacity: 0.25; transform: translateX(-3px); }
+  40%, 56% { opacity: 1; transform: translateX(5px); }
+}
+
+/* FLOW: caret blinks → generated lines wipe in like text appearing */
+@keyframes demoFlowCaret {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
+}
+@keyframes demoFlowLine {
+  0%, 28%  { transform: scaleX(0); opacity: 0; }
+  48%, 84% { transform: scaleX(1); opacity: 1; }
+  96%, 100% { transform: scaleX(0); opacity: 0; }
+}
+
+/* REFINE: toolbar drops in → "Concise" glows → selected text visibly shrinks (the rewrite) */
+@keyframes demoRefineToolbar {
+  0%, 10%  { opacity: 0; transform: translate(-50%, -18px) scale(0.9); }
+  26%, 84% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  96%, 100% { opacity: 0; transform: translate(-50%, -18px) scale(0.9); }
+}
+@keyframes demoRefineGlow {
+  0%, 28%, 100% { box-shadow: 0 0 0 0 rgba(240, 196, 70, 0); }
+  54% { box-shadow: 0 0 0 5px rgba(240, 196, 70, 0.45); }
+}
+@keyframes demoRefineShrink {
+  0%, 44%  { transform: scaleX(1); }
+  66%, 100% { transform: scaleX(0.45); }
+}
+
+.anim-snip-select { transform-origin: left center; animation: demoSnipSelect 3.4s ease-in-out infinite; }
+.anim-snip-card   { animation: demoSnipCard 3.4s ease-in-out infinite; }
+.anim-snip-arrow  { animation: demoSnipArrow 3.4s ease-in-out infinite; }
+
+.anim-flow-caret  { animation: demoFlowCaret 1s steps(1, end) infinite; }
+.anim-flow-line   { transform-origin: left center; animation: demoFlowLine 3.6s ease-in-out infinite; }
+
+.anim-refine-toolbar { animation: demoRefineToolbar 3.8s ease-in-out infinite; }
+.anim-refine-active  { animation: demoRefineGlow 3.8s ease-in-out infinite; }
+.anim-refine-line    { transform-origin: left center; animation: demoRefineShrink 3.8s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-snip-select, .anim-snip-card, .anim-snip-arrow,
+  .anim-flow-caret, .anim-flow-line,
+  .anim-refine-toolbar, .anim-refine-active, .anim-refine-line {
+    animation: none;
+  }
+}

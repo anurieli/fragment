@@ -1,0 +1,48 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# environment (never commit real env files; the example is tracked)
+.env*
+!.env.example
+
+# misc
+.DS_Store
+*.tsbuildinfo
+
+# debug
+npm-debug.log*
+
+# playwright
+test-results/
+playwright-report/
+.gstack/
+
+# tauri (rust build output)
+src-tauri/target/
+
+# editors
+.vscode/
+.idea/
+
+# agent state / local tooling (not part of the app)
+.claude/
+.agents/
+
+# internal docs — kept locally and in the private fragment-desktop repo,
+# never published to the public repo
+/CLAUDE.md
+/AGENTS.md
+/CHANGELOG.md
+/TO-CHECK.md
+/TODOS.md
+/mac-app-store/
+docs/exec-plans/
+docs/session-notes/
+docs/superpowers/
+docs/COMPETITIVE-STRATEGY-SCRIVENER.md
+docs/MARKETING-GUIDE.md
+docs/IDEA-DEVELOPMENT-PIVOT.md

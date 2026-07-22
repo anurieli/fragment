@@ -1,0 +1,42 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "stronghold:default",
+    "opener:default",
+    "fs:default",
+    {
+      "identifier": "fs:allow-app-write",
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+    },
+    {
+      "identifier": "fs:allow-app-read",
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://chatgpt.com/*" }]
+    }
+  ]
+}

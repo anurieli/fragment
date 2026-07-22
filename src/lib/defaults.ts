@@ -1,0 +1,203 @@
+import type { AppSettings } from "./types";
+import type { AIProvider } from "./providers";
+
+export const DEFAULT_LABELING_PROMPT = `You are a writing assistant. The user is working on an essay{goal}.
+
+They have extracted this snippet:
+---
+{snippetContent}
+---
+
+Write a concise label (5-10 words max) that describes what this snippet is about. Return ONLY the label text, nothing else.`;
+
+export const DEFAULT_GENERATION_PROMPT = `You are a writing assistant helping the user write an essay.
+
+Essay goal: "{goal}"
+Target audience: "{audience}"
+Tone: "{tone}"
+Additional context to remember: "{remember}"
+
+Here is what the user has written so far ABOVE the insertion point:
+---
+{contextAbove}
+---
+
+Here is what comes AFTER the insertion point:
+---
+{contextBelow}
+---
+
+The user wants you to generate content to insert between the above and below sections.
+
+User instruction: "{userInstruction}"
+
+Write the content that should go between the two sections. Match the tone, style, and voice of the surrounding text.
+
+Format your output with proper markdown syntax. Use # for headings, separate paragraphs with blank lines, and use **bold**, *italic*, lists, and blockquotes where they enhance readability.
+
+Return ONLY the generated content — no explanations, no wrapping code fences.`;
+
+export const DEFAULT_INLINE_EDIT_PROMPT = `You are a writing assistant helping edit a specific passage within a larger document.
+
+Document goal: "{goal}"
+Target audience: "{audience}"
+Tone: "{tone}"
+Additional context to remember: "{remember}"
+
+Here is the text BEFORE the selected passage:
+---
+{contextBefore}
+---
+
+Here is the SELECTED TEXT to edit:
+---
+{selectedText}
+---
+
+Here is the text AFTER the selected passage:
+---
+{contextAfter}
+---
+
+Editing instruction: "{instruction}"
+
+Rewrite the selected text according to the instruction. Your result must:
+1. Flow naturally between the before and after context
+2. Match the tone, style, and voice of the surrounding text
+3. Only replace the selected text — do not repeat the before/after context
+
+Return ONLY the edited text — no explanations, no markdown code fences, no quotes, just the replacement text.`;
+
+export const DEFAULT_NOTE_CREATION_PROMPT = `You are a writing assistant. The user wants to create a new document from scratch.
+
+Essay goal: "{goal}"
+Target audience: "{audience}"
+Tone: "{tone}"
+Additional context to remember: "{remember}"
+
+The user described what they want to write:
+"{userInstruction}"
+
+Write a first draft based on their description. The draft should:
+1. Start with a clear, compelling title as an H1 heading
+2. Be well-structured with appropriate headings and paragraphs
+3. Serve as a solid starting point that the user can refine
+4. Be written in a natural, engaging tone
+
+Return ONLY the draft content in markdown — no explanations, no code fences, just the document.`;
+
+// The character/count limits stated in this prompt mirror the CAP_* constants
+// in src/lib/voice-context.ts, which enforce them defensively after parsing.
+// Keep the two in sync — if you bump a cap there, update the prose here too.
+export const DEFAULT_VOICE_ANALYSIS_PROMPT = `You are a writing-voice analyst. Study the writing samples below and distill the author's voice into a compact, reusable profile.
+
+Voice name: "{voiceName}"
+Author's own description of their voice: "{description}"
+
+WRITING SAMPLES:
+{samples}
+
+Return ONLY a single JSON object (no prose, no code fences) with exactly these fields:
+{
+  "summary": "2-4 sentences describing the voice — diction, rhythm, register, personality. Max 450 characters.",
+  "traits": ["short concrete trait", "..."],            // up to 7, each max 90 chars
+  "exampleExcerpts": ["verbatim quote from a sample", "..."],  // 3-5 short quotes copied EXACTLY from the samples, each max 320 chars
+  "doGuidance": ["do this to sound like them", "..."],  // up to 5
+  "dontGuidance": ["avoid this", "..."]                 // up to 5
+}
+
+Rules:
+- exampleExcerpts MUST be copied verbatim from the samples — do not paraphrase or invent.
+- Keep every field within its limit. Omit nothing; use [] only if truly nothing applies.
+- Output the raw JSON object and nothing else.`;
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  id: "default",
+  providerCredentials: {
+    openRouterApiKey: "",
+    openAiApiKey: "",
+    anthropicApiKey: "",
+    perplexityApiKey: "",
+    codexAccessToken: "",
+    codexRefreshToken: "",
+  },
+  codexEnabledModels: [],
+  featureProviders: {
+    snippetLabeling: {
+      provider: "openrouter",
+      model: "google/gemini-2.0-flash-001",
+      modelsByProvider: {
+        openrouter: "google/gemini-2.0-flash-001",
+        openai: "gpt-4o-mini",
+        anthropic: "claude-3-5-haiku-latest",
+        perplexity: "sonar",
+        codex: "gpt-5.4-mini",
+        ollama: "llama3",
+      } satisfies Partial<Record<AIProvider, string>>,
+    },
+    slashCommand: {
+      provider: "openrouter",
+      model: "google/gemini-2.0-flash-001",
+      modelsByProvider: {
+        openrouter: "anthropic/claude-sonnet-4.6",
+        openai: "gpt-4o",
+        anthropic: "claude-sonnet-4-5",
+        perplexity: "sonar-pro",
+        codex: "gpt-5.4",
+        ollama: "llama3",
+      } satisfies Partial<Record<AIProvider, string>>,
+    },
+    inlineEdit: {
+      provider: "openrouter",
+      model: "google/gemini-2.0-flash-001",
+      modelsByProvider: {
+        openrouter: "anthropic/claude-sonnet-4.6",
+        openai: "gpt-4o",
+        anthropic: "claude-sonnet-4-5",
+        perplexity: "sonar-pro",
+        codex: "gpt-5.4",
+        ollama: "llama3",
+      } satisfies Partial<Record<AIProvider, string>>,
+    },
+  },
+  userProfile: {
+    displayName: "",
+    bio: "",
+    website: "",
+    twitterHandle: "",
+    linkedinUrl: "",
+    location: "",
+    email: "",
+    writingTypes: [],
+    role: "",
+  },
+  writingStyle: {
+    voiceDescription: "",
+  },
+  brandVoice: {
+    defaultVoiceId: null,
+    analysisPromptTemplate: DEFAULT_VOICE_ANALYSIS_PROMPT,
+    migratedFromWritingStyle: false,
+  },
+  imageGeneration: {
+    themeDescription: "",
+    stylePreset: "editorial",
+    customPresets: [],
+  },
+  snippetLabeling: {
+    enabled: true,
+    maxEssayContext: 0,
+    promptTemplate: DEFAULT_LABELING_PROMPT,
+  },
+  slashCommand: {
+    enabled: true,
+    maxContextAbove: 3000,
+    maxContextBelow: 3000,
+    promptTemplate: DEFAULT_GENERATION_PROMPT,
+  },
+  inlineEdit: {
+    enabled: true,
+    maxContextChars: 3000,
+    promptTemplate: DEFAULT_INLINE_EDIT_PROMPT,
+  },
+};

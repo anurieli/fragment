@@ -1,0 +1,389 @@
+"use client";
+
+import { create } from "zustand";
+import type { Note, Snippet, NoteVersion, VersionTrigger } from "@/lib/types";
+import { generateId, wordCount } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
+import {
+  saveNote,
+  deleteNoteAndSnippets,
+  saveSnippet,
+  deleteSnippet as deleteSnippetFromDB,
+  saveVersion,
+  deleteVersion as deleteVersionFromDB,
+} from "@/lib/persistence";
+import { useToastStore } from "@/hooks/use-toast";
+import { captureEvent } from "@/lib/posthog";
+
+/** Fire-and-forget save with user-visible error on IndexedDB failure. */
+function persistNote(note: Note): void {
+  saveNote(note).catch(() => {
+    useToastStore.getState().showToast("Failed to save — your work is backed up locally");
+  });
+}
+
+interface DataState {
+  notes: Record<string, Note>;
+  snippets: Record<string, Snippet>;
+  versions: Record<string, NoteVersion>;
+  hydrated: boolean;
+
+  setHydrated: (v: boolean) => void;
+  setNotes: (notes: Note[]) => void;
+  setSnippets: (snippets: Snippet[]) => void;
+  setVersions: (versions: NoteVersion[]) => void;
+
+  createNote: (opts?: { title?: string; content?: string }) => string;
+  updateNoteContent: (id: string, content: string) => void;
+  updateNoteTitle: (id: string, title: string) => void;
+  updateNoteSubtitle: (id: string, subtitle: string) => void;
+  updateNoteGoal: (id: string, goal: string) => void;
+  updateNoteAudience: (id: string, audience: string) => void;
+  updateNoteTone: (id: string, tone: string) => void;
+  updateNoteRemember: (id: string, remember: string) => void;
+  updateNoteVoice: (id: string, voiceId: string | null | undefined) => void;
+  deleteNote: (id: string) => string | null;
+
+  addSnippet: (noteId: string, content: string, atIndex?: number) => string;
+  updateSnippetLabel: (
+    id: string,
+    label: string | null,
+    status: Snippet["labelStatus"],
+  ) => void;
+  removeSnippet: (id: string) => void;
+  restoreSnippet: (snippet: Snippet) => void;
+  reorderSnippets: (updates: { id: string; order: number }[]) => void;
+
+  createVersion: (noteId: string, name: string, trigger: VersionTrigger) => string;
+  removeVersion: (id: string) => void;
+  restoreVersion: (versionId: string) => void;
+  duplicateFromVersion: (versionId: string) => string;
+}
+
+export const useDataStore = create<DataState>((set, get) => ({
+  notes: {},
+  snippets: {},
+  versions: {},
+  hydrated: false,
+
+  setHydrated: (v) => set({ hydrated: v }),
+
+  setNotes: (notes) => {
+    const map: Record<string, Note> = {};
+    for (const n of notes) map[n.id] = n;
+    set({ notes: map });
+  },
+
+  setSnippets: (snippets) => {
+    const map: Record<string, Snippet> = {};
+    for (const s of snippets) map[s.id] = s;
+    set({ snippets: map });
+  },
+
+  setVersions: (versions) => {
+    const map: Record<string, NoteVersion> = {};
+    for (const v of versions) map[v.id] = v;
+    set({ versions: map });
+  },
+
+  createNote: (opts) => {
+    if (!get().hydrated) return "";
+    const id = generateId();
+    const now = Date.now();
+    const note: Note = {
+      id,
+      title: opts?.title ?? "",
+      subtitle: "",
+      content: opts?.content ?? "",
+      goal: "",
+      audience: "",
+      tone: "",
+      remember: "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ notes: { ...s.notes, [id]: note } }));
+    persistNote(note);
+    captureEvent("note_created");
+    return id;
+  },
+
+  updateNoteContent: (id, content) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, content, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteTitle: (id, title) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, title, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteSubtitle: (id, subtitle) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, subtitle, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteGoal: (id, goal) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, goal, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteAudience: (id, audience) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, audience, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteTone: (id, tone) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, tone, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteRemember: (id, remember) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, remember, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  updateNoteVoice: (id, voiceId) => {
+    if (!get().hydrated) return;
+    const note = get().notes[id];
+    if (!note) return;
+    const updated = { ...note, voiceId, updatedAt: Date.now() };
+    set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+    persistNote(updated);
+  },
+
+  deleteNote: (id) => {
+    if (!get().hydrated) return null;
+    const state = get();
+    const newNotes = { ...state.notes };
+    delete newNotes[id];
+
+    const newSnippets = { ...state.snippets };
+    for (const [sid, s] of Object.entries(newSnippets)) {
+      if (s.noteId === id) delete newSnippets[sid];
+    }
+
+    set({ notes: newNotes, snippets: newSnippets });
+    deleteNoteAndSnippets(id);
+
+    const remaining = Object.values(newNotes).sort(
+      (a, b) => b.updatedAt - a.updatedAt,
+    );
+    return remaining.length > 0 ? remaining[0].id : null;
+  },
+
+  addSnippet: (noteId, content, atIndex?) => {
+    if (!get().hydrated) return "";
+    const id = generateId();
+    const existingSnippets = Object.values(get().snippets)
+      .filter((s) => s.noteId === noteId)
+      .sort((a, b) => a.order - b.order);
+
+    let order: number;
+    if (atIndex !== undefined && atIndex < existingSnippets.length) {
+      // Insert at specific position — shift all snippets at or after this index
+      const newSnippets = { ...get().snippets };
+      for (const s of existingSnippets) {
+        if (s.order >= atIndex) {
+          const shifted = { ...s, order: s.order + 1 };
+          newSnippets[s.id] = shifted;
+          saveSnippet(shifted);
+        }
+      }
+      order = atIndex;
+
+      const snippet: Snippet = {
+        id,
+        noteId,
+        content,
+        label: null,
+        labelStatus: "loading",
+        createdAt: Date.now(),
+        order,
+      };
+      newSnippets[id] = snippet;
+      set({ snippets: newSnippets });
+      saveSnippet(snippet);
+    } else {
+      // Append to end
+      const maxOrder = existingSnippets.reduce(
+        (max, s) => Math.max(max, s.order),
+        -1,
+      );
+      order = maxOrder + 1;
+
+      const snippet: Snippet = {
+        id,
+        noteId,
+        content,
+        label: null,
+        labelStatus: "loading",
+        createdAt: Date.now(),
+        order,
+      };
+      set((s) => ({ snippets: { ...s.snippets, [id]: snippet } }));
+      saveSnippet(snippet);
+    }
+
+    captureEvent("snippet_created");
+    return id;
+  },
+
+  updateSnippetLabel: (id, label, status) => {
+    if (!get().hydrated) return;
+    const snippet = get().snippets[id];
+    if (!snippet) return;
+    const updated = { ...snippet, label, labelStatus: status };
+    set((s) => ({ snippets: { ...s.snippets, [id]: updated } }));
+    saveSnippet(updated);
+  },
+
+  removeSnippet: (id) => {
+    if (!get().hydrated) return;
+    const newSnippets = { ...get().snippets };
+    delete newSnippets[id];
+    set({ snippets: newSnippets });
+    deleteSnippetFromDB(id);
+  },
+
+  restoreSnippet: (snippet) => {
+    if (!get().hydrated) return;
+    set((s) => ({ snippets: { ...s.snippets, [snippet.id]: snippet } }));
+    saveSnippet(snippet);
+  },
+
+  reorderSnippets: (updates) => {
+    if (!get().hydrated) return;
+    const newSnippets = { ...get().snippets };
+    for (const { id, order } of updates) {
+      if (newSnippets[id]) {
+        const updated = { ...newSnippets[id], order };
+        newSnippets[id] = updated;
+        saveSnippet(updated);
+      }
+    }
+    set({ snippets: newSnippets });
+  },
+
+  createVersion: (noteId, _name, trigger) => {
+    if (!get().hydrated) return "";
+    const note = get().notes[noteId];
+    if (!note) return "";
+    const { liveEditorNoteId, liveEditorContent } = useAppStore.getState();
+    const content =
+      liveEditorNoteId === noteId && typeof liveEditorContent === "string"
+        ? liveEditorContent
+        : note.content;
+    const id = generateId();
+    const now = Date.now();
+    const version: NoteVersion = {
+      id,
+      noteId,
+      title: note.title,
+      subtitle: note.subtitle ?? "",
+      content,
+      goal: note.goal,
+      audience: note.audience ?? "",
+      tone: note.tone ?? "",
+      remember: note.remember ?? "",
+      voiceId: note.voiceId,
+      name: new Date(now).toLocaleString("en-US", {
+        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      }),
+      trigger,
+      wordCount: wordCount(content),
+      createdAt: now,
+    };
+    set((s) => ({ versions: { ...s.versions, [id]: version } }));
+    saveVersion(version);
+    return id;
+  },
+
+  removeVersion: (id) => {
+    if (!get().hydrated) return;
+    const newVersions = { ...get().versions };
+    delete newVersions[id];
+    set({ versions: newVersions });
+    deleteVersionFromDB(id);
+  },
+
+  restoreVersion: (versionId) => {
+    if (!get().hydrated) return;
+    const version = get().versions[versionId];
+    if (!version) return;
+    const note = get().notes[version.noteId];
+    if (!note) return;
+
+    // Safety snapshot before restore
+    get().createVersion(note.id, "Before restore", "manual");
+
+    // Restore note to version state
+    const updated = {
+      ...note,
+      title: version.title,
+      subtitle: version.subtitle ?? "",
+      content: version.content,
+      goal: version.goal,
+      audience: version.audience ?? "",
+      tone: version.tone ?? "",
+      remember: version.remember ?? "",
+      voiceId: version.voiceId,
+      updatedAt: Date.now(),
+    };
+    set((s) => ({ notes: { ...s.notes, [note.id]: updated } }));
+    persistNote(updated);
+  },
+
+  duplicateFromVersion: (versionId) => {
+    if (!get().hydrated) return "";
+    const version = get().versions[versionId];
+    if (!version) return "";
+    const title = version.title ? `${version.title} copy` : "Untitled copy";
+    const id = get().createNote({ title, content: version.content });
+    if (id) {
+      const note = get().notes[id];
+      if (note) {
+        const updated = {
+          ...note,
+          subtitle: version.subtitle ?? "",
+          goal: version.goal,
+          audience: version.audience ?? "",
+          tone: version.tone ?? "",
+          remember: version.remember ?? "",
+          voiceId: version.voiceId,
+        };
+        set((s) => ({ notes: { ...s.notes, [id]: updated } }));
+        persistNote(updated);
+      }
+    }
+    return id;
+  },
+}));

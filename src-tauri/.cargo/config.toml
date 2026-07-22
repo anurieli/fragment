@@ -1,0 +1,4 @@
+[env]
+# Use system libsodium (Homebrew) instead of building from source.
+# Fixes AEGIS ARM crypto linker errors on macOS ARM64.
+SODIUM_USE_PKG_CONFIG = "1"
