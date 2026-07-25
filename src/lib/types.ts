@@ -109,6 +109,16 @@ export interface UserProfile {
    * storage path as the rest of `userProfile` (Dexie `settings` table, not
    * localStorage). See src/lib/publish/kit.ts. */
   kitApiKey: string;
+  /** Composio API key — BYO key, powers one-click "Publish to LinkedIn".
+   * Composio hosts the LinkedIn OAuth grant and stores the resulting
+   * token itself; Fragment only ever holds this key plus the resulting
+   * `linkedInConnectedAccountId`. Set from Settings → Integrations. See
+   * src/lib/composio/linkedin.ts. */
+  composioApiKey: string;
+  /** The Composio `connected_account_id` returned once the user completes
+   * the LinkedIn Connect Link flow. Empty string = not connected. Cleared
+   * locally on "Disconnect" — does not revoke the connection at Composio. */
+  linkedInConnectedAccountId: string;
 }
 
 export interface WritingStyleSettings {

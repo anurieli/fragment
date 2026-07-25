@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, Mic, ImageIcon, Sparkles, ScrollText, User } from "lucide-react";
+import { ArrowLeft, Mic, ImageIcon, Sparkles, ScrollText, User, Plug } from "lucide-react";
 
-export type SettingsSection = "profile" | "writing" | "photos" | "ai" | "logs";
+export type SettingsSection = "profile" | "writing" | "photos" | "ai" | "integrations" | "logs";
 
 const NAV_ITEMS: {
   id: SettingsSection;
@@ -13,6 +13,7 @@ const NAV_ITEMS: {
   { id: "writing", label: "Brand Voice", icon: Mic },
   { id: "photos", label: "Photo Generation", icon: ImageIcon },
   { id: "ai", label: "AI", icon: Sparkles },
+  { id: "integrations", label: "Integrations", icon: Plug },
   { id: "logs", label: "API Logs", icon: ScrollText },
 ];
 

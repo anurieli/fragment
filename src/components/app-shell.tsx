@@ -27,6 +27,7 @@ import { UserProfileSection } from "./settings/user-profile-section";
 import { BrandVoiceSection } from "./settings/brand-voice/brand-voice-section";
 import { ImageGenerationSection } from "./settings/image-generation-section";
 import { AiSection } from "./settings/ai-section";
+import { IntegrationsSection } from "./settings/integrations-section";
 import { ApiLogsSection } from "./settings/api-logs-section";
 import { GlobalSearch } from "./search/global-search";
 import { ToastContainer } from "./ui/toast";
@@ -401,6 +402,7 @@ export function AppShell() {
                 {settingsSection === "writing" && <BrandVoiceSection />}
                 {settingsSection === "photos" && <ImageGenerationSection />}
                 {settingsSection === "ai" && <AiSection />}
+                {settingsSection === "integrations" && <IntegrationsSection />}
                 {settingsSection === "logs" && <ApiLogsSection />}
               </>
             ) : activeIdeaId && ideaSpace === "pieces" ? (

@@ -172,6 +172,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     role: "",
     substackPublicationUrl: "",
     kitApiKey: "",
+    composioApiKey: "",
+    linkedInConnectedAccountId: "",
   },
   writingStyle: {
     voiceDescription: "",
