@@ -20,6 +20,14 @@ export function ToastContainer() {
           <span className="text-[12px] text-text-secondary whitespace-nowrap">
             {toast.message}
           </span>
+          {toast.action && (
+            <button
+              onClick={toast.action.onClick}
+              className="text-[12px] font-medium text-gold hover:text-gold-hover transition-colors duration-150 whitespace-nowrap"
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
