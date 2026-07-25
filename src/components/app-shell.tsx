@@ -17,6 +17,8 @@ import { initSentry, setSentryUser } from "@/lib/sentry";
 import { Sidebar } from "./sidebar/sidebar";
 import { Editor } from "./editor/editor";
 import { HelperBar } from "./helper-bar/helper-bar";
+import { SpaceToggle } from "./shortform/space-toggle";
+import { ShortformView } from "./shortform/shortform-view";
 import { TimelinePanel } from "./timeline/timeline-panel";
 import { SettingsNav, type SettingsSection } from "./settings/settings-nav";
 import { UserProfileSection } from "./settings/user-profile-section";
@@ -101,6 +103,9 @@ export function AppShell() {
   const helperBarPinned = useAppStore((s) => s.helperBarPinned);
   const timelineOpen = useAppStore((s) => s.timelineOpen);
   const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const activeIdeaId = useAppStore((s) => s.activeIdeaId);
+  const ideaSpace = useAppStore((s) => (activeIdeaId ? s.ideaSpaces[activeIdeaId] ?? "write" : "write"));
+  const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
   const isFeedbackOpen = useAppStore((s) => s.isFeedbackOpen);
   const closeFeedback = useAppStore((s) => s.closeFeedback);
   const toggleHelperBar = useAppStore((s) => s.toggleHelperBar);
@@ -257,6 +262,14 @@ export function AppShell() {
         return;
       }
 
+      if (meta && (e.key === "1" || e.key === "2")) {
+        if (activeIdeaId) {
+          e.preventDefault();
+          setIdeaSpace(activeIdeaId, e.key === "1" ? "write" : "pieces");
+        }
+        return;
+      }
+
       if (meta && e.key === "h") {
         e.preventDefault();
         toggleHelperBar();
@@ -299,6 +312,7 @@ export function AppShell() {
       showOnboarding, completeOnboarding,
       isCompact, helperBarOpen, closeHelperBar,
       isFeedbackOpen, closeFeedback,
+      activeIdeaId, setIdeaSpace,
     ],
   );
 
@@ -367,7 +381,10 @@ export function AppShell() {
             )}
           </div>
 
-          {/* Center panel: editor or settings content */}
+          {/* Center panel: editor, short-form feed, or settings content.
+              Write <-> Pieces follows the same center-swap precedent as
+              showSettings, one level down — scoped to the active idea
+              instead of the whole app (see SpaceToggle / ShortformView). */}
           <main className="flex-1 min-w-0 flex flex-col bg-surface rounded-[var(--radius-xl)] overflow-hidden">
             {showSettings ? (
               <>
@@ -377,8 +394,13 @@ export function AppShell() {
                 {settingsSection === "ai" && <AiSection />}
                 {settingsSection === "logs" && <ApiLogsSection />}
               </>
+            ) : activeIdeaId && ideaSpace === "pieces" ? (
+              <ShortformView ideaId={activeIdeaId} />
             ) : (
-              <Editor onOpenAISettings={() => { setSettingsSection("ai"); setShowSettings(true); }} />
+              <Editor
+                onOpenAISettings={() => { setSettingsSection("ai"); setShowSettings(true); }}
+                leftToolbarSlot={activeIdeaId ? <SpaceToggle ideaId={activeIdeaId} /> : undefined}
+              />
             )}
           </main>
 

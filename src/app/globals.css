@@ -463,3 +463,11 @@
     animation: none;
   }
 }
+
+/* Short-form feed (ARI-154) — plain auto-growing piece body. field-sizing is
+   the modern zero-JS way to do this; the resize() effect in piece-card.tsx
+   is a scrollHeight fallback for browsers that don't support it yet. */
+.shortform-piece-textarea {
+  field-sizing: content;
+  min-height: 1.5em;
+}

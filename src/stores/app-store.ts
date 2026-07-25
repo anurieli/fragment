@@ -31,6 +31,9 @@ interface PendingSnippetInsert {
   clientY: number;
 }
 
+/** Which writing space a note-editor toolbar shows for the active idea. */
+export type IdeaSpace = "write" | "pieces";
+
 interface AppState {
   sidebarOpen: boolean;
   helperBarOpen: boolean;
@@ -38,6 +41,10 @@ interface AppState {
   timelineOpen: boolean;
   timelinePreviewVersionId: string | null;
   activeNoteId: string | null;
+  /** The idea selected in the sidebar, if any. Independent of activeNoteId — an idea's Write space shows whichever note is linked to it (see sidebar.tsx). */
+  activeIdeaId: string | null;
+  /** Per-idea Write/Pieces choice, persisted in-session (see ARI-154 §2). Missing entries default to "write". */
+  ideaSpaces: Record<string, IdeaSpace>;
   liveEditorNoteId: string | null;
   liveEditorContent: string | null;
   isDraggingToHelper: boolean;
@@ -78,6 +85,9 @@ interface AppState {
   setTimelineOpen: (v: boolean) => void;
   setTimelinePreviewVersionId: (id: string | null) => void;
   setActiveNote: (id: string | null) => void;
+  setActiveIdea: (id: string | null) => void;
+  setIdeaSpace: (ideaId: string, space: IdeaSpace) => void;
+  toggleIdeaSpace: (ideaId: string) => void;
   setShowCreationFlow: (v: boolean) => void;
   setGeneratingNote: (id: string | null) => void;
   setStreamingContent: (content: string | null) => void;
@@ -103,6 +113,8 @@ export const useAppStore = create<AppState>((set) => ({
   timelineOpen: false,
   timelinePreviewVersionId: null,
   activeNoteId: null,
+  activeIdeaId: null,
+  ideaSpaces: {},
   liveEditorNoteId: null,
   liveEditorContent: null,
   isDraggingToHelper: false,
@@ -166,6 +178,13 @@ export const useAppStore = create<AppState>((set) => ({
     timelinePreviewVersionId: null,
     showCreationFlow: false,
   }),
+  setActiveIdea: (id) => set({ activeIdeaId: id }),
+  setIdeaSpace: (ideaId, space) => set((s) => ({
+    ideaSpaces: { ...s.ideaSpaces, [ideaId]: space },
+  })),
+  toggleIdeaSpace: (ideaId) => set((s) => ({
+    ideaSpaces: { ...s.ideaSpaces, [ideaId]: (s.ideaSpaces[ideaId] ?? "write") === "write" ? "pieces" : "write" },
+  })),
   setShowCreationFlow: (v) => set({ showCreationFlow: v }),
   setGeneratingNote: (id) => set({ generatingNoteId: id }),
   setStreamingContent: (content) => set({ streamingContent: content }),

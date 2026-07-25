@@ -12,6 +12,8 @@ const SHORTCUTS = [
   { keys: "⌘ T", action: "Toggle document timeline" },
   { keys: "⌘ H", action: "Toggle Snip Bar" },
   { keys: "⌘ \\", action: "Toggle sidebar" },
+  { keys: "⌘ 1", action: "Switch to Write space (active idea)" },
+  { keys: "⌘ 2", action: "Switch to Pieces space (active idea)" },
   { keys: "⌘ ⇧ F", action: "Search across all notes" },
   { keys: "⌘ /", action: "Open this help panel" },
   { keys: "⌘ F", action: "Find in current note (browser)" },
@@ -48,6 +50,17 @@ const FEATURES = [
       { name: "Concise", desc: "Select text → click Concise. AI tightens the language while preserving meaning." },
       { name: "Elaborate", desc: "Select text → click Elaborate. AI adds more detail, examples, or nuance." },
       { name: "Custom Edit", desc: "Select text → click Edit → type any instruction. AI rewrites with full document awareness." },
+    ],
+  },
+  {
+    category: "Short-form",
+    items: [
+      { name: "Pieces Space", desc: "Every idea gets a short-form feed alongside its long-form draft. Toggle with Write | Pieces (⌘1 / ⌘2)." },
+      { name: "Roving Focus", desc: "J/K or the arrow keys move focus between piece cards. Enter opens the textarea, Esc exits back to roving." },
+      { name: "Status & Priority", desc: "With a card focused: S cycles status (inbox → in progress → ready), P cycles priority." },
+      { name: "Copy & Delete", desc: "C copies a piece's exact text. Backspace deletes it, with an Undo toast." },
+      { name: "New Piece & Filters", desc: "N creates a new piece. Number keys 1-4 jump between the All / Inbox / In progress / Ready filters." },
+      { name: "Drag Bridge", desc: "Drag a Snip Bar snippet onto the gold line between pieces to drop it in as a new piece." },
     ],
   },
   {

@@ -5,6 +5,7 @@ import { X, Loader2, AlertCircle, GripVertical, RotateCcw } from "lucide-react";
 import type { Snippet } from "@/lib/types";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import { useLabelSnippet } from "@/hooks/use-label-snippet";
 import { formatSnippetPreview } from "@/lib/utils";
 
@@ -94,6 +95,28 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
               clientX: ev.clientX,
               clientY: ev.clientY,
             });
+          }
+          // Check: dropped on a short-form piece separator (ARI-154 drag
+          // bridge)? Creates a new short-form piece at that position instead
+          // of a note snippet — the separator's data attributes carry the
+          // idea id and the sort-order to insert at (see piece-separator.tsx).
+          const separatorEl = (target as Element | null)?.closest?.(
+            "[data-piece-separator]",
+          ) as HTMLElement | null;
+          if (separatorEl) {
+            const ideaId = separatorEl.getAttribute("data-idea-id");
+            const insertOrderAttr = separatorEl.getAttribute("data-insert-order");
+            const insertOrder = insertOrderAttr ? parseFloat(insertOrderAttr) : undefined;
+            if (ideaId) {
+              useContentStore.getState().createPiece({
+                ideaId,
+                format: "other",
+                origin: "user",
+                body: snippet.content,
+                order: Number.isFinite(insertOrder) ? insertOrder : undefined,
+              });
+              removeSnippet(snippet.id);
+            }
           }
           // Check: dropped on Snip Bar (reorder)?
           else {
