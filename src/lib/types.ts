@@ -247,6 +247,39 @@ export interface FeedbackQueueItem extends FeedbackSubmission {
   errorMessage?: string;
 }
 
+/**
+ * A single reviewer comment, as produced by the standalone review page and
+ * round-tripped through the `.fragment-review.json` file. `anchorText` empty
+ * means a note-level (general) comment rather than one anchored to a text
+ * selection. `prefix`/`suffix` are short slices of surrounding plain text
+ * used to disambiguate duplicate `anchorText` occurrences (see
+ * `anchorComments`).
+ */
+export interface ReviewComment {
+  id: string;
+  anchorText: string;
+  prefix: string;
+  suffix: string;
+  body: string;
+}
+
+/** Parsed, validated contents of a `.fragment-review.json` file. */
+export interface ReviewReturn {
+  docId: string;
+  reviewerName: string;
+  timestamp: number;
+  comments: ReviewComment[];
+  editedFullText?: string;
+}
+
+/** A `ReviewReturn` persisted to the `reviews` Dexie table after import. */
+export interface StoredReview extends ReviewReturn {
+  id: string;
+  noteId: string;
+  /** When this review file was imported into Fragment (not the reviewer's own timestamp). */
+  receivedAt: number;
+}
+
 export interface AppSettings {
   id: string;
   providerCredentials: ProviderCredentials;

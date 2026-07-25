@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample } from "./types";
+import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview } from "./types";
 
 class FragmentDB extends Dexie {
   notes!: Table<Note, string>;
@@ -11,6 +11,7 @@ class FragmentDB extends Dexie {
   feedbackQueue!: Table<FeedbackQueueItem, string>;
   voices!: Table<BrandVoice, string>;
   voiceSamples!: Table<VoiceSample, string>;
+  reviews!: Table<StoredReview, string>;
 
   constructor() {
     super("fragment");
@@ -250,6 +251,28 @@ class FragmentDB extends Dexie {
       feedbackQueue: "id, status, createdAt",
       voices: "id, updatedAt",
       voiceSamples: "id, voiceId, createdAt",
+    });
+
+    // Pass (ARI-165): review history — one row per imported reviewer return.
+    //
+    // MERGE NOTE: this worktree branched from a `db.ts` whose highest version
+    // was 16, with no version 17 declared yet. A sibling agent (working on
+    // ideas/contentPieces/resources tables) may also land a version(17) block
+    // in parallel. If that lands first, the integrator should renumber this
+    // block to the next free version (bumping the number below and in the
+    // `reviews` line only — no other changes needed) rather than merging the
+    // two version(17) blocks together.
+    this.version(17).stores({
+      notes: "id, updatedAt",
+      snippets: "id, noteId, order",
+      settings: "id",
+      noteVersions: "id, noteId, createdAt",
+      images: "id, noteId, createdAt",
+      apiLogs: "id, timestamp, route, provider, status, noteId, synced",
+      feedbackQueue: "id, status, createdAt",
+      voices: "id, updatedAt",
+      voiceSamples: "id, voiceId, createdAt",
+      reviews: "id, noteId, receivedAt",
     });
   }
 }

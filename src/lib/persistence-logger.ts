@@ -19,6 +19,7 @@ export type PersistenceEvent =
   | "note_recovery"
   | "voice_hydrate_fail"
   | "voice_save_fail"
+  | "review_save_fail"
   | "storage_persist_result"
   | "fs_backup_save"
   | "fs_backup_load"

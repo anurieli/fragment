@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Share2, FileText, Code, Download, Printer } from "lucide-react";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload } from "lucide-react";
 import { useDataStore } from "@/stores/data-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
+import { useReviewStore } from "@/stores/review-store";
 import {
   copyAsMarkdown,
   copyAsHtml,
@@ -12,6 +14,8 @@ import {
   downloadAsPdf,
   downloadAsDocx,
 } from "@/lib/export";
+import { buildReviewFile, reviewFileName, parseReviewReturn } from "@/lib/review";
+import { ReviewPanel } from "@/components/review/review-panel";
 import type { Editor } from "@tiptap/react";
 
 interface ExportMenuProps {
@@ -19,11 +23,27 @@ interface ExportMenuProps {
   editor: Editor;
 }
 
+function triggerHtmlDownload(html: string, filename: string) {
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
+  const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const { notes, createVersion } = useDataStore();
+  const userProfile = useSettingsStore((s) => s.settings.userProfile);
   const showToast = useToastStore((s) => s.showToast);
+  const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
   const note = notes[noteId];
 
   useEffect(() => {
@@ -95,6 +115,39 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     setOpen(false);
   }
 
+  function handleSendForReview() {
+    const html = buildReviewFile(
+      { title: note.title, markdown: getMarkdown() },
+      { authorName: userProfile.displayName, authorEmail: userProfile.email }
+    );
+    triggerHtmlDownload(html, reviewFileName(note.title));
+    showToast("Review file downloaded — email it to your reviewer");
+    setOpen(false);
+  }
+
+  function handleImportReviewClick() {
+    importInputRef.current?.click();
+    setOpen(false);
+  }
+
+  async function handleImportReviewFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const review = parseReviewReturn(text);
+      await saveReviewReturn(noteId, review);
+      showToast(
+        `Imported ${review.comments.length} comment${review.comments.length === 1 ? "" : "s"} from ${review.reviewerName || "reviewer"}`
+      );
+      setReviewPanelOpen(true);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't read that review file");
+    }
+  }
+
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -155,7 +208,49 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
             <Printer size={13} className="shrink-0" />
             <span className="flex-1 text-left">Download as PDF</span>
           </button>
+
+          <div className="mx-3 border-t border-border" />
+
+          <button
+            onClick={handleSendForReview}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+            title="Downloads a self-contained HTML file — no accounts, works offline, email it to anyone"
+          >
+            <MessageSquare size={13} className="shrink-0" />
+            <span className="flex-1 text-left">Send for review</span>
+          </button>
+          <button
+            onClick={handleImportReviewClick}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+            title="Load a .fragment-review.json file a reviewer sent back"
+          >
+            <Upload size={13} className="shrink-0" />
+            <span className="flex-1 text-left">Import review</span>
+          </button>
+          <button
+            onClick={() => {
+              setReviewPanelOpen(true);
+              setOpen(false);
+            }}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+            title="See comments imported from reviewers"
+          >
+            <MessageSquare size={13} className="shrink-0" />
+            <span className="flex-1 text-left">View reviews</span>
+          </button>
         </div>
+      )}
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json,.fragment-review.json,application/json"
+        onChange={handleImportReviewFile}
+        className="hidden"
+      />
+
+      {reviewPanelOpen && (
+        <ReviewPanel noteId={noteId} editor={editor} onClose={() => setReviewPanelOpen(false)} />
       )}
     </div>
   );
