@@ -170,6 +170,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     email: "",
     writingTypes: [],
     role: "",
+    substackPublicationUrl: "",
+    kitApiKey: "",
+    composioApiKey: "",
+    linkedInConnectedAccountId: "",
   },
   writingStyle: {
     voiceDescription: "",

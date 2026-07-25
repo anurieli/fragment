@@ -80,7 +80,16 @@ function cleanupNbspParagraphs(ed: TiptapEditor) {
 }
 
 
-export function Editor({ onOpenAISettings }: { onOpenAISettings?: () => void }) {
+interface EditorProps {
+  onOpenAISettings?: () => void;
+  /** Rendered as the first item in the toolbar row (before the sidebar-toggle
+   * button) — how app-shell.tsx places the ARI-154 Write/Pieces SpaceToggle
+   * at the left of the center-panel toolbar when an idea is active, without
+   * this file needing to know anything about ideas or the Content Engine. */
+  leftToolbarSlot?: React.ReactNode;
+}
+
+export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const {
     activeNoteId,
     sidebarOpen,
@@ -1136,6 +1145,7 @@ export function Editor({ onOpenAISettings }: { onOpenAISettings?: () => void }) 
     <div className="flex-1 flex flex-col min-h-0">
       {/* Toolbar */}
       <div className="flex items-center px-8 pt-6 pb-3 shrink-0 gap-3 min-w-0">
+        {leftToolbarSlot}
         {!sidebarOpen && (
           <button
             onClick={toggleSidebar}

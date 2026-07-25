@@ -5,6 +5,9 @@ node_modules/
 .next/
 out/
 
+# package build output (e.g. packages/*/dist)
+dist/
+
 # environment (never commit real env files; the example is tracked)
 .env*
 !.env.example

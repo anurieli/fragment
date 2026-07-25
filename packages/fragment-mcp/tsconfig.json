@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "types": ["node"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "../..",
+    "rootDirs": ["src", "../../src/lib/content-engine"]
+  },
+  "include": ["src/**/*.ts", "../../src/lib/content-engine/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/__tests__"]
+}

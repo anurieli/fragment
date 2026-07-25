@@ -34,6 +34,8 @@ Fragment's three headline features have user-facing names used on the website an
 16. [Document Timeline (Version Control)](#16-document-timeline-version-control)
 17. [In-App Help](#17-in-app-help)
 18. [Inline Editing (Refine)](#18-inline-editing-refine)
+19. [Press (Content Engine)](#19-press-content-engine)
+20. [Pass (Review Sharing)](#20-pass-review-sharing)
 
 ---
 
@@ -749,3 +751,119 @@ The edited text replaces the selection in place. It's a normal edit — you can 
 - [ ] Refine settings (provider, model, prompt, context limit) are applied
 - [ ] Toolbar has fadeIn animation and matches design system
 - [ ] Dividers separate Snip from edit actions and edit actions from custom Edit
+
+---
+
+## 19. Press (Content Engine)
+
+### How it works
+
+Every idea gets a second writing space alongside its long-form note: **Write** (the editor covered above) and **Pieces**, a short-form feed for that idea's LinkedIn posts, tweets, Substack drafts, and other short-form content. Toggle between them with the **Write | Pieces** segmented control at the top of the center panel, or `⌘1` / `⌘2`.
+
+**Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **Piece** always belongs to an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` moves `inbox → in-progress → ready → published`.
+
+**Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default — see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
+
+**Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment you focus its card to edit it.
+
+**Triage keyboard shortcuts** (active while a piece card has roving focus, not while editing its text):
+
+| Key | Action |
+|---|---|
+| `J` / `↓` | Move focus to the next card (clamped, doesn't wrap) |
+| `K` / `↑` | Move focus to the previous card |
+| `Enter` | Open the focused card's textarea for editing |
+| `Esc` | Exit editing, back to roving focus |
+| `S` | Cycle status: inbox → in-progress → ready (never jumps to published — that requires an actual publish action) |
+| `P` | Cycle priority |
+| `C` | Copy the focused piece's exact body text to the clipboard |
+| `N` | Create a new piece |
+| `1` `2` `3` `4` | Jump to the All / Inbox / In-progress / Ready filter |
+| `Backspace` | Delete the focused piece (soft-delete, with an Undo toast) |
+| `⌘Enter` | While editing a piece's text, draft it via Flow |
+
+**Nested idea roll-up:** viewing a parent idea's Pieces space shows its own pieces plus its direct children's pieces in one feed (filter counts included). A run of pieces belonging to a child idea gets a small section header naming that child, so you can tell whose pieces you're looking at.
+
+**Resources & inheritance:** attach a link, note, or asset to an idea from the collapsible "Resources" rail at the top of the Pieces feed (or to a single piece from its card menu). A child idea's pieces see everything attached to their own idea *and* everything attached to the parent idea — inherited entries show a `from <parent idea>` tag and can't be removed or edited from the child's view (the source of truth stays on the parent).
+
+**Publish by copy:** each piece's **Share ▾** menu offers platform-appropriate actions:
+- **Copy for X / LinkedIn / Substack** — copies the piece's body formatted for that platform. Tweet and LinkedIn copies are byte-for-byte the raw text, not even trimmed. Substack copies a rich HTML flavor (for pasting into Substack's editor) plus a plain-text fallback. Every copy shows the toast "Copied — whitespace preserved."
+- **Open X composer** / **Open Substack editor** — opens that platform's own compose page in a new tab, pre-filled where the platform's URL scheme allows it (X only).
+- **Publish to Substack** — copies the body, opens the Substack editor, and starts the verified-publish loop: Fragment polls your publication's RSS feed in the background and flips the piece to `published` (verified) once a matching title appears. No modal, no manual "did it go live" step — a gold "awaiting confirmation" badge shows while pending, becoming a gentle nudge after 24 hours.
+- **Publish to Kit (draft)** / **Schedule on Kit** — a real one-click call to Kit's (formerly ConvertKit) v4 API, gated on a Kit API key in Settings and only shown for long-form-ish formats (substack, essay, other). A draft doesn't flip status; scheduling does, immediately, since Kit's API response is itself the confirmation.
+- **Publish to LinkedIn** — a real call via Composio, gated on a Composio API key and a connected LinkedIn account in Settings → Integrations. Succeeds or fails in one round trip; success flips status to `published` immediately.
+- **Mark ready & copy**, **Mark as published…**, **Schedule…** — manual escape hatches that don't depend on any of the above.
+
+### How to test
+
+1. **Enable the agent inbox.** In `.env.local` (or your shell), set `FRAGMENT_LOCAL_INGRESS=true` and restart `npm run dev`. Leave `FRAGMENT_INGRESS_TOKEN` unset for a same-machine test.
+2. **Push a batch with the fragment-mcp CLI.** Build it once (`cd packages/fragment-mcp && npm install && npm run build`), then write a contract-format `.md` file (see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact frontmatter) and run `node dist/bin.js push <file.md>`. It should print `queued 1 piece(s); open Fragment to import.` If you point `FRAGMENT_INBOX_DIR` at the same directory the running app uses (default `~/.fragment/inbox`), the app picks the file up within ~10 seconds.
+3. **Watch the inbox badge appear.** Open the idea the piece landed under (or the new root idea it created, if you used `idea_title`) — its sidebar row and the Pieces tab of the Write | Pieces toggle should both show a pulsing gold dot.
+4. **Triage with the keyboard.** Switch to the Pieces space, use `J`/`K` to rove focus onto the new card (the dot should clear once you open it), `S` to cycle its status, `P` to cycle priority, `1`-`4` to jump filters.
+5. **Check byte-exact copy.** Give a piece a body with intentional double spaces, a trailing blank line, and mixed indentation. Use the Share menu's "Copy for X" (or press `C` on a focused card), paste into a plain text editor, and diff it character-for-character against the source — nothing should be trimmed, collapsed, or re-wrapped.
+6. **Substack pending → verified.** Set a Substack publication URL in Settings → Profile, click "Publish to Substack" on a piece — the piece should show an "awaiting confirmation" badge. (Full end-to-end verification needs a real or mock RSS feed with a matching title at `<publicationUrl>/feed` — confirm the badge clears and status flips to `published` once that title appears.)
+7. **Nested idea roll-up.** Create a child idea under a root idea (via `create_idea` with `parentId`, or the sidebar), push pieces into both, then open the parent idea's Pieces space — pieces from both should appear, with the child's pieces under a section header naming it.
+8. **Resources inheritance.** Attach a resource to a parent idea's Resources rail, then open a child idea (or one of its pieces) — the resource should appear there tagged `from <parent idea>`, with no way to remove it from the child's view.
+
+### QA checklist
+- [ ] Write | Pieces toggle switches spaces and persists per idea for the session
+- [ ] `⌘1` / `⌘2` switch spaces
+- [ ] Agent-pushed piece lands in `inbox` status regardless of what the file requested
+- [ ] Unseen dot shows on the piece card, the Pieces tab, and the sidebar idea row (agent-origin only for the sidebar)
+- [ ] Unseen dot clears when the card is focused for editing
+- [ ] `J`/`K`/arrows rove focus without wrapping past the first/last card
+- [ ] `S` cycles status inbox → in-progress → ready and never jumps to published
+- [ ] `P` cycles priority
+- [ ] `C` copies the exact piece body
+- [ ] `N` creates a new piece and focuses it for editing
+- [ ] `1`-`4` jump to the matching filter
+- [ ] `Backspace` deletes with an Undo toast
+- [ ] Parent idea's Pieces space rolls up direct children's pieces, with a section header per child
+- [ ] Sidebar shows each idea's own piece count independently (no merged total)
+- [ ] A resource attached to a parent idea appears on child ideas and their pieces, tagged with its source
+- [ ] Inherited resources can't be removed or edited from the child's view
+- [ ] "Copy for X" / "Copy for LinkedIn" preserves whitespace byte-exact
+- [ ] "Publish to Substack" stamps the piece pending and eventually verifies via RSS
+- [ ] "Publish to Kit" / "Schedule on Kit" require a Kit API key and only appear for eligible formats
+- [ ] "Publish to LinkedIn" requires a connected Composio + LinkedIn account
+- [ ] Script-format pieces show no Share menu at all
+
+---
+
+## 20. Pass (Review Sharing)
+
+### How it works
+
+**Send for review** (in the editor's Share menu) downloads a single, self-contained `<title>.review.html` file with your note's rendered content and an inlined review UI — no server, no account, works fully offline once downloaded. Send that file to anyone by any means (email, Slack, a USB stick): they open it in a browser, select any text to leave an anchored comment (or add a general note in the sidebar with no selection), and everything autosaves to that browser's local storage as they go.
+
+When the reviewer is done, **Send back** downloads a small `<title>.fragment-review.json` file (their comments, name, and timestamp) and opens a pre-filled `mailto:` draft asking them to attach it, since a `mailto:` link can't attach files itself.
+
+Back in Fragment, **Import review** loads that `.fragment-review.json` file and files its comments against the note. **View reviews** opens a panel listing every review received for that note, grouped by reviewer; clicking a comment locates its anchored text in the *current* live document (even if you've since edited around it) and jumps the editor's selection to it. A comment whose anchor text can no longer be found degrades gracefully with a toast, instead of failing.
+
+### How to test
+
+1. Write a note with a few paragraphs and give it a title.
+2. Open the Share menu (toolbar icon) and click **Send for review** — a `<title>.review.html` file should download, with a toast confirming it.
+3. Open that downloaded file directly in a browser (double-click it, or drag it into a new tab — no server needed).
+4. On the review page, select a sentence — a "+ Comment" pill should appear; click it, type a comment, save it. The selected text should get a highlight.
+5. Add a general comment (no selection) via the sidebar's "Add a general comment" field.
+6. Enter a reviewer name if prompted, then click **Send back** — a `<title>.fragment-review.json` file should download, and a pre-filled email draft should open.
+7. Reload the review page in the browser (or reopen the same file) — your comments should still be there (localStorage autosave).
+8. Back in Fragment, open the same note's Share menu, click **Import review**, and select the `.fragment-review.json` file you just downloaded.
+9. Verify the toast reports the right comment count and reviewer name, and that the review panel opens automatically.
+10. Click a comment in the review panel — the editor should scroll to and select the matching text.
+11. Edit the document so the commented text no longer exists exactly as written, then click that comment again — it should show a "couldn't find that text" toast instead of crashing.
+
+### QA checklist
+- [ ] "Send for review" downloads a single `.review.html` file and shows a confirmation toast
+- [ ] The downloaded file opens and works in a browser with no network connection
+- [ ] Selecting text on the review page offers an inline "+ Comment" action
+- [ ] A comment added to a selection highlights that text on the review page
+- [ ] A general comment (no selection) can be added from the sidebar
+- [ ] Comments and reviewer name persist across a reload of the review page (autosave)
+- [ ] "Send back" downloads a `.fragment-review.json` file and opens a pre-filled `mailto:` draft
+- [ ] "Import review" in Fragment accepts that returned file and reports the comment count and reviewer name
+- [ ] "View reviews" lists every import for the note, grouped by reviewer
+- [ ] Clicking a comment jumps the editor's selection to the matching live text
+- [ ] A comment whose anchor text no longer matches shows a graceful toast, not a crash
+- [ ] Reviewing requires no signup, login, or account on the reviewer's side at any point

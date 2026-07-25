@@ -1,7 +1,15 @@
 import { db } from "./db";
-import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample } from "./types";
+import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample, StoredReview } from "./types";
 import { logPersistence, summarizeNotes } from "./persistence-logger";
 import { backupNoteToFs, removeNoteFromFs, loadNotesFromFs } from "./fs-backup";
+import {
+  ContractError,
+  pieceContentHome,
+  assertIdeaParentAllowed,
+  type Idea,
+  type ContentPiece,
+  type Resource,
+} from "./content-engine";
 
 // ---------------------------------------------------------------------------
 // localStorage backup keys for notes (belt-and-suspenders)
@@ -195,11 +203,30 @@ export async function deleteNoteAndSnippets(noteId: string): Promise<void> {
   removeNoteFromFs(noteId);
 
   try {
-    await db.transaction("rw", db.notes, db.snippets, db.noteVersions, async () => {
-      await db.notes.delete(noteId);
-      await db.snippets.where("noteId").equals(noteId).delete();
-      await db.noteVersions.where("noteId").equals(noteId).delete();
-    });
+    await db.transaction(
+      "rw",
+      db.notes,
+      db.snippets,
+      db.noteVersions,
+      db.contentPieces,
+      async () => {
+        await db.notes.delete(noteId);
+        await db.snippets.where("noteId").equals(noteId).delete();
+        await db.noteVersions.where("noteId").equals(noteId).delete();
+
+        // A content piece whose content home is this Note loses its home.
+        // Tombstone it (deletedAt) rather than hard-deleting — the piece row
+        // (and its history) survives for undo, same as a rejected piece.
+        const now = Date.now();
+        await db.contentPieces
+          .where("noteId")
+          .equals(noteId)
+          .modify((piece) => {
+            piece.deletedAt = now;
+            piece.updatedAt = now;
+          });
+      },
+    );
   } catch {
     // Best-effort — the note is already removed from the in-memory store
   }
@@ -312,6 +339,149 @@ export async function deleteSample(id: string): Promise<void> {
 export async function deleteSamplesForVoice(voiceId: string): Promise<void> {
   try {
     await db.voiceSamples.where("voiceId").equals(voiceId).delete();
+  } catch {
+    // best-effort
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Content Engine — ideas, content pieces, and resources. IndexedDB only, no
+// localStorage mirror (same posture as Brand Voices). Store-level invariants
+// from the content-engine contract are enforced here, synchronously, before
+// any write is attempted, so a bad write never reaches Dexie.
+// ---------------------------------------------------------------------------
+
+/**
+ * `piece.publish` must be set if and only if `piece.status === "published"`.
+ * Exported so the content-store can run the same check synchronously before
+ * committing an in-memory update (this function itself is awaited inside
+ * `savePiece`, but a caller that wants a synchronous throw — e.g. a Zustand
+ * action — should call it directly first).
+ */
+export function assertPublishGuard(piece: Pick<ContentPiece, "status" | "publish">): void {
+  const hasPublish = piece.publish !== undefined;
+  const isPublished = piece.status === "published";
+  if (hasPublish !== isPublished) {
+    throw new ContractError(
+      `a piece's publish record must be set iff status is "published" (status: ${piece.status}, publish: ${hasPublish ? "set" : "unset"})`,
+    );
+  }
+}
+
+export async function loadAllIdeas(): Promise<Idea[]> {
+  try {
+    return await db.ideas.toArray();
+  } catch {
+    return [];
+  }
+}
+
+export async function saveIdea(idea: Idea): Promise<void> {
+  // Depth guard: a child idea's parent must itself be a root idea. Checked
+  // against the actual stored parent row, not the caller's assumption.
+  if (idea.parentId !== null) {
+    const parent = await db.ideas.get(idea.parentId);
+    if (!parent) {
+      throw new ContractError(`parent idea ${idea.parentId} does not exist`);
+    }
+    assertIdeaParentAllowed(parent);
+  }
+
+  try {
+    await db.ideas.put(idea);
+  } catch {
+    logPersistence("idea_save_fail", { id: idea.id });
+  }
+}
+
+/** Hard delete. The store's normal delete path tombstones (deletedAt) instead. */
+export async function deleteIdeaRow(id: string): Promise<void> {
+  try {
+    await db.ideas.delete(id);
+  } catch {
+    // best-effort
+  }
+}
+
+export async function loadAllContentPieces(): Promise<ContentPiece[]> {
+  try {
+    return await db.contentPieces.toArray();
+  } catch {
+    return [];
+  }
+}
+
+export async function savePiece(piece: ContentPiece): Promise<void> {
+  // Exactly-one-content-home guard (noteId XOR body).
+  pieceContentHome(piece);
+  // Publish-record guard.
+  assertPublishGuard(piece);
+
+  try {
+    await db.contentPieces.put(piece);
+  } catch {
+    logPersistence("piece_save_fail", { id: piece.id });
+  }
+}
+
+/** Hard delete. The store's normal delete path (reject) tombstones (deletedAt) instead. */
+export async function deletePieceRow(id: string): Promise<void> {
+  try {
+    await db.contentPieces.delete(id);
+  } catch {
+    // best-effort
+  }
+}
+
+export async function loadAllResources(): Promise<Resource[]> {
+  try {
+    return await db.resources.toArray();
+  } catch {
+    return [];
+  }
+}
+
+export async function saveResource(resource: Resource): Promise<void> {
+  try {
+    await db.resources.put(resource);
+  } catch {
+    logPersistence("resource_save_fail", { id: resource.id });
+  }
+}
+
+export async function deleteResourceRow(id: string): Promise<void> {
+  try {
+    await db.resources.delete(id);
+  } catch {
+    // best-effort
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Pass (ARI-165) — review history. Each imported `.fragment-review.json`
+// becomes one row, keyed by the note it was returned for.
+// ---------------------------------------------------------------------------
+
+export async function loadReviewsForNote(noteId: string): Promise<StoredReview[]> {
+  try {
+    return await db.reviews.where("noteId").equals(noteId).reverse().sortBy("receivedAt");
+  } catch {
+    return [];
+  }
+}
+
+export async function saveReview(review: StoredReview): Promise<void> {
+  try {
+    await db.reviews.put(review);
+  } catch {
+    logPersistence("review_save_fail", { noteId: review.noteId, reviewId: review.id });
+  }
+}
+
+export async function deleteReview(id: string): Promise<void> {
+  try {
+    await db.reviews.delete(id);
   } catch {
     // best-effort
   }

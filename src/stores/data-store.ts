@@ -4,6 +4,7 @@ import { create } from "zustand";
 import type { Note, Snippet, NoteVersion, VersionTrigger } from "@/lib/types";
 import { generateId, wordCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import {
   saveNote,
   deleteNoteAndSnippets,
@@ -28,10 +29,23 @@ interface DataState {
   versions: Record<string, NoteVersion>;
   hydrated: boolean;
 
+  // Long-form "awaiting confirmation" state for the Substack verified-publish
+  // loop: noteId -> the epoch ms a "Publish to Substack" attempt fired.
+  // Deliberately NOT persisted to Dexie (or anywhere else) — long-form notes
+  // have no dedicated publish-state field, and this is a transient UI signal
+  // that a fresh 3-min poll (use-publish-verification.ts) or the user's next
+  // explicit action naturally resolves; losing it on reload just means the
+  // badge disappears; a genuinely stuck attempt is still visible via
+  // Substack itself. See ContentPiece.publishAttemptedAt (content-engine
+  // contract) for the equivalent, persisted, short-form piece field.
+  pendingSubstackPublish: Record<string, number>;
+
   setHydrated: (v: boolean) => void;
   setNotes: (notes: Note[]) => void;
   setSnippets: (snippets: Snippet[]) => void;
   setVersions: (versions: NoteVersion[]) => void;
+  markNotePublishPending: (noteId: string) => void;
+  clearNotePublishPending: (noteId: string) => void;
 
   createNote: (opts?: { title?: string; content?: string }) => string;
   updateNoteContent: (id: string, content: string) => void;
@@ -44,7 +58,7 @@ interface DataState {
   updateNoteVoice: (id: string, voiceId: string | null | undefined) => void;
   deleteNote: (id: string) => string | null;
 
-  addSnippet: (noteId: string, content: string, atIndex?: number) => string;
+  addSnippet: (noteId: string, content: string, atIndex?: number, ideaId?: string) => string;
   updateSnippetLabel: (
     id: string,
     label: string | null,
@@ -65,8 +79,22 @@ export const useDataStore = create<DataState>((set, get) => ({
   snippets: {},
   versions: {},
   hydrated: false,
+  pendingSubstackPublish: {},
 
   setHydrated: (v) => set({ hydrated: v }),
+
+  markNotePublishPending: (noteId) => {
+    set((s) => ({ pendingSubstackPublish: { ...s.pendingSubstackPublish, [noteId]: Date.now() } }));
+  },
+
+  clearNotePublishPending: (noteId) => {
+    set((s) => {
+      if (!(noteId in s.pendingSubstackPublish)) return s;
+      const next = { ...s.pendingSubstackPublish };
+      delete next[noteId];
+      return { pendingSubstackPublish: next };
+    });
+  },
 
   setNotes: (notes) => {
     const map: Record<string, Note> = {};
@@ -192,7 +220,12 @@ export const useDataStore = create<DataState>((set, get) => ({
     }
 
     set({ notes: newNotes, snippets: newSnippets });
+    // deleteNoteAndSnippets tombstones (deletedAt) any content piece whose
+    // content home is this note as part of the same IndexedDB transaction;
+    // mirror that in the content-store's in-memory state so the UI reflects
+    // it immediately, without waiting on a re-hydration.
     deleteNoteAndSnippets(id);
+    useContentStore.getState().detachPieceNote(id);
 
     const remaining = Object.values(newNotes).sort(
       (a, b) => b.updatedAt - a.updatedAt,
@@ -200,7 +233,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     return remaining.length > 0 ? remaining[0].id : null;
   },
 
-  addSnippet: (noteId, content, atIndex?) => {
+  addSnippet: (noteId, content, atIndex?, ideaId?) => {
     if (!get().hydrated) return "";
     const id = generateId();
     const existingSnippets = Object.values(get().snippets)
@@ -228,6 +261,7 @@ export const useDataStore = create<DataState>((set, get) => ({
         labelStatus: "loading",
         createdAt: Date.now(),
         order,
+        ideaId,
       };
       newSnippets[id] = snippet;
       set({ snippets: newSnippets });
@@ -248,6 +282,7 @@ export const useDataStore = create<DataState>((set, get) => ({
         labelStatus: "loading",
         createdAt: Date.now(),
         order,
+        ideaId,
       };
       set((s) => ({ snippets: { ...s.snippets, [id]: snippet } }));
       saveSnippet(snippet);

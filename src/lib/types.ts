@@ -26,6 +26,8 @@ export interface Snippet {
   labelStatus: "idle" | "loading" | "done" | "error";
   createdAt: number;
   order: number;
+  /** Links this snippet to the idea it was snipped toward. Optional — existing rows are not backfilled. */
+  ideaId?: string;
 }
 
 export type VersionTrigger = "manual" | "export-md" | "export-html" | "download-md" | "download-html" | "download-pdf" | "download-docx";
@@ -98,6 +100,25 @@ export interface UserProfile {
   email: string;
   writingTypes: string[];
   role: string;
+  /** Publication base URL, e.g. "https://myblog.substack.com" — powers the
+   * "Open Substack editor" / "Publish to Substack" composer links and the
+   * RSS feed the verified-publish loop polls for a title match. */
+  substackPublicationUrl: string;
+  /** Kit (formerly ConvertKit) v4 API key — powers "Publish to Kit (draft)"
+   * / "Schedule on Kit" in the Share menu and Publish menu. BYO key, same
+   * storage path as the rest of `userProfile` (Dexie `settings` table, not
+   * localStorage). See src/lib/publish/kit.ts. */
+  kitApiKey: string;
+  /** Composio API key — BYO key, powers one-click "Publish to LinkedIn".
+   * Composio hosts the LinkedIn OAuth grant and stores the resulting
+   * token itself; Fragment only ever holds this key plus the resulting
+   * `linkedInConnectedAccountId`. Set from Settings → Integrations. See
+   * src/lib/composio/linkedin.ts. */
+  composioApiKey: string;
+  /** The Composio `connected_account_id` returned once the user completes
+   * the LinkedIn Connect Link flow. Empty string = not connected. Cleared
+   * locally on "Disconnect" — does not revoke the connection at Composio. */
+  linkedInConnectedAccountId: string;
 }
 
 export interface WritingStyleSettings {
@@ -245,6 +266,39 @@ export interface FeedbackQueueItem extends FeedbackSubmission {
   createdAt: number;
   submittedAt?: number;
   errorMessage?: string;
+}
+
+/**
+ * A single reviewer comment, as produced by the standalone review page and
+ * round-tripped through the `.fragment-review.json` file. `anchorText` empty
+ * means a note-level (general) comment rather than one anchored to a text
+ * selection. `prefix`/`suffix` are short slices of surrounding plain text
+ * used to disambiguate duplicate `anchorText` occurrences (see
+ * `anchorComments`).
+ */
+export interface ReviewComment {
+  id: string;
+  anchorText: string;
+  prefix: string;
+  suffix: string;
+  body: string;
+}
+
+/** Parsed, validated contents of a `.fragment-review.json` file. */
+export interface ReviewReturn {
+  docId: string;
+  reviewerName: string;
+  timestamp: number;
+  comments: ReviewComment[];
+  editedFullText?: string;
+}
+
+/** A `ReviewReturn` persisted to the `reviews` Dexie table after import. */
+export interface StoredReview extends ReviewReturn {
+  id: string;
+  noteId: string;
+  /** When this review file was imported into Fragment (not the reviewer's own timestamp). */
+  receivedAt: number;
 }
 
 export interface AppSettings {
