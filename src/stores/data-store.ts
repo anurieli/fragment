@@ -4,6 +4,7 @@ import { create } from "zustand";
 import type { Note, Snippet, NoteVersion, VersionTrigger } from "@/lib/types";
 import { generateId, wordCount } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import {
   saveNote,
   deleteNoteAndSnippets,
@@ -192,7 +193,12 @@ export const useDataStore = create<DataState>((set, get) => ({
     }
 
     set({ notes: newNotes, snippets: newSnippets });
+    // deleteNoteAndSnippets tombstones (deletedAt) any content piece whose
+    // content home is this note as part of the same IndexedDB transaction;
+    // mirror that in the content-store's in-memory state so the UI reflects
+    // it immediately, without waiting on a re-hydration.
     deleteNoteAndSnippets(id);
+    useContentStore.getState().detachPieceNote(id);
 
     const remaining = Object.values(newNotes).sort(
       (a, b) => b.updatedAt - a.updatedAt,

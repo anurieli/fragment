@@ -26,6 +26,8 @@ export interface Snippet {
   labelStatus: "idle" | "loading" | "done" | "error";
   createdAt: number;
   order: number;
+  /** Links this snippet to the idea it was snipped toward. Optional — existing rows are not backfilled. */
+  ideaId?: string;
 }
 
 export type VersionTrigger = "manual" | "export-md" | "export-html" | "download-md" | "download-html" | "download-pdf" | "download-docx";
