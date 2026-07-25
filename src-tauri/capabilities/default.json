@@ -32,7 +32,23 @@
     },
     {
       "identifier": "fs:allow-read-dir",
-      "allow": [{ "path": "$APPLOCALDATA/notes/**" }]
+      "allow": [{ "path": "$APPLOCALDATA/notes/**" }, { "path": "$HOME/.fragment/inbox/**" }]
+    },
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "$HOME/.fragment/inbox/**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "$HOME/.fragment/inbox/**" }]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [{ "path": "$HOME/.fragment/inbox/**" }]
+    },
+    {
+      "identifier": "fs:allow-rename",
+      "allow": [{ "path": "$HOME/.fragment/inbox/**" }]
     },
     {
       "identifier": "http:default",
