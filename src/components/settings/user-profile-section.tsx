@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { User } from "lucide-react";
+import { useEffect, useState } from "react";
+import { User, Eye, EyeOff } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useDeviceId } from "@/hooks/use-device-id";
 import { identify } from "@/lib/convex-client";
@@ -123,14 +123,28 @@ export function UserProfileSection() {
             placeholder="City, Country"
           />
 
-          {/* Substack publication URL */}
-          <Field
-            label="Substack Publication"
-            value={profile.substackPublicationUrl}
-            onChange={(v) => updateUserProfile({ substackPublicationUrl: v })}
-            placeholder="https://yourname.substack.com"
-            helper="Powers the Substack composer link and publish verification for Share."
-          />
+          {/* Publishing — BYO connections used by the Share / Publish menus */}
+          <div className="pt-2">
+            <p className="text-[10px] text-text-faint font-[family-name:var(--font-mono)] uppercase tracking-wider mb-3">
+              Publishing
+            </p>
+            <div className="space-y-4">
+              <Field
+                label="Substack Publication"
+                value={profile.substackPublicationUrl}
+                onChange={(v) => updateUserProfile({ substackPublicationUrl: v })}
+                placeholder="https://yourname.substack.com"
+                helper="Powers the Substack composer link and publish verification for Share."
+              />
+              <SecretField
+                label="Kit API Key"
+                value={profile.kitApiKey}
+                onChange={(v) => updateUserProfile({ kitApiKey: v })}
+                placeholder="Paste your Kit v4 API key"
+                helper="v4 API key from your Kit account settings. Free plan works."
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -163,6 +177,49 @@ function Field({
         placeholder={placeholder}
         className="w-full bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-3 py-2 text-xs text-text-primary placeholder:text-text-faint outline-none focus:border-border-active transition-colors duration-150"
       />
+      {helper && <p className="mt-1 text-[10px] text-text-faint">{helper}</p>}
+    </div>
+  );
+}
+
+/** Same as `Field`, masked by default with a show/hide toggle — for BYO API
+ * keys (e.g. the Kit key), mirroring `ApiKeyAuthCard` in provider-settings.tsx. */
+function SecretField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  helper,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  helper?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div>
+      <label className="block text-[11px] text-text-muted font-[family-name:var(--font-mono)] uppercase tracking-wider mb-1.5">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-3 py-2 pr-9 text-xs text-text-primary placeholder:text-text-faint outline-none focus:border-border-active transition-colors duration-150"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-text-secondary transition-colors duration-150"
+        >
+          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
       {helper && <p className="mt-1 text-[10px] text-text-faint">{helper}</p>}
     </div>
   );

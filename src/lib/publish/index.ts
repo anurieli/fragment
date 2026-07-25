@@ -29,3 +29,19 @@ export {
   publishPendingState,
 } from "./substack-verify";
 export type { FeedItem, PublishPendingState } from "./substack-verify";
+
+export {
+  buildKitBroadcastRequest,
+  createKitBroadcast,
+  kitErrorMessage,
+  deriveKitSubject,
+  isKitEligibleFormat,
+  canPublishToKit,
+  KitApiError,
+} from "./kit";
+export type {
+  CreateKitBroadcastOptions,
+  KitBroadcastRequest,
+  KitBroadcastResult,
+  KitErrorKind,
+} from "./kit";

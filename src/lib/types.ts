@@ -104,6 +104,11 @@ export interface UserProfile {
    * "Open Substack editor" / "Publish to Substack" composer links and the
    * RSS feed the verified-publish loop polls for a title match. */
   substackPublicationUrl: string;
+  /** Kit (formerly ConvertKit) v4 API key — powers "Publish to Kit (draft)"
+   * / "Schedule on Kit" in the Share menu and Publish menu. BYO key, same
+   * storage path as the rest of `userProfile` (Dexie `settings` table, not
+   * localStorage). See src/lib/publish/kit.ts. */
+  kitApiKey: string;
 }
 
 export interface WritingStyleSettings {

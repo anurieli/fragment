@@ -1,12 +1,18 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2 } from "lucide-react";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail } from "lucide-react";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { useReviewStore } from "@/stores/review-store";
-import { copyForPlatform, openComposer } from "@/lib/publish";
+import {
+  copyForPlatform,
+  openComposer,
+  createKitBroadcast,
+  deriveKitSubject,
+  markdownToCleanHtml,
+} from "@/lib/publish";
 import {
   copyAsMarkdown,
   copyAsHtml,
@@ -39,6 +45,7 @@ function triggerHtmlDownload(html: string, filename: string) {
 export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
+  const [kitDraftBusy, setKitDraftBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const { notes, createVersion } = useDataStore();
@@ -47,6 +54,8 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const showToast = useToastStore((s) => s.showToast);
   const substackPublicationUrl = userProfile.substackPublicationUrl;
   const hasSubstackPub = Boolean(substackPublicationUrl?.trim());
+  const kitApiKey = userProfile.kitApiKey;
+  const hasKitKey = Boolean(kitApiKey?.trim());
   const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
   const note = notes[noteId];
 
@@ -111,6 +120,31 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     markNotePublishPending(noteId);
     showToast("Copied. Opening Substack — Fragment will confirm once it's live.");
     setOpen(false);
+  }
+
+  // ARI-164: a Kit draft is not "published" — notes have no status field to
+  // begin with, so unlike the piece-share-menu's "Schedule on Kit" (which
+  // does flip a piece to "published"), this action is toast-only. Nothing
+  // is stamped: `markNotePublishPending` is reserved for the Substack RSS
+  // verified-publish loop (use-publish-verification.ts polls the Substack
+  // feed specifically), which a Kit draft has no bearing on.
+  async function handleSendToKitDraft() {
+    if (!hasKitKey || kitDraftBusy) return;
+    setKitDraftBusy(true);
+    try {
+      const markdown = getMarkdown();
+      const result = await createKitBroadcast({
+        apiKey: kitApiKey,
+        subject: deriveKitSubject(note.title, markdown),
+        contentHtml: markdownToCleanHtml(markdown),
+      });
+      showToast(`Draft created in Kit — finish it there: ${result.url}`);
+      setOpen(false);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't create the Kit draft.");
+    } finally {
+      setKitDraftBusy(false);
+    }
   }
 
   function handleDownloadMd() {
@@ -202,6 +236,21 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
           >
             <Rss size={13} className="shrink-0" />
             <span className="flex-1 text-left">Publish to Substack</span>
+          </button>
+          <button
+            onClick={handleSendToKitDraft}
+            disabled={!hasKitKey || kitDraftBusy}
+            title={hasKitKey ? undefined : "Add your Kit API key in Settings → Profile first"}
+            className={`flex items-center gap-3 w-full px-4 py-2.5 text-[12px] transition-all duration-150 ${
+              hasKitKey
+                ? "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+                : "text-text-faint opacity-50 cursor-not-allowed"
+            }`}
+          >
+            <Mail size={13} className="shrink-0" />
+            <span className="flex-1 text-left">
+              {kitDraftBusy ? "Sending…" : "Send to Kit as draft"}
+            </span>
           </button>
           <button
             onClick={handleCopyCleanHtml}

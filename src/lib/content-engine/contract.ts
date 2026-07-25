@@ -37,7 +37,10 @@ export type ResourceOwnerType = (typeof RESOURCE_OWNER_TYPES)[number];
 export const RESOURCE_KINDS = ["link", "note", "asset"] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
-export const PUBLISH_METHODS = ["composio", "copy", "manual"] as const;
+// "kit" (ARI-164): a broadcast created via Kit's (formerly ConvertKit) v4
+// API — see src/lib/publish/kit.ts. Additive to the contract; existing
+// "composio" | "copy" | "manual" values are unaffected.
+export const PUBLISH_METHODS = ["composio", "copy", "manual", "kit"] as const;
 export type PublishMethod = (typeof PUBLISH_METHODS)[number];
 
 export interface AgentMeta {

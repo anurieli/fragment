@@ -171,6 +171,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     writingTypes: [],
     role: "",
     substackPublicationUrl: "",
+    kitApiKey: "",
   },
   writingStyle: {
     voiceDescription: "",

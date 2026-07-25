@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Copy, ExternalLink, CalendarClock, Send, CheckCircle2 } from "lucide-react";
+import { ChevronDown, Copy, ExternalLink, CalendarClock, Send, CheckCircle2, Mail } from "lucide-react";
 import type { ContentFormat, ContentPiece } from "@/lib/content-engine";
 import type { PublishPlatform } from "@/lib/publish";
-import { copyForPlatform, openComposer } from "@/lib/publish";
+import {
+  copyForPlatform,
+  openComposer,
+  canPublishToKit,
+  isKitEligibleFormat,
+  createKitBroadcast,
+  deriveKitSubject,
+  markdownToCleanHtml,
+} from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -69,9 +77,11 @@ interface PieceShareMenuProps {
 /**
  * The per-piece Share ▾ menu (footer of PieceCard): platform-appropriate
  * copy/composer actions, "Mark ready & copy", the Substack verified-publish
- * loop's "Publish to Substack", a manual "Mark as published…" escape hatch,
- * and "Schedule…". Returns `null` entirely for `script` pieces — scripts
- * are never published (see the ARI-158 spec).
+ * loop's "Publish to Substack", one-click "Publish to Kit (draft)" /
+ * "Schedule on Kit" (ARI-164, substack/essay/other formats only — see
+ * `isKitEligibleFormat`), a manual "Mark as published…" escape hatch, and
+ * "Schedule…". Returns `null` entirely for `script` pieces — scripts are
+ * never published (see the ARI-158 spec).
  */
 export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const [open, setOpen] = useState(false);
@@ -79,11 +89,13 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const [manualUrl, setManualUrl] = useState("");
   const [scheduleFormOpen, setScheduleFormOpen] = useState(false);
   const [scheduleValue, setScheduleValue] = useState("");
+  const [kitBusy, setKitBusy] = useState<"draft" | "schedule" | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const updatePiece = useContentStore((s) => s.updatePiece);
   const setPieceStatus = useContentStore((s) => s.setPieceStatus);
   const substackPublicationUrl = useSettingsStore((s) => s.settings.userProfile.substackPublicationUrl);
+  const kitApiKey = useSettingsStore((s) => s.settings.userProfile.kitApiKey);
   const showToast = useToastStore((s) => s.showToast);
 
   useEffect(() => {
@@ -105,6 +117,9 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const body = piece.body ?? "";
   const hasPub = Boolean(substackPublicationUrl?.trim());
   const isSubstack = platform === "substack";
+  const hasKitKey = Boolean(kitApiKey?.trim());
+  const kitEligible = isKitEligibleFormat(piece.format);
+  const canKitPublish = canPublishToKit(piece.format, kitApiKey);
 
   function closeAll() {
     setOpen(false);
@@ -172,6 +187,62 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
     closeAll();
   }
 
+  // Draft vs schedule on Kit are deliberately asymmetric (ARI-164):
+  //   - "Publish to Kit (draft)" creates a Kit draft (no send_at). A draft
+  //     isn't live, so Fragment's own status does NOT flip to "published" —
+  //     only publishAttemptedAt is stamped, which lights up the same
+  //     "awaiting confirmation" badge the Substack verified-publish loop
+  //     uses (see publishPendingState in src/lib/publish/substack-verify.ts).
+  //   - "Schedule on Kit" sends send_at (from piece.scheduledAt), which Kit
+  //     will actually deliver on its own — that IS a publish commitment, so
+  //     status flips to "published" with a verified:true PublishRecord. The
+  //     API response succeeding is the verification; there's no separate
+  //     confirmation loop for Kit the way there is for Substack's RSS feed.
+  async function handlePublishToKitDraft() {
+    if (!canKitPublish || kitBusy) return;
+    setKitBusy("draft");
+    try {
+      const result = await createKitBroadcast({
+        apiKey: kitApiKey,
+        subject: deriveKitSubject(piece.title, body),
+        contentHtml: markdownToCleanHtml(body),
+      });
+      updatePiece(piece.id, { publishAttemptedAt: Date.now() });
+      showToast(`Draft created in Kit — finish it there: ${result.url}`);
+      closeAll();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't create the Kit draft.");
+    } finally {
+      setKitBusy(null);
+    }
+  }
+
+  async function handleScheduleOnKit() {
+    if (!canKitPublish || !piece.scheduledAt || kitBusy) return;
+    setKitBusy("schedule");
+    try {
+      const result = await createKitBroadcast({
+        apiKey: kitApiKey,
+        subject: deriveKitSubject(piece.title, body),
+        contentHtml: markdownToCleanHtml(body),
+        sendAt: piece.scheduledAt,
+      });
+      setPieceStatus(piece.id, "published", {
+        platform: piece.format,
+        method: "kit",
+        url: result.url,
+        publishedAt: Date.now(),
+        verified: true,
+      });
+      showToast("Scheduled on Kit.");
+      closeAll();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Couldn't schedule on Kit.");
+    } finally {
+      setKitBusy(null);
+    }
+  }
+
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -236,6 +307,36 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
           {isSubstack && !hasPub && (
             <p className="px-3 pt-0.5 pb-1 text-[10px] text-text-faint leading-snug">
               Set your Substack publication URL in Settings → Profile to enable these.
+            </p>
+          )}
+
+          {kitEligible && (
+            <MenuButton
+              onClick={handlePublishToKitDraft}
+              disabled={!canKitPublish || kitBusy !== null}
+              title={hasKitKey ? undefined : "Add your Kit API key in Settings → Profile first"}
+            >
+              <Mail size={13} className="shrink-0" />
+              <span className="flex-1">
+                {kitBusy === "draft" ? "Creating draft…" : "Publish to Kit (draft)"}
+              </span>
+            </MenuButton>
+          )}
+
+          {kitEligible && piece.scheduledAt !== undefined && (
+            <MenuButton
+              onClick={handleScheduleOnKit}
+              disabled={!canKitPublish || kitBusy !== null}
+              title={hasKitKey ? undefined : "Add your Kit API key in Settings → Profile first"}
+            >
+              <CalendarClock size={13} className="shrink-0" />
+              <span className="flex-1">{kitBusy === "schedule" ? "Scheduling…" : "Schedule on Kit"}</span>
+            </MenuButton>
+          )}
+
+          {kitEligible && !hasKitKey && (
+            <p className="px-3 pt-0.5 pb-1 text-[10px] text-text-faint leading-snug">
+              Add your Kit API key in Settings → Profile to enable these.
             </p>
           )}
 
