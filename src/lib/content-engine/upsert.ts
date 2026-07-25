@@ -4,7 +4,7 @@ import {
   type PieceHandoff,
   type Resource,
   type ResourceOwnerType,
-} from "./contract.js";
+} from "./contract";
 
 // Pure import rules. No clocks, no ids, no storage: callers inject `now` and
 // `generateId` so the same functions run in the app, the ingress route, tests,

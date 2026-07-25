@@ -6,7 +6,7 @@ import {
   contractErrorFromZod,
   pieceHandoffFrontmatterSchema,
   type PieceHandoff,
-} from "./contract.js";
+} from "./contract";
 
 // Agent handoff files are markdown with a YAML frontmatter header:
 //

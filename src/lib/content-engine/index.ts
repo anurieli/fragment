@@ -17,7 +17,7 @@ export {
   contentPieceSchema,
   pieceContentHome,
   assertIdeaParentAllowed,
-} from "./contract.js";
+} from "./contract";
 export type {
   ContentFormat,
   PieceStatus,
@@ -33,9 +33,9 @@ export type {
   Resource,
   ResourceInput,
   PieceHandoff,
-} from "./contract.js";
+} from "./contract";
 
-export { splitFrontmatter, parsePieceFile, serializePieceFile } from "./frontmatter.js";
+export { splitFrontmatter, parsePieceFile, serializePieceFile } from "./frontmatter";
 
 export {
   matchIdea,
@@ -44,5 +44,5 @@ export {
   handoffToPiece,
   buildResources,
   resolvePieceUpsert,
-} from "./upsert.js";
-export type { ImportContext, UpsertAction } from "./upsert.js";
+} from "./upsert";
+export type { ImportContext, UpsertAction } from "./upsert";
