@@ -11,6 +11,7 @@ import { useDeviceId } from "@/hooks/use-device-id";
 import { useLogSync } from "@/hooks/use-log-sync";
 import { useFeedbackSync } from "@/hooks/use-feedback-sync";
 import { useCodexConnection } from "@/hooks/use-codex-connection";
+import { useAgentInbox } from "@/hooks/use-agent-inbox";
 import { identify } from "@/lib/convex-client";
 import { initPostHog } from "@/lib/posthog";
 import { initSentry, setSentryUser } from "@/lib/sentry";
@@ -42,6 +43,10 @@ export function AppShell() {
   useLogSync();
   useFeedbackSync();
   useCodexConnection();
+  // Polls the local agent inbox and imports pending pieces. `refreshInbox` /
+  // `ingressAvailable` are intentionally unused here — no UI affordance yet
+  // (see ARI-154); the hook stays consumable for whoever adds one.
+  useAgentInbox();
   const hydrated = useDataStore((s) => s.hydrated);
   const [loadingStuck, setLoadingStuck] = useState(false);
 
