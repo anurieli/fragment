@@ -13,6 +13,7 @@ import {
   deriveKitSubject,
   markdownToCleanHtml,
 } from "@/lib/publish";
+import { canPublishToLinkedIn, publishLinkedInPost, ComposioApiError } from "@/lib/composio/linkedin";
 import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -90,12 +91,17 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const [scheduleFormOpen, setScheduleFormOpen] = useState(false);
   const [scheduleValue, setScheduleValue] = useState("");
   const [kitBusy, setKitBusy] = useState<"draft" | "schedule" | null>(null);
+  const [linkedinBusy, setLinkedinBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const updatePiece = useContentStore((s) => s.updatePiece);
   const setPieceStatus = useContentStore((s) => s.setPieceStatus);
   const substackPublicationUrl = useSettingsStore((s) => s.settings.userProfile.substackPublicationUrl);
   const kitApiKey = useSettingsStore((s) => s.settings.userProfile.kitApiKey);
+  const composioApiKey = useSettingsStore((s) => s.settings.userProfile.composioApiKey);
+  const linkedInConnectedAccountId = useSettingsStore(
+    (s) => s.settings.userProfile.linkedInConnectedAccountId,
+  );
   const showToast = useToastStore((s) => s.showToast);
 
   useEffect(() => {
@@ -120,6 +126,8 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const hasKitKey = Boolean(kitApiKey?.trim());
   const kitEligible = isKitEligibleFormat(piece.format);
   const canKitPublish = canPublishToKit(piece.format, kitApiKey);
+  const isLinkedIn = platform === "linkedin";
+  const canLinkedInPublish = isLinkedIn && canPublishToLinkedIn(composioApiKey, linkedInConnectedAccountId);
 
   function closeAll() {
     setOpen(false);
@@ -243,6 +251,33 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
     }
   }
 
+  // Publishing succeeds/fails in one round trip (unlike Kit's draft-vs-schedule
+  // split) — a successful Composio create-post call means the post is live on
+  // LinkedIn right now, so this always flips status straight to "published"
+  // with verified:true. Errors (including an expired/revoked connection) are
+  // never silent: ComposioApiError's message already names the fix (reconnect
+  // in Settings → Integrations), so the toast alone is the hint.
+  async function handlePublishToLinkedIn() {
+    if (!canLinkedInPublish || linkedinBusy) return;
+    setLinkedinBusy(true);
+    try {
+      const result = await publishLinkedInPost(composioApiKey, linkedInConnectedAccountId, body);
+      setPieceStatus(piece.id, "published", {
+        platform: piece.format,
+        method: "composio",
+        url: result.url,
+        publishedAt: Date.now(),
+        verified: true,
+      });
+      showToast(result.url ? `Published to LinkedIn: ${result.url}` : "Published to LinkedIn.");
+      closeAll();
+    } catch (err) {
+      showToast(err instanceof ComposioApiError ? err.message : "Couldn't publish to LinkedIn.");
+    } finally {
+      setLinkedinBusy(false);
+    }
+  }
+
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -284,6 +319,22 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
               <ExternalLink size={13} className="shrink-0" />
               <span className="flex-1">Open Substack editor</span>
             </MenuButton>
+          )}
+
+          {isLinkedIn && (
+            <MenuButton
+              onClick={handlePublishToLinkedIn}
+              disabled={!canLinkedInPublish || linkedinBusy}
+              title={canLinkedInPublish ? undefined : "Connect LinkedIn in Settings → Integrations"}
+            >
+              <Send size={13} className="shrink-0" />
+              <span className="flex-1">{linkedinBusy ? "Publishing…" : "Publish to LinkedIn"}</span>
+            </MenuButton>
+          )}
+          {isLinkedIn && !canLinkedInPublish && (
+            <p className="px-3 pt-0.5 pb-1 text-[10px] text-text-faint leading-snug">
+              Connect LinkedIn in Settings → Integrations to enable this.
+            </p>
           )}
 
           <div className="mx-3 my-1 border-t border-border" />
