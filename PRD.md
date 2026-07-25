@@ -768,3 +768,39 @@ Visual identity extracted from PromptPipe. Warm dark palette with gold accent. S
 OPENROUTER_API_KEY=  # Optional. Fallback for OpenRouter cloud models if not set in Settings UI.
                      # Not needed for local Ollama models. The app is fully functional without it.
 ```
+
+## Content Engine: Data Model & Two-Space IA
+
+Alongside the long-form note (Sidebar / Editor / Snip Bar, described above), Fragment ships a second, parallel writing surface for short-form content — LinkedIn posts, tweet threads, Substack drafts — public-facing name **Press**, plus a lightweight review-sharing feature, public-facing name **Pass**. This section covers the architecture only; the wire-level contract (frontmatter fields, MCP tool shapes, security gating) is documented in full in [`docs/AGENT-API.md`](./docs/AGENT-API.md), and QA steps live in [`docs/FEATURES.md`](./docs/FEATURES.md).
+
+### Data Objects
+
+**Idea** — a container for one line of thinking.
+- `id`, `title`, `summary?`, `parentId: string | null`, `priority` (0 none / 1 urgent / 2 high / 3 medium / 4 low), `pinnedAt?`, `voiceId?`, `origin` (`agent` | `user`), `createdAt`, `updatedAt`, `deletedAt?`
+- Nests **one level deep only**: a child idea's `parentId` must point at a root idea (a root idea itself always has `parentId: null`). Enforced at write time — a caller cannot chain a third level.
+
+**ContentPiece** — one unit of content inside an idea. A piece can never exist without an idea.
+- `id`, `ideaId`, `format` (`linkedin` | `tweet` | `substack` | `essay` | `script` | `other`), `status` (`inbox → in-progress → ready → published`), `origin`, `title?`, exactly one content home (`noteId` for long-form pieces that get a full Fragment note, or `body` for short-form pieces that hold markdown inline — never both, never neither), `seen: boolean`, `priority`, `order`, `scheduledAt?`, `publish?` (a `PublishRecord`: platform, method, publishedAt, url?, verified), `publishAttemptedAt?` (set while a Substack publish is awaiting RSS confirmation), `agentMeta?` (agent, model, pushedAt, supersedes — set only for agent-origin pieces), `createdAt`, `updatedAt`, `deletedAt?`.
+- `script`-format pieces are never published from Fragment (video scripts, talk notes used elsewhere) — the Share menu doesn't apply to them.
+- Agent-pushed pieces always land with `status: inbox`, `seen: false`, regardless of what the pushing agent requested — reviewing them is always a deliberate first read inside Fragment.
+
+**Resource** — a link, note, or asset attached to an idea or a piece (`ownerType`: `idea` | `piece`).
+- `id`, `ownerType`, `ownerId`, `kind` (`link` | `note` | `asset`), `url?`, `title`, `note?`, `createdAt`.
+- Resources are **never copied on inheritance**: an idea's resources are visible to its child ideas and to every piece under both, composed at read time, not duplicated into child records. A piece's own resources are its alone.
+
+### Two-Space IA: Write | Pieces
+
+Every idea presents two spaces, toggled with a segmented **Write | Pieces** control (`⌘1` / `⌘2`):
+
+- **Write** — the existing long-form editor (Sidebar / Editor / Snip Bar), unchanged by any of this.
+- **Pieces** — a free-scroll, filterable feed of that idea's `ContentPiece` rows: filter chips (All / Inbox / In-progress / Ready), a sort control, and a roving-focus keyboard model for triage (rove, open, cycle status/priority, copy, delete, filter-jump — see `docs/FEATURES.md` for the exact keys).
+
+Viewing a **parent** idea's Pieces space rolls up its direct children's pieces into the same feed (one level, matching the depth-2 cap) — a child's run of pieces is visually grouped under its own idea title. This is the only place merging happens; the sidebar's per-idea piece counts stay unmerged, one row per idea.
+
+### Agent Inbox (Press)
+
+Any MCP-capable agent — or a hand-written file — can drop a draft piece into `~/.fragment/inbox` (override: `FRAGMENT_INBOX_DIR`). The running Fragment app picks it up either by reading the filesystem directly (Tauri desktop) or by polling a pair of gated local-ingress HTTP routes (browser / self-hosted server), and folds it into the same store the UI reads. There is currently no HTTP endpoint that accepts a piece body directly — every path into Fragment goes through that filesystem inbox, file-based today, with an explicit stub seam (`fragment-mcp`'s `HttpTransport`) reserved for a future hosted push API. Full detail — the exact frontmatter contract, MCP tool shapes, eventual-consistency guarantees, and the three gating env vars — is in `docs/AGENT-API.md`.
+
+### Review Sharing (Pass)
+
+A note can be sent out for feedback without either party needing an account: **Send for review** renders the note into one self-contained HTML file (inlined styles, inlined vanilla-JS review UI, no network calls) that a reviewer opens directly in a browser to highlight text and leave comments. **Send back** downloads their comments as a small JSON file; **Import review** in Fragment reads it back and anchors each comment to the matching text in the live document (best-effort — text-match based, degrades to a note-level comment if the document has since changed enough that the anchor can't be uniquely located).

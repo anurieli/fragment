@@ -53,7 +53,7 @@ const FEATURES = [
     ],
   },
   {
-    category: "Short-form",
+    category: "Press",
     items: [
       { name: "Pieces Space", desc: "Every idea gets a short-form feed alongside its long-form draft. Toggle with Write | Pieces (⌘1 / ⌘2)." },
       { name: "Roving Focus", desc: "J/K or the arrow keys move focus between piece cards. Enter opens the textarea, Esc exits back to roving." },
@@ -61,6 +61,7 @@ const FEATURES = [
       { name: "Copy & Delete", desc: "C copies a piece's exact text. Backspace deletes it, with an Undo toast." },
       { name: "New Piece & Filters", desc: "N creates a new piece. Number keys 1-4 jump between the All / Inbox / In progress / Ready filters." },
       { name: "Drag Bridge", desc: "Drag a Snip Bar snippet onto the gold line between pieces to drop it in as a new piece." },
+      { name: "Agent Inbox", desc: "Agents can drop drafts straight into a piece's inbox — connect fragment-mcp and see them land here." },
     ],
   },
   {
@@ -70,6 +71,15 @@ const FEATURES = [
       { name: "Copy as HTML", desc: "Copies rendered HTML — paste into emails, docs, etc." },
       { name: "Download .md", desc: "Downloads a markdown file named after your note." },
       { name: "Download .html", desc: "Downloads a styled HTML file matching Fragment's dark theme." },
+    ],
+  },
+  {
+    category: "Pass",
+    items: [
+      { name: "Send for Review", desc: "Share → Send for review downloads a self-contained review page. Send it to anyone — no signup needed on their end." },
+      { name: "Reviewer's Side", desc: "The reviewer opens the file in a browser, highlights text to comment (or adds a general note), then hits Send back." },
+      { name: "Import Review", desc: "Share → Import review loads the file the reviewer sent back and files its comments against this note." },
+      { name: "View Reviews", desc: "Share → View reviews opens the review panel. Click a comment to jump to the matching text in your document." },
     ],
   },
   {
