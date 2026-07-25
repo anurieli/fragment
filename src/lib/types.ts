@@ -100,6 +100,10 @@ export interface UserProfile {
   email: string;
   writingTypes: string[];
   role: string;
+  /** Publication base URL, e.g. "https://myblog.substack.com" — powers the
+   * "Open Substack editor" / "Publish to Substack" composer links and the
+   * RSS feed the verified-publish loop polls for a title match. */
+  substackPublicationUrl: string;
 }
 
 export interface WritingStyleSettings {

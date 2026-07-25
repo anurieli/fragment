@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag, MoreHorizontal, ChevronDown } from "lucide-react";
 import type { ContentFormat, ContentPiece, Priority } from "@/lib/content-engine";
 import type { PublishPlatform } from "@/lib/publish";
-import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread } from "@/lib/publish";
+import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, publishPendingState } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
+import { PieceShareMenu } from "./piece-share-menu";
 
 const FORMAT_LABELS: Record<ContentFormat, string> = {
   tweet: "X",
@@ -201,6 +202,29 @@ export function PieceCard({
           {STATUS_META[piece.status].label}
         </span>
 
+        {/* Substack verified-publish loop: "awaiting confirmation" / "did
+            this go live?" badge — see publishPendingState. */}
+        {(() => {
+          const pending = publishPendingState(piece.publishAttemptedAt, now);
+          if (pending === "none") return null;
+          return (
+            <span
+              title={
+                pending === "nudge"
+                  ? "Attempted over 24h ago — did this go live on Substack?"
+                  : "Copied — waiting for Fragment to confirm this went live on Substack"
+              }
+              className={`text-[10px] px-1.5 py-0.5 rounded-[4px] border ${
+                pending === "nudge"
+                  ? "text-gold border-gold/40 bg-gold/10"
+                  : "text-text-faint border-border bg-surface-2"
+              }`}
+            >
+              {pending === "nudge" ? "did this go live?" : "awaiting confirmation"}
+            </span>
+          );
+        })()}
+
         {piece.priority !== 0 && (
           <button
             onClick={(e) => {
@@ -258,14 +282,7 @@ export function PieceCard({
         </span>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <button
-            disabled
-            title="Publishing is coming in a later update"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-sm)] text-[11px] text-text-faint opacity-50 cursor-not-allowed"
-          >
-            Share
-            <ChevronDown size={10} />
-          </button>
+          <PieceShareMenu piece={piece} />
 
           <div className="relative">
             <button

@@ -12,6 +12,7 @@ import { useLogSync } from "@/hooks/use-log-sync";
 import { useFeedbackSync } from "@/hooks/use-feedback-sync";
 import { useCodexConnection } from "@/hooks/use-codex-connection";
 import { useAgentInbox } from "@/hooks/use-agent-inbox";
+import { usePublishVerification } from "@/hooks/use-publish-verification";
 import { identify } from "@/lib/convex-client";
 import { initPostHog } from "@/lib/posthog";
 import { initSentry, setSentryUser } from "@/lib/sentry";
@@ -49,6 +50,9 @@ export function AppShell() {
   // `ingressAvailable` are intentionally unused here — no UI affordance yet
   // (see ARI-154); the hook stays consumable for whoever adds one.
   useAgentInbox();
+  // Polls the user's Substack RSS feed while any piece/note is awaiting
+  // publish confirmation (see src/lib/publish/substack-verify.ts).
+  usePublishVerification();
   const hydrated = useDataStore((s) => s.hydrated);
   const [loadingStuck, setLoadingStuck] = useState(false);
 

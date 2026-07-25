@@ -170,6 +170,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     email: "",
     writingTypes: [],
     role: "",
+    substackPublicationUrl: "",
   },
   writingStyle: {
     voiceDescription: "",
