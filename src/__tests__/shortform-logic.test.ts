@@ -10,6 +10,8 @@ import {
   nextStatus,
   rovingNext,
   rovingPrev,
+  scheduleLabel,
+  scheduleOverdue,
   sortPieces,
   STALE_THRESHOLD_MS,
   stalenessLevel,
@@ -271,5 +273,37 @@ describe("content-store interactions used by the feed", () => {
     expect(() => useContentStore.getState().setPieceStatus(id, "published")).toThrow(
       ContractError,
     );
+  });
+});
+
+describe("feed-logic — scheduling (ARI-159)", () => {
+  it("scheduleLabel formats date and time, minutes only when non-zero", () => {
+    expect(scheduleLabel(new Date(2026, 6, 30, 14, 0).getTime())).toBe("→ Jul 30, 2pm");
+    expect(scheduleLabel(new Date(2026, 0, 5, 9, 30).getTime())).toBe("→ Jan 5, 9:30am");
+    expect(scheduleLabel(new Date(2026, 11, 1, 0, 0).getTime())).toBe("→ Dec 1, 12am");
+  });
+
+  it("scheduleOverdue is true only for past schedules without a publish", () => {
+    const now = 1_000_000;
+    expect(scheduleOverdue(makePiece({ scheduledAt: now - 1, status: "ready" }), now)).toBe(true);
+    expect(scheduleOverdue(makePiece({ scheduledAt: now + 1, status: "ready" }), now)).toBe(false);
+    expect(scheduleOverdue(makePiece({ scheduledAt: undefined }), now)).toBe(false);
+    const published = makePiece({ scheduledAt: now - 1, status: "published" });
+    expect(scheduleOverdue(published, now)).toBe(false);
+  });
+
+  it("schedule sort puts scheduled pieces soonest-first, unscheduled trailing newest-first", () => {
+    const pieces = [
+      makePiece({ id: "later", scheduledAt: 500, createdAt: 1 }),
+      makePiece({ id: "none-old", createdAt: 10 }),
+      makePiece({ id: "soon", scheduledAt: 100, createdAt: 2 }),
+      makePiece({ id: "none-new", createdAt: 20 }),
+    ];
+    expect(sortPieces(pieces, "schedule").map((p) => p.id)).toEqual([
+      "soon",
+      "later",
+      "none-new",
+      "none-old",
+    ]);
   });
 });

@@ -9,7 +9,7 @@ import { pieceAge, staleness } from "@/stores/content-selectors";
 export const PIECE_FILTERS = ["all", "inbox", "in-progress", "ready"] as const;
 export type PieceFilter = (typeof PIECE_FILTERS)[number];
 
-export const PIECE_SORT_MODES = ["newest", "oldest", "priority", "last-edited", "manual"] as const;
+export const PIECE_SORT_MODES = ["newest", "oldest", "priority", "last-edited", "schedule", "manual"] as const;
 export type PieceSortMode = (typeof PIECE_SORT_MODES)[number];
 
 /** Sort rank for Priority: urgent (1) first through low (4), none (0) last. */
@@ -64,6 +64,16 @@ export function sortPieces(pieces: readonly ContentPiece[], mode: PieceSortMode)
       });
     case "last-edited":
       return list.sort((a, b) => b.updatedAt - a.updatedAt);
+    case "schedule":
+      // Scheduled pieces first, soonest first; unscheduled trail, newest-first.
+      return list.sort((a, b) => {
+        if (a.scheduledAt !== undefined && b.scheduledAt !== undefined) {
+          return a.scheduledAt - b.scheduledAt;
+        }
+        if (a.scheduledAt !== undefined) return -1;
+        if (b.scheduledAt !== undefined) return 1;
+        return b.createdAt - a.createdAt;
+      });
     case "manual":
       return list.sort((a, b) => a.order - b.order);
     default:
@@ -88,6 +98,27 @@ export function visiblePieces(
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "→ Jul 30, 2pm" badge text for a scheduled piece; minutes shown only when non-zero ("2:30pm"). */
+export function scheduleLabel(scheduledAt: number): string {
+  const d = new Date(scheduledAt);
+  const hours24 = d.getHours();
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  const suffix = hours24 < 12 ? "am" : "pm";
+  const minutes = d.getMinutes();
+  const time = minutes === 0 ? `${hours12}${suffix}` : `${hours12}:${String(minutes).padStart(2, "0")}${suffix}`;
+  return `→ ${MONTHS[d.getMonth()]} ${d.getDate()}, ${time}`;
+}
+
+/** A scheduled time in the past with no publish yet — nudge, never auto-post. */
+export function scheduleOverdue(
+  piece: Pick<ContentPiece, "scheduledAt" | "status">,
+  now: number,
+): boolean {
+  return piece.scheduledAt !== undefined && piece.scheduledAt < now && piece.status !== "published";
+}
 
 /** Compact relative-duration token: "6d", "3h", "12m". Floors to the largest unit that has elapsed. */
 export function formatDuration(ms: number): string {

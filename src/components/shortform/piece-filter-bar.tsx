@@ -16,6 +16,7 @@ const SORT_OPTIONS: { value: PieceSortMode; label: string }[] = [
   { value: "oldest", label: "Oldest" },
   { value: "priority", label: "Priority" },
   { value: "last-edited", label: "Last edited" },
+  { value: "schedule", label: "Schedule" },
   { value: "manual", label: "Manual" },
 ];
 

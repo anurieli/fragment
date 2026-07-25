@@ -19,7 +19,7 @@ import {
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
 import { formatDate } from "@/lib/utils";
-import { ageLabel, stalenessLevel } from "./feed-logic";
+import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
 import { PieceRefineMenu } from "./piece-refine-menu";
@@ -378,6 +378,15 @@ export function PieceCard({
         {piece.agentMeta && (
           <span className="text-[11px] text-text-faint">
             from {piece.agentMeta.agent} · {formatDate(piece.agentMeta.pushedAt)}
+          </span>
+        )}
+
+        {piece.scheduledAt !== undefined && (
+          <span
+            className={`font-mono text-[10px] ${scheduleOverdue(piece, now) ? "text-gold" : "text-text-faint"}`}
+            title={scheduleOverdue(piece, now) ? "Scheduled time passed without a publish" : "Scheduled"}
+          >
+            {scheduleLabel(piece.scheduledAt)}
           </span>
         )}
 
