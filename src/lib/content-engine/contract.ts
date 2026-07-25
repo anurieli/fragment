@@ -92,6 +92,14 @@ export interface ContentPiece {
   order: number;
   scheduledAt?: number;
   publish?: PublishRecord;
+  // Stamped when a "Publish to Substack" attempt fires (copy + open composer)
+  // and cleared the moment the piece's status next changes (verified match,
+  // manual mark-published, or any other status transition — see
+  // content-store's setPieceStatus). While set and status isn't yet
+  // "published", the piece is "pending" a Substack RSS verification match
+  // (see src/lib/publish/substack-verify.ts's publishPendingState and
+  // src/hooks/use-publish-verification.ts).
+  publishAttemptedAt?: number;
   agentMeta?: AgentMeta;
   createdAt: number;
   updatedAt: number;
@@ -333,6 +341,7 @@ export const contentPieceSchema = z
     priority: prioritySchema,
     order: z.number(),
     scheduledAt: z.number().optional(),
+    publishAttemptedAt: z.number().optional(),
     publish: z
       .object({
         platform: z.enum(CONTENT_FORMATS),

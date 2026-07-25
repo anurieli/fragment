@@ -18,6 +18,7 @@ import {
   savePiece as persistPiece,
   assertPublishGuard,
 } from "@/lib/persistence";
+import { notifyAgentInboxStatusChange } from "@/lib/agent-inbox/client";
 
 // This is a deliberate deviation from the ticket's "likely extend
 // data-store.ts" suggestion: ideas + pieces get their own store file so the
@@ -261,11 +262,22 @@ export const useContentStore = create<ContentState>((set, get) => ({
       ...piece,
       status,
       publish: status === "published" ? (publish ?? piece.publish) : undefined,
+      // Any explicit status change resolves a pending "awaiting
+      // confirmation" Substack attempt — the verification loop, a manual
+      // "Mark as published…", or just moving the piece back a stage all
+      // count as resolution. See publishPendingState in
+      // src/lib/publish/substack-verify.ts for the badge this backs.
+      publishAttemptedAt: undefined,
       updatedAt: Date.now(),
     };
     assertPublishGuard(updated);
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
+    // Best-effort — let any agent watching the inbox's .status.jsonl see
+    // the two status changes it would actually care about.
+    if (status === "ready" || status === "published") {
+      notifyAgentInboxStatusChange(id, status);
+    }
   },
 
   markPieceSeen: (id) => {

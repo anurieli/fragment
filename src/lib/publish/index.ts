@@ -20,3 +20,12 @@ export {
 export type { TweetSegmentCount } from "./limits";
 
 export { escapeLinkedInReserved } from "./linkedin";
+
+export {
+  parseSubstackFeed,
+  parseFeedItemsRegex,
+  fuzzyTitleMatch,
+  isValidFeedHost,
+  publishPendingState,
+} from "./substack-verify";
+export type { FeedItem, PublishPendingState } from "./substack-verify";

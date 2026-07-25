@@ -122,6 +122,15 @@ export function UserProfileSection() {
             onChange={(v) => updateUserProfile({ location: v })}
             placeholder="City, Country"
           />
+
+          {/* Substack publication URL */}
+          <Field
+            label="Substack Publication"
+            value={profile.substackPublicationUrl}
+            onChange={(v) => updateUserProfile({ substackPublicationUrl: v })}
+            placeholder="https://yourname.substack.com"
+            helper="Powers the Substack composer link and publish verification for Share."
+          />
         </div>
       </div>
     </div>
@@ -133,11 +142,14 @@ function Field({
   value,
   onChange,
   placeholder,
+  helper,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
+  /** Optional one-line hint rendered under the input. */
+  helper?: string;
 }) {
   return (
     <div>
@@ -151,6 +163,7 @@ function Field({
         placeholder={placeholder}
         className="w-full bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-3 py-2 text-xs text-text-primary placeholder:text-text-faint outline-none focus:border-border-active transition-colors duration-150"
       />
+      {helper && <p className="mt-1 text-[10px] text-text-faint">{helper}</p>}
     </div>
   );
 }

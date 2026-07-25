@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload } from "lucide-react";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2 } from "lucide-react";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { useReviewStore } from "@/stores/review-store";
+import { copyForPlatform, openComposer } from "@/lib/publish";
 import {
   copyAsMarkdown,
   copyAsHtml,
@@ -41,8 +42,11 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const { notes, createVersion } = useDataStore();
+  const markNotePublishPending = useDataStore((s) => s.markNotePublishPending);
   const userProfile = useSettingsStore((s) => s.settings.userProfile);
   const showToast = useToastStore((s) => s.showToast);
+  const substackPublicationUrl = userProfile.substackPublicationUrl;
+  const hasSubstackPub = Boolean(substackPublicationUrl?.trim());
   const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
   const note = notes[noteId];
 
@@ -83,6 +87,29 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     createVersion(noteId, "Copied as HTML", "export-html");
     await copyAsHtml(getHtml());
     showToast("Copied as HTML");
+    setOpen(false);
+  }
+
+  // "Clean" HTML here means the publish pipeline's semantic markdown->HTML
+  // (src/lib/publish/markdown.ts) — headings/bold/links/lists only, no raw
+  // Tiptap editor markup — which is what pastes cleanly into Substack's
+  // rich-text composer. Distinct from "Copy as HTML" above (editor.getHTML()).
+  async function handleCopyCleanHtml() {
+    createVersion(noteId, "Copied as clean HTML", "export-html");
+    await copyForPlatform(getMarkdown(), "html");
+    showToast("Copied as clean HTML");
+    setOpen(false);
+  }
+
+  function handlePublishToSubstack() {
+    if (!hasSubstackPub) return;
+    // Open the composer synchronously (within the click gesture) before the
+    // async clipboard write — see copyForPlatform's doc comment on
+    // user-gesture timing for why the ordering matters here.
+    openComposer("substack", { publicationUrl: substackPublicationUrl });
+    void copyForPlatform(getMarkdown(), "substack");
+    markNotePublishPending(noteId);
+    showToast("Copied. Opening Substack — Fragment will confirm once it's live.");
     setOpen(false);
   }
 
@@ -153,7 +180,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
       <button
         onClick={() => setOpen((v) => !v)}
         className="p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
-        title="Export"
+        title="Share / Export"
       >
         <Share2 size={16} />
       </button>
@@ -163,6 +190,29 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
           className="absolute right-0 top-full mt-2 w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl z-20 overflow-hidden"
           style={{ animation: "fadeIn 0.12s ease-out" }}
         >
+          <button
+            onClick={handlePublishToSubstack}
+            disabled={!hasSubstackPub}
+            title={hasSubstackPub ? undefined : "Set your Substack publication URL in Settings → Profile first"}
+            className={`flex items-center gap-3 w-full px-4 py-2.5 text-[12px] transition-all duration-150 ${
+              hasSubstackPub
+                ? "text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+                : "text-text-faint opacity-50 cursor-not-allowed"
+            }`}
+          >
+            <Rss size={13} className="shrink-0" />
+            <span className="flex-1 text-left">Publish to Substack</span>
+          </button>
+          <button
+            onClick={handleCopyCleanHtml}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+          >
+            <FileCode2 size={13} className="shrink-0" />
+            <span className="flex-1 text-left">Copy as clean HTML</span>
+          </button>
+
+          <div className="mx-3 border-t border-border" />
+
           <button
             onClick={handleCopyMarkdown}
             className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"

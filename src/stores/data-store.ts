@@ -29,10 +29,23 @@ interface DataState {
   versions: Record<string, NoteVersion>;
   hydrated: boolean;
 
+  // Long-form "awaiting confirmation" state for the Substack verified-publish
+  // loop: noteId -> the epoch ms a "Publish to Substack" attempt fired.
+  // Deliberately NOT persisted to Dexie (or anywhere else) — long-form notes
+  // have no dedicated publish-state field, and this is a transient UI signal
+  // that a fresh 3-min poll (use-publish-verification.ts) or the user's next
+  // explicit action naturally resolves; losing it on reload just means the
+  // badge disappears; a genuinely stuck attempt is still visible via
+  // Substack itself. See ContentPiece.publishAttemptedAt (content-engine
+  // contract) for the equivalent, persisted, short-form piece field.
+  pendingSubstackPublish: Record<string, number>;
+
   setHydrated: (v: boolean) => void;
   setNotes: (notes: Note[]) => void;
   setSnippets: (snippets: Snippet[]) => void;
   setVersions: (versions: NoteVersion[]) => void;
+  markNotePublishPending: (noteId: string) => void;
+  clearNotePublishPending: (noteId: string) => void;
 
   createNote: (opts?: { title?: string; content?: string }) => string;
   updateNoteContent: (id: string, content: string) => void;
@@ -66,8 +79,22 @@ export const useDataStore = create<DataState>((set, get) => ({
   snippets: {},
   versions: {},
   hydrated: false,
+  pendingSubstackPublish: {},
 
   setHydrated: (v) => set({ hydrated: v }),
+
+  markNotePublishPending: (noteId) => {
+    set((s) => ({ pendingSubstackPublish: { ...s.pendingSubstackPublish, [noteId]: Date.now() } }));
+  },
+
+  clearNotePublishPending: (noteId) => {
+    set((s) => {
+      if (!(noteId in s.pendingSubstackPublish)) return s;
+      const next = { ...s.pendingSubstackPublish };
+      delete next[noteId];
+      return { pendingSubstackPublish: next };
+    });
+  },
 
   setNotes: (notes) => {
     const map: Record<string, Note> = {};
