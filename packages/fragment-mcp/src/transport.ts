@@ -1,4 +1,14 @@
-import type { ContentFormat, Idea, PieceHandoff, PieceOrigin, PieceStatus, Priority, ResourceInput } from "../../../src/lib/content-engine/index.js";
+import type {
+  ContentFormat,
+  Idea,
+  PieceHandoff,
+  PieceOrigin,
+  PieceStatus,
+  Priority,
+  ResourceInput,
+  ResourceKind,
+  ResourceOwnerType,
+} from "../../../src/lib/content-engine/index.js";
 
 // The Transport interface is the seam between "how a tool call reads/writes
 // pieces and ideas" and "where they actually live". Phase 1 (this package,
@@ -38,6 +48,16 @@ export interface PieceView extends PieceListView {
   resources: ResourceInput[];
 }
 
+export interface AddResourceInput {
+  ownerType: ResourceOwnerType;
+  /** Id of the idea or piece this resource is attached to. */
+  ownerId: string;
+  kind: ResourceKind;
+  title: string;
+  url?: string;
+  note?: string;
+}
+
 export interface IdeaListEntry {
   id: string;
   title: string;
@@ -65,6 +85,10 @@ export interface Transport {
   /** Agents may only move a piece to "published" (after posting on the
    * user's behalf). Any other status is a user verdict inside the app. */
   updateStatus(pieceId: string, status: PieceStatus): Promise<void>;
+  /** Attach a reference resource to an idea or a piece. Never copied on
+   * inheritance — child ideas/pieces see a parent's resources by composing
+   * them at read time (see src/stores/resources-selectors.ts in the app). */
+  addResource(input: AddResourceInput): Promise<{ resourceId: string; ideaId: string }>;
 }
 
 export class TransportError extends Error {

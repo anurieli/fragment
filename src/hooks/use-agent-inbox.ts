@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isTauri } from "@/lib/ai-client";
-import { importHandoffFiles, type AgentInboxFile } from "@/lib/agent-inbox/import";
-import { ackTauriImportedFiles, readTauriInboxFiles } from "@/lib/agent-inbox/tauri-inbox";
+import { importHandoffFiles, importResourceLines, type AgentInboxFile, type AgentResourceFile } from "@/lib/agent-inbox/import";
+import { ackTauriImportedFiles, readTauriInboxFiles, readTauriResourceFiles } from "@/lib/agent-inbox/tauri-inbox";
 import { generateId } from "@/lib/utils";
 import { saveIdea, savePiece, saveResource } from "@/lib/persistence";
 import { useContentStore } from "@/stores/content-store";
@@ -13,6 +13,7 @@ const POLL_INTERVAL_MS = 10_000;
 
 async function fetchIngressFiles(sinceMs: number | undefined): Promise<{
   files: AgentInboxFile[];
+  resourceFiles: AgentResourceFile[];
   gateOpen: boolean;
 }> {
   const params = new URLSearchParams();
@@ -21,13 +22,13 @@ async function fetchIngressFiles(sinceMs: number | undefined): Promise<{
 
   const res = await fetch(`/api/v1/agent-inbox${query ? `?${query}` : ""}`);
   if (res.status === 404) {
-    return { files: [], gateOpen: false };
+    return { files: [], resourceFiles: [], gateOpen: false };
   }
   if (!res.ok) {
-    return { files: [], gateOpen: true };
+    return { files: [], resourceFiles: [], gateOpen: true };
   }
-  const files = (await res.json()) as AgentInboxFile[];
-  return { files, gateOpen: true };
+  const body = (await res.json()) as { files: AgentInboxFile[]; resourceFiles: AgentResourceFile[] };
+  return { files: body.files, resourceFiles: body.resourceFiles, gateOpen: true };
 }
 
 async function ackIngress(relPaths: readonly string[]): Promise<void> {
@@ -69,18 +70,22 @@ export function useAgentInbox() {
 
     try {
       let files: AgentInboxFile[];
+      let resourceFiles: AgentResourceFile[];
 
       if (isTauri()) {
         setIngressAvailable(true);
-        files = await readTauriInboxFiles();
+        [files, resourceFiles] = await Promise.all([readTauriInboxFiles(), readTauriResourceFiles()]);
       } else {
-        const { files: fetched, gateOpen } = await fetchIngressFiles(cursorRef.current);
+        const { files: fetched, resourceFiles: fetchedResources, gateOpen } = await fetchIngressFiles(
+          cursorRef.current,
+        );
         setIngressAvailable(gateOpen);
         if (!gateOpen) return;
         files = fetched;
+        resourceFiles = fetchedResources;
       }
 
-      if (files.length === 0) return;
+      if (files.length === 0 && resourceFiles.length === 0) return;
 
       const contentState = useContentStore.getState();
       const result = importHandoffFiles(files, {
@@ -89,29 +94,43 @@ export function useAgentInbox() {
         now: Date.now(),
         generateId,
       });
+      const resourceResult = importResourceLines(resourceFiles, {
+        existingResourceIds: new Set(Object.keys(contentState.resources)),
+        now: Date.now(),
+        generateId,
+      });
 
-      if (result.ideasToCreate.length > 0 || result.piecesToUpsert.length > 0) {
+      if (
+        result.ideasToCreate.length > 0 ||
+        result.piecesToUpsert.length > 0 ||
+        resourceResult.resourcesToUpsert.length > 0
+      ) {
         useContentStore.setState((s) => {
           const ideas = { ...s.ideas };
           for (const idea of result.ideasToCreate) ideas[idea.id] = idea;
           const pieces = { ...s.pieces };
           for (const piece of result.piecesToUpsert) pieces[piece.id] = piece;
-          return { ideas, pieces };
+          const resources = { ...s.resources };
+          for (const resource of result.resourcesToCreate) resources[resource.id] = resource;
+          for (const resource of resourceResult.resourcesToUpsert) resources[resource.id] = resource;
+          return { ideas, pieces, resources };
         });
 
         await Promise.all(result.ideasToCreate.map((idea) => saveIdea(idea)));
         await Promise.all(result.piecesToUpsert.map((piece) => savePiece(piece)));
         await Promise.all(result.resourcesToCreate.map((resource) => saveResource(resource)));
+        await Promise.all(resourceResult.resourcesToUpsert.map((resource) => saveResource(resource)));
       }
 
       const maxMtime = files.reduce((max, f) => Math.max(max, f.mtime), cursorRef.current ?? 0);
       cursorRef.current = maxMtime;
 
-      if (result.acks.length > 0) {
+      const allAcks = [...result.acks, ...resourceResult.acks];
+      if (allAcks.length > 0) {
         if (isTauri()) {
-          await ackTauriImportedFiles(result.acks);
+          await ackTauriImportedFiles(allAcks);
         } else {
-          await ackIngress(result.acks);
+          await ackIngress(allAcks);
         }
       }
     } catch {

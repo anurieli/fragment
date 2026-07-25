@@ -12,3 +12,7 @@ export function generateIdeaId(): string {
 export function generatePieceId(): string {
   return `pc_${nano()}`;
 }
+
+export function generateResourceId(): string {
+  return `res_${nano()}`;
+}

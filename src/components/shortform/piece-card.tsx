@@ -8,6 +8,7 @@ import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread } f
 import { useContentStore } from "@/stores/content-store";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, stalenessLevel } from "./feed-logic";
+import { PieceResourcesPopover } from "./piece-resources-popover";
 
 const FORMAT_LABELS: Record<ContentFormat, string> = {
   tweet: "X",
@@ -115,6 +116,7 @@ export function PieceCard({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [priorityMenuOpen, setPriorityMenuOpen] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -283,6 +285,18 @@ export function PieceCard({
                 onMouseLeave={() => { setMenuOpen(false); setPriorityMenuOpen(false); }}
               >
                 <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    setPriorityMenuOpen(false);
+                    setResourcesOpen(true);
+                  }}
+                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
+                  title="Reference links, notes, and assets for this piece — including inherited from its idea"
+                >
+                  Resources
+                </button>
+                <button
                   onClick={(e) => { e.stopPropagation(); setPriorityMenuOpen((v) => !v); }}
                   className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
                 >
@@ -320,6 +334,10 @@ export function PieceCard({
                   </button>
                 </div>
               </div>
+            )}
+
+            {resourcesOpen && (
+              <PieceResourcesPopover pieceId={piece.id} onClose={() => setResourcesOpen(false)} />
             )}
           </div>
         </div>

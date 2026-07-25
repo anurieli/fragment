@@ -32,6 +32,7 @@ claude mcp add fragment-mcp -- npx fragment-mcp
 | `list_ideas` | `status?` | `{ ideas: [...] }` | Each idea includes per-status piece counts (`counts`) and a `total`, computed from what's currently on disk. If `status` is set, only ideas with at least one piece in that status are returned — but `counts` still shows the full breakdown. |
 | `get_piece` | `pieceId` | the piece, including its current effective `status` | |
 | `update_status` | `pieceId`, `status` | `{ pieceId, status }` | **Only `"published"` is accepted.** Every other status is a user verdict made inside Fragment — the tool rejects with a clear error rather than silently no-opping. |
+| `add_resource` | `ownerType` (`idea` \| `piece`), `ownerId`, `kind` (`link` \| `note` \| `asset`), `title`, `url?`, `note?` | `{ resourceId, ideaId }` | Attaches a reference resource to an idea or a piece. Never copied on inheritance — an idea's resources are visible to its child ideas and their pieces, composed at read time by the app. For a piece owner, the resource is filed under that piece's idea (resolved automatically). |
 
 All tool inputs are validated against the contract's own zod schemas (`pieceHandoffJsonSchema` for
 `add_piece`, plus the shared field schemas) before anything touches disk.
@@ -43,8 +44,15 @@ All tool inputs are validated against the contract's own zod schemas (`pieceHand
 ├── <ideaId>/
 │   ├── idea.json                       idea manifest, written once by create_idea / the first add_piece
 │   │                                    that resolves to a new idea
-│   └── <pieceId>.md                    one file per piece, contract frontmatter + byte-exact body
+│   ├── <pieceId>.md                    one file per piece, contract frontmatter + byte-exact body
+│   └── resources.jsonl                 append-only log of add_resource calls filed under this idea:
+│                                        {"id","ownerType","ownerId","kind","title","url","note","createdAt"}\n
+│                                        per line. A piece-owned resource's ownerId is the piece, not this
+│                                        directory — the directory is just where add_resource resolved the
+│                                        owning idea to.
 ├── .imported/<ideaId>/<pieceId>.md     where the running Fragment app moves a piece file once imported
+├── .imported/resources(-N).jsonl       where the app moves a whole resources.jsonl once its lines are
+│                                        imported (uniquified on name collision, same as piece files)
 └── .status.jsonl                       append-only log: {"pieceId","status","at","by"}\n per line
 ```
 
@@ -54,6 +62,9 @@ All tool inputs are validated against the contract's own zod schemas (`pieceHand
   piece's *effective* status is the latest matching entry in that log, falling back to the status baked
   into the piece file (always `inbox`, since that's the only status an agent can ever write) if there is
   no entry.
+- `add_resource` appends to the owning idea's `resources.jsonl` instead of minting a new file per call —
+  the whole file is what the running app reads and imports, then moves to `.imported/` once every line has
+  been read (the same "move on import" pattern as a piece file, just at file rather than line granularity).
 - **Reads are eventually consistent.** `list_ideas` and `get_piece` reconstruct current state by scanning
   both `<ideaId>/` and `.imported/<ideaId>/` for piece files and layering `.status.jsonl` on top. If the
   Fragment app is mid-import, or another agent just wrote a file, a read may briefly lag reality — there is

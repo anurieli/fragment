@@ -1,6 +1,6 @@
 import type { Idea, PieceHandoff, PieceStatus } from "../../../src/lib/content-engine/index.js";
 
-import type { CreateIdeaInput, IdeaListEntry, PieceView, Transport } from "./transport.js";
+import type { AddResourceInput, CreateIdeaInput, IdeaListEntry, PieceView, Transport } from "./transport.js";
 import { TransportError } from "./transport.js";
 
 export interface HttpTransportConfig {
@@ -34,6 +34,10 @@ export class HttpTransport implements Transport {
 
   updateStatus(_pieceId: string, _status: PieceStatus): Promise<never> {
     return this.unimplemented("updateStatus");
+  }
+
+  addResource(_input: AddResourceInput): Promise<never> {
+    return this.unimplemented("addResource");
   }
 
   private unimplemented(method: string): Promise<never> {

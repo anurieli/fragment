@@ -11,7 +11,7 @@
  * inbox location.
  */
 
-import type { AgentInboxFile } from "./import";
+import type { AgentInboxFile, AgentResourceFile } from "./import";
 import { isTauri } from "@/lib/ai-client";
 
 const INBOX_REL_DIR = ".fragment/inbox";
@@ -72,6 +72,50 @@ export async function readTauriInboxFiles(): Promise<AgentInboxFile[]> {
       files.push({
         fileName: filePath.split("/").pop() ?? filePath,
         relPath: filePath.slice(INBOX_REL_DIR.length + 1),
+        content,
+        mtime: info.mtime ? info.mtime.getTime() : Date.now(),
+      });
+    } catch {
+      // unreadable/vanished mid-scan — skip, picked up next poll
+    }
+  }
+  return files;
+}
+
+/** Read every idea's `resources.jsonl` from `~/.fragment/inbox` (one level —
+ * never nested deeper than an idea directory). Best-effort, mirrors
+ * server-fs.ts's listPendingResourceFiles for the Tauri (direct fs) path. */
+export async function readTauriResourceFiles(): Promise<AgentResourceFile[]> {
+  const fs = await getTauriFs();
+  if (!fs) return [];
+
+  try {
+    const rootExists = await fs.exists(INBOX_REL_DIR, { baseDir: fs.BaseDirectory.Home });
+    if (!rootExists) return [];
+  } catch {
+    return [];
+  }
+
+  let entries;
+  try {
+    entries = await fs.readDir(INBOX_REL_DIR, { baseDir: fs.BaseDirectory.Home });
+  } catch {
+    return [];
+  }
+
+  const files: AgentResourceFile[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory || entry.name.startsWith(".")) continue;
+    const relPath = `${entry.name}/resources.jsonl`;
+    const filePath = `${INBOX_REL_DIR}/${relPath}`;
+    try {
+      const exists = await fs.exists(filePath, { baseDir: fs.BaseDirectory.Home });
+      if (!exists) continue;
+      const content = await fs.readTextFile(filePath, { baseDir: fs.BaseDirectory.Home });
+      const info = await fs.stat(filePath, { baseDir: fs.BaseDirectory.Home });
+      files.push({
+        ideaId: entry.name,
+        relPath,
         content,
         mtime: info.mtime ? info.mtime.getTime() : Date.now(),
       });

@@ -6,7 +6,7 @@ import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore, computeWritingStyleSeed } from "@/stores/voice-store";
 import { useContentStore } from "@/stores/content-store";
-import { loadAllNotes, loadSnippetsForNote, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces } from "@/lib/persistence";
+import { loadAllNotes, loadSnippetsForNote, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources } from "@/lib/persistence";
 import { recoverFromCrash } from "@/hooks/use-auto-save";
 import { logPersistence } from "@/lib/persistence-logger";
 
@@ -14,7 +14,7 @@ export function usePersistence() {
   const activeNoteId = useAppStore((s) => s.activeNoteId);
   const setActiveNote = useAppStore((s) => s.setActiveNote);
   const { setNotes, setSnippets, setVersions, setHydrated } = useDataStore();
-  const { setIdeas, setPieces, setHydrated: setContentHydrated } = useContentStore();
+  const { setIdeas, setPieces, setResources, setHydrated: setContentHydrated } = useContentStore();
   const prevNoteId = useRef<string | null>(null);
 
   // Initial hydration + crash recovery
@@ -37,9 +37,14 @@ export function usePersistence() {
       // Hydrate the Content Engine (ideas + pieces) from IndexedDB. New
       // tables, so an empty result on first load is the expected steady state.
       try {
-        const [ideas, pieces] = await Promise.all([loadAllIdeas(), loadAllContentPieces()]);
+        const [ideas, pieces, resources] = await Promise.all([
+          loadAllIdeas(),
+          loadAllContentPieces(),
+          loadAllResources(),
+        ]);
         setIdeas(ideas);
         setPieces(pieces);
+        setResources(resources);
       } catch {
         logPersistence("hydrate_fail", { error: "content-engine load threw" });
       } finally {

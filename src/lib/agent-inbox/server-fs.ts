@@ -12,7 +12,7 @@
 import { mkdir, readdir, readFile, appendFile, rename, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentInboxFile } from "./import";
+import type { AgentInboxFile, AgentResourceFile } from "./import";
 import { IMPORTED_DIR_NAME, STATUS_LOG_FILE_NAME, resolveInboxRelPath } from "./paths";
 
 const SKIP_ENTRY_NAMES = new Set([IMPORTED_DIR_NAME, STATUS_LOG_FILE_NAME]);
@@ -69,6 +69,42 @@ export async function listPendingHandoffFiles(
   }
 
   await walk(resolvedRoot);
+  return results;
+}
+
+/**
+ * List every `<ideaId>/resources.jsonl` file directly under `inboxDir` (one
+ * level — resource files are never nested deeper than an idea directory,
+ * unlike piece handoffs which `listPendingHandoffFiles` walks recursively).
+ * An idea directory with no resources.jsonl (the common case) is silently
+ * skipped, same "steady state is empty, not an error" posture as above.
+ */
+export async function listPendingResourceFiles(inboxDir: string): Promise<AgentResourceFile[]> {
+  const resolvedRoot = path.resolve(inboxDir);
+  let entries;
+  try {
+    entries = await readdir(resolvedRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const results: AgentResourceFile[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+
+    const filePath = path.join(resolvedRoot, entry.name, "resources.jsonl");
+    try {
+      const [content, fileStat] = await Promise.all([readFile(filePath, "utf-8"), stat(filePath)]);
+      results.push({
+        ideaId: entry.name,
+        relPath: path.relative(resolvedRoot, filePath).split(path.sep).join("/"),
+        content,
+        mtime: fileStat.mtimeMs,
+      });
+    } catch {
+      // no resources.jsonl for this idea, or unreadable mid-scan — skip
+    }
+  }
   return results;
 }
 

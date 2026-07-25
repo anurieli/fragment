@@ -19,8 +19,15 @@ import {
   type PieceStatus,
 } from "../../../src/lib/content-engine/index.js";
 
-import { generateIdeaId, generatePieceId } from "./id.js";
-import { TransportError, type CreateIdeaInput, type IdeaListEntry, type PieceView, type Transport } from "./transport.js";
+import { generateIdeaId, generatePieceId, generateResourceId } from "./id.js";
+import {
+  TransportError,
+  type AddResourceInput,
+  type CreateIdeaInput,
+  type IdeaListEntry,
+  type PieceView,
+  type Transport,
+} from "./transport.js";
 
 // ---------------------------------------------------------------------------
 // Phase-1 file-based transport. Ideas and pieces live under:
@@ -219,7 +226,56 @@ export class FileTransport implements Transport {
     await fs.appendFile(this.statusLogPath, `${JSON.stringify(entry)}\n`, "utf8");
   }
 
+  async addResource(input: AddResourceInput): Promise<{ resourceId: string; ideaId: string }> {
+    let ideaId: string;
+    if (input.ownerType === "idea") {
+      const idea = await this.readIdeaManifest(input.ownerId);
+      if (!idea) {
+        throw new TransportError(`idea not found: ${input.ownerId}`, "not_found");
+      }
+      ideaId = idea.id;
+    } else {
+      const owningIdeaId = await this.resolvePieceIdeaId(input.ownerId);
+      if (!owningIdeaId) {
+        throw new TransportError(`piece not found: ${input.ownerId}`, "not_found");
+      }
+      ideaId = owningIdeaId;
+    }
+
+    const resourceId = generateResourceId();
+    const line = {
+      id: resourceId,
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      kind: input.kind,
+      title: input.title,
+      url: input.url,
+      note: input.note,
+      createdAt: Date.now(),
+    };
+
+    const ideaDir = path.join(this.inboxDir, ideaId);
+    await fs.mkdir(ideaDir, { recursive: true });
+    // Append-only, same as add_piece: a fresh line per call, an idea's
+    // resources.jsonl accumulates and is never edited in place.
+    await fs.appendFile(path.join(ideaDir, "resources.jsonl"), `${JSON.stringify(line)}\n`, "utf8");
+
+    return { resourceId, ideaId };
+  }
+
   // -- internals -------------------------------------------------------
+
+  /** Resolve which idea directory owns a given piece id, by scanning every
+   * idea's piece files (primary + .imported). Returns undefined if no idea
+   * has ever seen this piece id. */
+  private async resolvePieceIdeaId(pieceId: string): Promise<string | undefined> {
+    const ideaIds = await this.listIdeaIds();
+    for (const ideaId of ideaIds) {
+      const pieces = await this.readPiecesForIdea(ideaId);
+      if (pieces.some(({ id }) => id === pieceId)) return ideaId;
+    }
+    return undefined;
+  }
 
   private toPieceView(
     ideaId: string,

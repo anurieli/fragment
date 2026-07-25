@@ -10,6 +10,7 @@ import { SpaceToggle } from "./space-toggle";
 import { PieceFilterBar } from "./piece-filter-bar";
 import { ShortformFeed } from "./shortform-feed";
 import { ShortformEmptyState } from "./shortform-empty-state";
+import { IdeaResources } from "./idea-resources";
 import {
   PIECE_FILTERS,
   defaultSortForFilter,
@@ -204,6 +205,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
       />
 
       <div className="shrink-0 border-b border-[var(--color-surface-3)] mx-8 mb-1" />
+
+      <IdeaResources ideaId={ideaId} />
 
       <div className="flex-1 overflow-y-auto">
         {visible.length === 0 ? (

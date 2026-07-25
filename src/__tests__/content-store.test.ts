@@ -14,6 +14,8 @@ vi.mock("@/lib/persistence", async () => {
     ...actual,
     saveIdea: vi.fn().mockResolvedValue(undefined),
     savePiece: vi.fn().mockResolvedValue(undefined),
+    saveResource: vi.fn().mockResolvedValue(undefined),
+    deleteResourceRow: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -21,6 +23,7 @@ function resetStore() {
   useContentStore.setState({
     ideas: {},
     pieces: {},
+    resources: {},
     hydrated: true,
   });
 }
@@ -313,5 +316,63 @@ describe("content-store — pieces", () => {
     expect(() =>
       useContentStore.getState().updatePiece(id, { noteId: "note-1" }),
     ).toThrow(ContractError);
+  });
+});
+
+describe("content-store — resources", () => {
+  beforeEach(resetStore);
+
+  function makeIdea(): string {
+    return useContentStore.getState().createIdea({ title: "Parent idea" });
+  }
+
+  it("addResource creates an idea-owned resource and returns its id", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore
+      .getState()
+      .addResource("idea", ideaId, { kind: "link", url: "https://example.com", title: "Example" });
+
+    const resource = useContentStore.getState().resources[id];
+    expect(resource).toBeDefined();
+    expect(resource.ownerType).toBe("idea");
+    expect(resource.ownerId).toBe(ideaId);
+    expect(resource.title).toBe("Example");
+    expect(resource.url).toBe("https://example.com");
+  });
+
+  it("addResource creates a piece-owned resource", () => {
+    const ideaId = makeIdea();
+    const pieceId = useContentStore
+      .getState()
+      .createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().addResource("piece", pieceId, { kind: "note", title: "Context" });
+
+    const resource = useContentStore.getState().resources[id];
+    expect(resource.ownerType).toBe("piece");
+    expect(resource.ownerId).toBe(pieceId);
+    expect(resource.kind).toBe("note");
+  });
+
+  it("addResource is a no-op before hydration", () => {
+    useContentStore.setState({ hydrated: false });
+    const id = useContentStore.getState().addResource("idea", "idea-1", { kind: "link", title: "x" });
+    expect(id).toBe("");
+    expect(Object.keys(useContentStore.getState().resources)).toHaveLength(0);
+  });
+
+  it("removeResource hard-deletes — the row is gone, not tombstoned", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().addResource("idea", ideaId, { kind: "link", title: "x" });
+    expect(useContentStore.getState().resources[id]).toBeDefined();
+
+    useContentStore.getState().removeResource(id);
+    expect(useContentStore.getState().resources[id]).toBeUndefined();
+  });
+
+  it("listResources returns every resource currently in the store", () => {
+    const ideaId = makeIdea();
+    useContentStore.getState().addResource("idea", ideaId, { kind: "link", title: "a" });
+    useContentStore.getState().addResource("idea", ideaId, { kind: "note", title: "b" });
+    expect(useContentStore.getState().listResources()).toHaveLength(2);
   });
 });

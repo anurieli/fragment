@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isHosted } from "@/lib/edition";
 import { gateAgentInbox } from "@/lib/agent-inbox/gate";
 import { getInboxDir } from "@/lib/agent-inbox/paths";
-import { listPendingHandoffFiles } from "@/lib/agent-inbox/server-fs";
+import { listPendingHandoffFiles, listPendingResourceFiles } from "@/lib/agent-inbox/server-fs";
 
 // Reads the local filesystem — never runs on the edge runtime.
 export const runtime = "nodejs";
@@ -20,9 +20,12 @@ export const runtime = "nodejs";
  *
  * Lists pending contract-format `.md` files from the inbox directory
  * (`~/.fragment/inbox`, or FRAGMENT_INBOX_DIR) recursively, including
- * per-idea subdirectories, excluding `.imported/` and `.status.jsonl`.
- * Never follows client-supplied paths — this route only reads, it doesn't
- * accept a path from the caller.
+ * per-idea subdirectories, excluding `.imported/` and `.status.jsonl`. Also
+ * lists every idea's `resources.jsonl` (ARI-162 — fragment-mcp's
+ * `add_resource` tool), always in full (no `since` filter — the importer's
+ * idempotent-by-id upsert makes re-reading the whole file on every poll
+ * cheap and safe). Never follows client-supplied paths — this route only
+ * reads, it doesn't accept a path from the caller.
  */
 export async function GET(req: NextRequest) {
   const gate = gateAgentInbox(
@@ -47,6 +50,9 @@ export async function GET(req: NextRequest) {
     inboxDirOverride: process.env.FRAGMENT_INBOX_DIR,
   });
 
-  const files = await listPendingHandoffFiles(inboxDir, sinceMs);
-  return NextResponse.json(files);
+  const [files, resourceFiles] = await Promise.all([
+    listPendingHandoffFiles(inboxDir, sinceMs),
+    listPendingResourceFiles(inboxDir),
+  ]);
+  return NextResponse.json({ files, resourceFiles });
 }

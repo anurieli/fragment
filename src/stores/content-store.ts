@@ -11,11 +11,16 @@ import {
   type PieceStatus,
   type Priority,
   type PublishRecord,
+  type Resource,
+  type ResourceInput,
+  type ResourceOwnerType,
 } from "@/lib/content-engine";
 import { generateId } from "@/lib/utils";
 import {
   saveIdea as persistIdea,
   savePiece as persistPiece,
+  saveResource as persistResource,
+  deleteResourceRow,
   assertPublishGuard,
 } from "@/lib/persistence";
 
@@ -60,11 +65,13 @@ export interface CreatePieceInput {
 interface ContentState {
   ideas: Record<string, Idea>;
   pieces: Record<string, ContentPiece>;
+  resources: Record<string, Resource>;
   hydrated: boolean;
 
   setHydrated: (v: boolean) => void;
   setIdeas: (ideas: Idea[]) => void;
   setPieces: (pieces: ContentPiece[]) => void;
+  setResources: (resources: Resource[]) => void;
 
   // Ideas ---------------------------------------------------------------
   createIdea: (input: CreateIdeaInput) => string;
@@ -90,11 +97,21 @@ interface ContentState {
    * data-store's deleteNote after deleteNoteAndSnippets has already
    * persisted the same tombstone in one transaction. */
   detachPieceNote: (noteId: string) => void;
+
+  // Resources ---------------------------------------------------------------
+  /** Add a resource directly owned by an idea or a piece. Never copies an
+   * inherited resource — see effectiveResourcesForIdea/Piece in
+   * resources-selectors.ts for how inheritance is composed at read time. */
+  addResource: (ownerType: ResourceOwnerType, ownerId: string, input: ResourceInput) => string;
+  /** Hard delete — Resource has no tombstone field, unlike Idea/ContentPiece. */
+  removeResource: (id: string) => void;
+  listResources: () => Resource[];
 }
 
 export const useContentStore = create<ContentState>((set, get) => ({
   ideas: {},
   pieces: {},
+  resources: {},
   hydrated: false,
 
   setHydrated: (v) => set({ hydrated: v }),
@@ -109,6 +126,12 @@ export const useContentStore = create<ContentState>((set, get) => ({
     const map: Record<string, ContentPiece> = {};
     for (const piece of pieces) map[piece.id] = piece;
     set({ pieces: map });
+  },
+
+  setResources: (resources) => {
+    const map: Record<string, Resource> = {};
+    for (const resource of resources) map[resource.id] = resource;
+    set({ resources: map });
   },
 
   createIdea: (input) => {
@@ -324,4 +347,34 @@ export const useContentStore = create<ContentState>((set, get) => ({
       return { pieces };
     });
   },
+
+  addResource: (ownerType, ownerId, input) => {
+    if (!get().hydrated) return "";
+    const resource: Resource = {
+      id: generateId(),
+      ownerType,
+      ownerId,
+      kind: input.kind,
+      url: input.url,
+      title: input.title,
+      note: input.note,
+      createdAt: Date.now(),
+    };
+    set((s) => ({ resources: { ...s.resources, [resource.id]: resource } }));
+    persistResource(resource);
+    return resource.id;
+  },
+
+  removeResource: (id) => {
+    if (!get().hydrated) return;
+    if (!get().resources[id]) return;
+    set((s) => {
+      const resources = { ...s.resources };
+      delete resources[id];
+      return { resources };
+    });
+    deleteResourceRow(id);
+  },
+
+  listResources: () => Object.values(get().resources),
 }));

@@ -7,9 +7,17 @@ export { CONTRACT_VERSION } from "../../../src/lib/content-engine/index.js";
 
 export { FileTransport, resolveInboxDir } from "./file-transport.js";
 export { HttpTransport, type HttpTransportConfig } from "./http-transport.js";
-export { TransportError, type CreateIdeaInput, type IdeaListEntry, type PieceListView, type PieceView, type Transport } from "./transport.js";
+export {
+  TransportError,
+  type AddResourceInput,
+  type CreateIdeaInput,
+  type IdeaListEntry,
+  type PieceListView,
+  type PieceView,
+  type Transport,
+} from "./transport.js";
 export { registerTools } from "./tools.js";
-export { generateIdeaId, generatePieceId } from "./id.js";
+export { generateIdeaId, generatePieceId, generateResourceId } from "./id.js";
 export { pushFile } from "./cli.js";
 
 export function createServer(transport: Transport): McpServer {

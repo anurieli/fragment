@@ -16,6 +16,7 @@ import {
   matchIdea,
   parsePieceFile,
   resolvePieceUpsert,
+  resourceLineSchema,
   type ContentPiece,
   type Idea,
   type Resource,
@@ -161,4 +162,116 @@ export function importHandoffFiles(
   }
 
   return { ideasToCreate, piecesToUpsert, resourcesToCreate, acks, skips };
+}
+
+// ---------------------------------------------------------------------------
+// resources.jsonl import (ARI-162) — the sibling ingress path to the piece
+// handoff files above. fragment-mcp's `add_resource` tool appends one JSON
+// line per call to `<ideaId>/resources.jsonl`; this reads a whole file's
+// lines back and turns them into Resource rows to upsert.
+// ---------------------------------------------------------------------------
+
+export interface AgentResourceFile {
+  /** The idea directory this resources.jsonl lives under (not necessarily
+   * the owning idea of every line — a piece-owned resource's ownerId is the
+   * piece, not this directory; the directory is just where it's filed). */
+  ideaId: string;
+  /** Path relative to the inbox directory — echoed back on ack. */
+  relPath: string;
+  content: string;
+  /** Epoch ms file modification time. */
+  mtime: number;
+}
+
+export interface ImportResourceLinesContext {
+  /** Ids of resources already in the store — a line whose id is already
+   * known is skipped, which is what makes re-importing the same
+   * resources.jsonl file idempotent. */
+  existingResourceIds: ReadonlySet<string>;
+  now: number;
+  generateId: () => string;
+}
+
+export interface ImportResourceLinesResult {
+  resourcesToUpsert: Resource[];
+  /** relPaths fully consumed and safe to ack (moved to `.imported/`), same
+   * contract as importHandoffFiles' acks — a file is acked once every line
+   * in it has been read, even if some lines were malformed and skipped. */
+  acks: string[];
+  skips: ImportSkip[];
+}
+
+/**
+ * Import a batch of `resources.jsonl` files. Per line: parse as JSON,
+ * validate with the contract's `resourceLineSchema`, fill in `id`/`createdAt`
+ * when the line omits them (fragment-mcp always sets both, but a
+ * hand-written line may not), and skip anything whose id is already known —
+ * across this batch or from the store passed in via `existingResourceIds`.
+ * A malformed line is skipped, not fatal to the rest of the file.
+ */
+export function importResourceLines(
+  files: readonly AgentResourceFile[],
+  ctx: ImportResourceLinesContext,
+): ImportResourceLinesResult {
+  const resourcesToUpsert: Resource[] = [];
+  const acks: string[] = [];
+  const skips: ImportSkip[] = [];
+  const seenIds = new Set(ctx.existingResourceIds);
+
+  for (const file of files) {
+    const lines = file.content.split("\n");
+    for (const rawLine of lines) {
+      const trimmed = rawLine.trim();
+      if (!trimmed) continue;
+
+      let json: unknown;
+      try {
+        json = JSON.parse(trimmed);
+      } catch (error) {
+        skips.push({
+          relPath: file.relPath,
+          reason: "parse-error",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+
+      const parsed = resourceLineSchema.safeParse(json);
+      if (!parsed.success) {
+        skips.push({
+          relPath: file.relPath,
+          reason: "parse-error",
+          detail: parsed.error.message,
+        });
+        continue;
+      }
+
+      const line = parsed.data;
+      const id = line.id ?? ctx.generateId();
+      if (seenIds.has(id)) {
+        skips.push({ relPath: file.relPath, reason: "unchanged" });
+        continue;
+      }
+      seenIds.add(id);
+
+      resourcesToUpsert.push({
+        id,
+        ownerType: line.ownerType,
+        ownerId: line.ownerId,
+        kind: line.kind,
+        url: line.url,
+        title: line.title,
+        note: line.note,
+        createdAt: line.createdAt ?? ctx.now,
+      });
+    }
+
+    // Every file that was read (regardless of per-line outcomes) is acked —
+    // reads are best-effort/eventually-consistent, same posture as
+    // importHandoffFiles, and there is no "fix and re-push" retry path for a
+    // resources.jsonl line the way there is for a piece file.
+    acks.push(file.relPath);
+  }
+
+  return { resourcesToUpsert, acks, skips };
 }

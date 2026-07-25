@@ -7,6 +7,8 @@ import {
   CONTRACT_VERSION,
   ContractError,
   PIECE_STATUSES,
+  RESOURCE_KINDS,
+  RESOURCE_OWNER_TYPES,
   parsePieceHandoffJson,
 } from "../../../src/lib/content-engine/index.js";
 
@@ -179,6 +181,33 @@ export function registerTools(server: McpServer, transport: Transport): void {
       try {
         await transport.updateStatus(pieceId, status);
         return ok({ pieceId, status });
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "add_resource",
+    {
+      title: "Add resource",
+      description:
+        "Attach a reference resource (link, note, or asset) to an idea or a piece. Resources are never " +
+        "copied on inheritance: an idea's resources are visible to its child ideas and their pieces, and " +
+        "a piece's own resources are its alone — Fragment composes the effective set at read time.",
+      inputSchema: {
+        ownerType: z.enum(RESOURCE_OWNER_TYPES).describe("Whether this resource belongs to an idea or a piece"),
+        ownerId: z.string().min(1).describe("Id of the idea or piece this resource is attached to"),
+        kind: z.enum(RESOURCE_KINDS).describe("link, note, or asset"),
+        title: z.string().min(1).describe("Resource title"),
+        url: z.string().min(1).optional().describe("URL, typically set for kind: link"),
+        note: z.string().optional().describe("Optional note"),
+      },
+    },
+    async ({ ownerType, ownerId, kind, title, url, note }) => {
+      try {
+        const result = await transport.addResource({ ownerType, ownerId, kind, title, url, note });
+        return ok(result);
       } catch (err) {
         return fail(err);
       }

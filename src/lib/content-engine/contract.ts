@@ -168,6 +168,23 @@ export const resourceInputSchema = z.object({
 });
 export type ResourceInput = z.infer<typeof resourceInputSchema>;
 
+// A single line of a `<ideaId>/resources.jsonl` file (ARI-162): what
+// fragment-mcp's `add_resource` tool appends, and what the agent-inbox
+// importer reads back. `id` and `createdAt` are optional on the wire so a
+// hand-written line still imports, but fragment-mcp itself always fills
+// both — that's what makes re-importing the same file idempotent.
+export const resourceLineSchema = z.object({
+  id: idSchema.optional(),
+  ownerType: z.enum(RESOURCE_OWNER_TYPES),
+  ownerId: idSchema,
+  kind: z.enum(RESOURCE_KINDS),
+  url: z.string().min(1).optional(),
+  title: z.string().min(1),
+  note: z.string().optional(),
+  createdAt: timestampSchema.optional(),
+});
+export type ResourceLine = z.infer<typeof resourceLineSchema>;
+
 // ---------------------------------------------------------------------------
 // Piece handoff: the canonical shape an agent submission normalizes into,
 // whether it arrived as a frontmatter .md file or a JSON API body.

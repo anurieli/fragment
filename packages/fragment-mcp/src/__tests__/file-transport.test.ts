@@ -213,6 +213,88 @@ describe("FileTransport: get_piece", () => {
   });
 });
 
+describe("FileTransport: add_resource writes valid resources.jsonl lines", () => {
+  it("appends a valid JSON line to <ideaId>/resources.jsonl for an idea owner", async () => {
+    const idea = await transport.createIdea({ title: "Idea with resources" });
+    const result = await transport.addResource({
+      ownerType: "idea",
+      ownerId: idea.id,
+      kind: "link",
+      title: "A great source",
+      url: "https://example.com/source",
+    });
+
+    expect(result.resourceId).toMatch(/^res_/);
+    expect(result.ideaId).toBe(idea.id);
+
+    const raw = await fs.readFile(path.join(tmpDir, idea.id, "resources.jsonl"), "utf8");
+    const lines = raw.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const line = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(line).toMatchObject({
+      id: result.resourceId,
+      ownerType: "idea",
+      ownerId: idea.id,
+      kind: "link",
+      title: "A great source",
+      url: "https://example.com/source",
+    });
+    expect(typeof line.createdAt).toBe("number");
+  });
+
+  it("resolves the owning idea for a piece owner and files the line there", async () => {
+    const { pieceId, ideaId } = await transport.addPiece(makeHandoff({ ideaTitle: "Idea with a piece" }));
+    const result = await transport.addResource({
+      ownerType: "piece",
+      ownerId: pieceId,
+      kind: "note",
+      title: "Context for this piece",
+      note: "Remember to mention the launch date",
+    });
+
+    expect(result.ideaId).toBe(ideaId);
+
+    const raw = await fs.readFile(path.join(tmpDir, ideaId, "resources.jsonl"), "utf8");
+    const line = JSON.parse(raw.trim()) as Record<string, unknown>;
+    // ownerId is the piece, not the idea directory it's filed under.
+    expect(line.ownerType).toBe("piece");
+    expect(line.ownerId).toBe(pieceId);
+    expect(line.note).toBe("Remember to mention the launch date");
+  });
+
+  it("appends (never overwrites) across multiple calls for the same idea", async () => {
+    const idea = await transport.createIdea({ title: "Multi-resource idea" });
+    await transport.addResource({ ownerType: "idea", ownerId: idea.id, kind: "link", title: "First", url: "https://a.com" });
+    await transport.addResource({ ownerType: "idea", ownerId: idea.id, kind: "link", title: "Second", url: "https://b.com" });
+
+    const raw = await fs.readFile(path.join(tmpDir, idea.id, "resources.jsonl"), "utf8");
+    const lines = raw.trim().split("\n").map((l) => JSON.parse(l) as { title: string });
+    expect(lines.map((l) => l.title)).toEqual(["First", "Second"]);
+  });
+
+  it("rejects an idea owner that doesn't exist", async () => {
+    await expect(
+      transport.addResource({ ownerType: "idea", ownerId: "idea_ghost", kind: "link", title: "x" }),
+    ).rejects.toThrow(TransportError);
+  });
+
+  it("rejects a piece owner that doesn't exist", async () => {
+    await expect(
+      transport.addResource({ ownerType: "piece", ownerId: "pc_ghost", kind: "link", title: "x" }),
+    ).rejects.toThrow(TransportError);
+  });
+
+  it("every resources.jsonl line round-trips through the contract's resourceLineSchema", async () => {
+    const { resourceLineSchema } = await import("../../../../src/lib/content-engine/index.js");
+    const idea = await transport.createIdea({ title: "Schema-checked idea" });
+    await transport.addResource({ ownerType: "idea", ownerId: idea.id, kind: "asset", title: "An asset" });
+
+    const raw = await fs.readFile(path.join(tmpDir, idea.id, "resources.jsonl"), "utf8");
+    const json = JSON.parse(raw.trim());
+    expect(() => resourceLineSchema.parse(json)).not.toThrow();
+  });
+});
+
 describe("CLI push", () => {
   it("validates a handoff file and queues it via the transport", async () => {
     const filePath = path.join(tmpDir, "handoff.md");
