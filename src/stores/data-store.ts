@@ -58,7 +58,7 @@ interface DataState {
   updateNoteVoice: (id: string, voiceId: string | null | undefined) => void;
   deleteNote: (id: string) => string | null;
 
-  addSnippet: (noteId: string, content: string, atIndex?: number) => string;
+  addSnippet: (noteId: string, content: string, atIndex?: number, ideaId?: string) => string;
   updateSnippetLabel: (
     id: string,
     label: string | null,
@@ -233,7 +233,7 @@ export const useDataStore = create<DataState>((set, get) => ({
     return remaining.length > 0 ? remaining[0].id : null;
   },
 
-  addSnippet: (noteId, content, atIndex?) => {
+  addSnippet: (noteId, content, atIndex?, ideaId?) => {
     if (!get().hydrated) return "";
     const id = generateId();
     const existingSnippets = Object.values(get().snippets)
@@ -261,6 +261,7 @@ export const useDataStore = create<DataState>((set, get) => ({
         labelStatus: "loading",
         createdAt: Date.now(),
         order,
+        ideaId,
       };
       newSnippets[id] = snippet;
       set({ snippets: newSnippets });
@@ -281,6 +282,7 @@ export const useDataStore = create<DataState>((set, get) => ({
         labelStatus: "loading",
         createdAt: Date.now(),
         order,
+        ideaId,
       };
       set((s) => ({ snippets: { ...s.snippets, [id]: snippet } }));
       saveSnippet(snippet);

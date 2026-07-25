@@ -3,13 +3,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag, MoreHorizontal, ChevronDown } from "lucide-react";
 import type { ContentFormat, ContentPiece, Priority } from "@/lib/content-engine";
-import type { PublishPlatform } from "@/lib/publish";
 import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, publishPendingState } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
+import { useDataStore } from "@/stores/data-store";
+import { useAppStore } from "@/stores/app-store";
+import { useToastStore } from "@/hooks/use-toast";
+import { useInlineEdit } from "@/hooks/use-inline-edit";
+import { useSlashCommand } from "@/hooks/use-slash-command";
+import { useLabelSnippet } from "@/hooks/use-label-snippet";
+import {
+  buildRefineContext,
+  buildFlowContext,
+  findLinkedNoteContent,
+  resolveSnipTargetNoteId,
+  FORMAT_TO_PLATFORM,
+} from "@/lib/piece-ai";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
+import { PieceRefineMenu } from "./piece-refine-menu";
 
 const FORMAT_LABELS: Record<ContentFormat, string> = {
   tweet: "X",
@@ -18,12 +31,6 @@ const FORMAT_LABELS: Record<ContentFormat, string> = {
   essay: "Essay",
   script: "Script",
   other: "Other",
-};
-
-const FORMAT_TO_PLATFORM: Partial<Record<ContentFormat, PublishPlatform>> = {
-  tweet: "tweet",
-  linkedin: "linkedin",
-  substack: "substack",
 };
 
 const STATUS_LABELS: Record<ContentPiece["status"], string> = {
@@ -114,10 +121,28 @@ export function PieceCard({
   const markPieceSeen = useContentStore((s) => s.markPieceSeen);
   const cyclePiecePriority = useContentStore((s) => s.cyclePiecePriority);
   const setPiecePriority = useContentStore((s) => s.setPiecePriority);
+  const ideas = useContentStore((s) => s.ideas);
+  const allPieces = useContentStore((s) => s.pieces);
+  const notes = useDataStore((s) => s.notes);
+  const addSnippet = useDataStore((s) => s.addSnippet);
+  const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const showToast = useToastStore((s) => s.showToast);
+  const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
+  const { generateStream, enabled: slashEnabled } = useSlashCommand();
+  const { labelSnippet } = useLabelSnippet();
+  const idea = ideas[piece.ideaId];
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [priorityMenuOpen, setPriorityMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  // Flow (⌘⏎ / "Draft with Flow"): streamedBody mirrors the long-form
+  // editor's streamingContent pattern (editor.tsx) — chunks accumulate in
+  // local state and only commit to the store (updatePiece) once generation
+  // finishes, so IndexedDB isn't written on every animation frame.
+  const [flowGenerating, setFlowGenerating] = useState(false);
+  const [streamedBody, setStreamedBody] = useState<string | null>(null);
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -128,7 +153,7 @@ export function PieceCard({
 
   useEffect(() => {
     resize();
-  }, [piece.body, resize]);
+  }, [piece.body, streamedBody, resize]);
 
   useEffect(() => {
     // Only drive focus programmatically (and jump the cursor to the end)
@@ -156,15 +181,122 @@ export function PieceCard({
     [piece.id, updatePiece],
   );
 
+  // Flow: draft this piece from scratch via the existing generation path
+  // (use-slash-command's generateStream — same provider/model plumbing the
+  // long-form editor's "/" trigger uses, just with a piece-shaped context;
+  // see buildFlowContext in piece-ai.ts). Triggered by ⌘⏎ in the textarea or
+  // the ⋯ menu's "Draft with Flow" item.
+  const handleFlowGenerate = useCallback(() => {
+    if (!slashEnabled || flowGenerating) return;
+    const linkedNoteContent = findLinkedNoteContent(piece.ideaId, Object.values(allPieces), notes);
+    const ctx = buildFlowContext({ format: piece.format, idea, linkedNoteContent });
+    const baseBody = piece.body ?? "";
+
+    setFlowGenerating(true);
+    setStreamedBody(baseBody);
+
+    generateStream(
+      ctx.contextAbove,
+      "",
+      ctx.goal,
+      "",
+      "",
+      ctx.remember,
+      ctx.instruction,
+      {
+        onChunk: (accumulated) => {
+          setStreamedBody(baseBody ? `${baseBody}\n\n${accumulated}` : accumulated);
+        },
+        onDone: (final) => {
+          const finalBody = baseBody ? `${baseBody}\n\n${final}` : final;
+          updatePiece(piece.id, { body: finalBody });
+          setStreamedBody(null);
+          setFlowGenerating(false);
+        },
+        onError: () => {
+          setStreamedBody(null);
+          setFlowGenerating(false);
+        },
+      },
+      piece.id,
+      idea?.voiceId,
+    );
+  }, [slashEnabled, flowGenerating, piece, allPieces, notes, idea, generateStream, updatePiece]);
+
   const handleTextareaKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Escape") {
         e.preventDefault();
         textareaRef.current?.blur();
         onExitEdit();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleFlowGenerate();
       }
     },
-    [onExitEdit],
+    [onExitEdit, handleFlowGenerate],
+  );
+
+  // Refine: context-aware edit of the current textarea selection, routed
+  // through the existing useInlineEdit flow. See buildRefineContext in
+  // piece-ai.ts for how before/after context, the idea's title/summary, the
+  // voice chain (idea.voiceId -> default — a piece has no voiceId of its
+  // own), and the platform/char-limit hint are assembled.
+  const handleRefineEdit = useCallback(
+    async (instruction: string, selectionStart: number, selectionEnd: number): Promise<string | null> => {
+      if (!inlineEditEnabled) return null;
+      const body = piece.body ?? "";
+      const selectedText = body.slice(selectionStart, selectionEnd);
+      if (!selectedText.trim()) return null;
+      const ctx = buildRefineContext({
+        format: piece.format,
+        body,
+        selectionStart,
+        selectionEnd,
+        idea,
+      });
+      return inlineEdit(
+        selectedText,
+        ctx.contextBefore,
+        ctx.contextAfter,
+        ctx.goal,
+        "",
+        "",
+        ctx.remember,
+        instruction,
+        piece.id,
+        ctx.voiceId,
+      );
+    },
+    [inlineEditEnabled, piece, idea, inlineEdit],
+  );
+
+  // Snip out: lifts the selection into the Snip Bar via the existing
+  // addSnippet + labelSnippet path, tagged with this piece's ideaId. A piece
+  // has no note of its own (short-form body is inline), so the destination
+  // note is resolved by resolveSnipTargetNoteId — see its doc comment in
+  // piece-ai.ts for the fallback chain and why this doesn't touch the data
+  // model.
+  const handleRefineSnip = useCallback(
+    (selectionStart: number, selectionEnd: number) => {
+      const body = piece.body ?? "";
+      const selectedText = body.slice(selectionStart, selectionEnd);
+      if (!selectedText.trim()) return;
+
+      const noteIds = new Set(Object.keys(notes));
+      const targetNoteId = resolveSnipTargetNoteId(piece.ideaId, Object.values(allPieces), noteIds, activeNoteId);
+      if (!targetNoteId) {
+        showToast("Link this idea to a note, or open one, before snipping.");
+        return;
+      }
+
+      const snippetId = addSnippet(targetNoteId, selectedText, undefined, piece.ideaId);
+      labelSnippet(snippetId, selectedText, idea?.summary ?? "", idea?.title ?? "", targetNoteId);
+
+      const nextBody = body.slice(0, selectionStart) + body.slice(selectionEnd);
+      updatePiece(piece.id, { body: nextBody });
+    },
+    [piece, notes, allPieces, activeNoteId, addSnippet, idea, labelSnippet, showToast, updatePiece],
   );
 
   const footer = charFooter(piece);
@@ -180,6 +312,7 @@ export function PieceCard({
 
   return (
     <div
+      ref={cardRef}
       data-piece-card
       data-piece-id={piece.id}
       onClick={onFocusCard}
@@ -260,20 +393,32 @@ export function PieceCard({
       </div>
 
       {/* Body — plain, auto-growing textarea. Not Tiptap: short-form content is
-          byte-exact, no markdown rendering. */}
+          byte-exact, no markdown rendering. During Flow generation the value
+          follows streamedBody (local state) instead of the store, matching
+          the long-form editor's streamingContent pattern — see
+          handleFlowGenerate. */}
       <textarea
         ref={textareaRef}
         data-piece-textarea
         tabIndex={-1}
-        value={piece.body ?? ""}
+        value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
         onChange={handleBodyChange}
         onFocus={handleTextareaFocus}
         onBlur={onExitEdit}
         onKeyDown={handleTextareaKeyDown}
-        placeholder="Write the piece..."
+        readOnly={flowGenerating}
+        placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
         className="shortform-piece-textarea w-full resize-none bg-transparent outline-none text-[14px] leading-relaxed text-text-primary placeholder:text-text-faint font-[family-name:var(--font-body)]"
         rows={1}
       />
+      {inlineEditEnabled && !flowGenerating && (
+        <PieceRefineMenu
+          textareaRef={textareaRef}
+          containerRef={cardRef}
+          onEdit={handleRefineEdit}
+          onSnip={handleRefineSnip}
+        />
+      )}
 
       {/* Footer */}
       <div className="flex items-center gap-3 mt-2.5">
@@ -338,6 +483,19 @@ export function PieceCard({
                     ))}
                   </div>
                 )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    setPriorityMenuOpen(false);
+                    handleFlowGenerate();
+                  }}
+                  disabled={!slashEnabled || flowGenerating}
+                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
+                  title="Generate a first draft for this piece with AI (⌘⏎)"
+                >
+                  Draft with Flow
+                </button>
                 <div className="border-t border-border mt-1 pt-1">
                   <button
                     onClick={(e) => {
