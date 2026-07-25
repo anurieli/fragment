@@ -7,7 +7,7 @@ Fragment is the content store your agents write into. An agent (Claude Code, Cod
 ## The data model in 30 seconds
 
 - **Idea** — a container for one line of thinking. Ideas can nest one level deep (a "North Star" idea with sub-ideas; max depth 2). Ideas have priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned.
-- **ContentPiece** — one publishable unit inside an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, or `other`; `status` flows `inbox → in-progress → ready → published`. Agent-pushed pieces always start in `inbox`. A piece's `created_at` is its canonical age — the inbox surfaces how long a piece has been waiting.
+- **ContentPiece** — one unit inside an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` flows `inbox → in-progress → ready → published`. A piece can never exist without an idea — an idea is the relatable, learnable thought a piece is built on, and every piece names its idea. `script` is long-form content that is used elsewhere rather than published from Fragment (video scripts, talk notes); the publish menu does not apply to it. Agent-pushed pieces always start in `inbox`. A piece's `created_at` is its canonical age — the inbox surfaces how long a piece has been waiting.
 - **Resource** — a link, note, or asset attached to an idea or a piece (inspiration, sources). Children inherit their parents' resources at read time.
 
 ## Handoff format: markdown + YAML frontmatter
@@ -64,7 +64,7 @@ That's what we built. 🧵 below.
 | Field | Required | Notes |
 |---|---|---|
 | `fragment` | yes | Contract version. Must be `1`. |
-| `format` | yes | `linkedin` \| `tweet` \| `substack` \| `essay` \| `other` |
+| `format` | yes | `linkedin` \| `tweet` \| `substack` \| `essay` \| `script` \| `other` |
 | `idea_id` / `idea_title` | one of | `idea_id` targets an existing idea (import fails if it doesn't exist). `idea_title` matches an existing idea by title (case/whitespace-insensitive) or creates a new root idea. |
 | `idea_summary` | no | Used only when a new idea is created. |
 | `id` | no | Piece id. Provide one to make re-pushes idempotent; otherwise Fragment generates it. |

@@ -12,6 +12,7 @@ export const CONTENT_FORMATS = [
   "tweet",
   "substack",
   "essay",
+  "script",
   "other",
 ] as const;
 export type ContentFormat = (typeof CONTENT_FORMATS)[number];
