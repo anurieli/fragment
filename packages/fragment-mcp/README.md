@@ -1,0 +1,107 @@
+# fragment-mcp
+
+An MCP server + CLI that lets any agent (Claude Code, Codex, Hermes, or anything that speaks MCP) push
+content into [Fragment](../../README.md)'s inbox: create an idea, drop a draft piece under it, check on
+what's queued, and mark a piece published once it's actually been posted.
+
+It is a thin, validated wrapper around Fragment's public agent contract — see
+[`docs/AGENT-API.md`](../../docs/AGENT-API.md) at the repo root for the handoff format this package writes,
+and [`src/lib/content-engine/`](../../src/lib/content-engine/) for the zod schemas and types it reuses
+rather than reimplements.
+
+## Install
+
+Not published to npm yet. Until it is, register it from a local path:
+
+```bash
+claude mcp add fragment-mcp -- node /absolute/path/to/fragment/packages/fragment-mcp/dist/packages/fragment-mcp/src/bin.js
+```
+
+(Build first: `npm install && npm run build` inside this directory.) Once published, the same thing becomes:
+
+```bash
+claude mcp add fragment-mcp -- npx fragment-mcp
+```
+
+## Tools
+
+| Tool | Args | Returns | Notes |
+|---|---|---|---|
+| `create_idea` | `title`, `summary?`, `agent?`, `parentId?` | `{ ideaId, title, parentId }` | Ideas nest one level deep (max depth 2); `parentId` must point at a root idea. |
+| `add_piece` | `ideaId?` or `ideaTitle?`, `format`, `title?`, `content`, `priority?`, `supersedes?`, `resources?`, `scheduledAt?`, `agent?`, `model?` | `{ pieceId, ideaId }` | Append-only — always creates a **new** piece file, never edits an existing one. A re-draft passes `supersedes: <old pieceId>`. Lands with `status: inbox` regardless of what's passed. |
+| `list_ideas` | `status?` | `{ ideas: [...] }` | Each idea includes per-status piece counts (`counts`) and a `total`, computed from what's currently on disk. If `status` is set, only ideas with at least one piece in that status are returned — but `counts` still shows the full breakdown. |
+| `get_piece` | `pieceId` | the piece, including its current effective `status` | |
+| `update_status` | `pieceId`, `status` | `{ pieceId, status }` | **Only `"published"` is accepted.** Every other status is a user verdict made inside Fragment — the tool rejects with a clear error rather than silently no-opping. |
+
+All tool inputs are validated against the contract's own zod schemas (`pieceHandoffJsonSchema` for
+`add_piece`, plus the shared field schemas) before anything touches disk.
+
+## Inbox directory layout (phase 1: file transport)
+
+```
+~/.fragment/inbox/                      (override: FRAGMENT_INBOX_DIR)
+├── <ideaId>/
+│   ├── idea.json                       idea manifest, written once by create_idea / the first add_piece
+│   │                                    that resolves to a new idea
+│   └── <pieceId>.md                    one file per piece, contract frontmatter + byte-exact body
+├── .imported/<ideaId>/<pieceId>.md     where the running Fragment app moves a piece file once imported
+└── .status.jsonl                       append-only log: {"pieceId","status","at","by"}\n per line
+```
+
+- `add_piece` never overwrites: every call mints a fresh id and writes a new file. That's the whole
+  append-only guarantee — there's no file to collide with.
+- `update_status` never edits a piece file in place either. It appends a line to `.status.jsonl`; the
+  piece's *effective* status is the latest matching entry in that log, falling back to the status baked
+  into the piece file (always `inbox`, since that's the only status an agent can ever write) if there is
+  no entry.
+- **Reads are eventually consistent.** `list_ideas` and `get_piece` reconstruct current state by scanning
+  both `<ideaId>/` and `.imported/<ideaId>/` for piece files and layering `.status.jsonl` on top. If the
+  Fragment app is mid-import, or another agent just wrote a file, a read may briefly lag reality — there is
+  no locking or transaction across the two processes.
+
+## CLI mode
+
+```bash
+fragment-mcp push <file.md>
+```
+
+Validates the file as a contract handoff (same `parsePieceFile` the app itself uses) and writes it into
+the inbox exactly like `add_piece` would. Prints:
+
+```
+queued 1 piece(s); open Fragment to import.
+```
+
+## Hosted transport (M2 seam)
+
+`src/http-transport.ts` implements the same `Transport` interface against a `{ baseUrl, apiKey }` config.
+Every method currently rejects with a clear "not implemented" error — it exists to mark the exact seam
+where the hosted Fragment API (M2) plugs in, so the MCP tools and CLI never have to change, only which
+`Transport` gets constructed at startup.
+
+## Package build (why the tsconfig looks the way it does)
+
+This package doesn't duplicate the content-engine contract — `src/*.ts` imports it directly via a relative
+path (`../../../src/lib/content-engine/...`). Since a published npm package only ships what's inside its
+own directory, `tsconfig.json` sets `rootDir: "../.."` (the repo root) and extends `include` to also match
+`../../src/lib/content-engine/**/*.ts`, so `tsc` compiles those files as part of *this* package's build.
+The emitted layout preserves that repo-root-relative structure:
+
+```
+dist/
+├── packages/fragment-mcp/src/...    this package's own compiled output (bin.js, index.js, ...)
+└── src/lib/content-engine/...       the contract, compiled alongside it
+```
+
+The relative distance between the two is unchanged by the extra nesting, so the compiled imports still
+resolve correctly at runtime — `bin.js` is what `package.json`'s `bin` field points at. Building this
+package is self-contained: `npm run build` never touches the root of the repo, and the root's own
+`tsconfig.json` excludes `packages/` so the root `tsc --noEmit` never sees this package's build output.
+
+## Development
+
+```bash
+npm install   # inside this directory only — never touches the repo root's package.json/lockfile
+npm run build # tsc -> dist/
+npm test      # vitest run, own vitest.config.ts (the root's excludes packages/)
+```
