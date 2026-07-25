@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample } from "./types";
+import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview } from "./types";
 import type { Idea, ContentPiece, Resource } from "./content-engine";
 
 class FragmentDB extends Dexie {
@@ -15,6 +15,7 @@ class FragmentDB extends Dexie {
   ideas!: Table<Idea, string>;
   contentPieces!: Table<ContentPiece, string>;
   resources!: Table<Resource, string>;
+  reviews!: Table<StoredReview, string>;
 
   constructor() {
     super("fragment");
@@ -274,6 +275,24 @@ class FragmentDB extends Dexie {
       contentPieces:
         "id, ideaId, noteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
       resources: "id, ownerId, ownerType, createdAt",
+    });
+
+    // Pass: review history — one row per imported reviewer return.
+    this.version(18).stores({
+      notes: "id, updatedAt",
+      snippets: "id, noteId, order, ideaId",
+      settings: "id",
+      noteVersions: "id, noteId, createdAt",
+      images: "id, noteId, createdAt",
+      apiLogs: "id, timestamp, route, provider, status, noteId, synced",
+      feedbackQueue: "id, status, createdAt",
+      voices: "id, updatedAt",
+      voiceSamples: "id, voiceId, createdAt",
+      ideas: "id, parentId, pinnedAt, priority, updatedAt, createdAt",
+      contentPieces:
+        "id, ideaId, noteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
+      resources: "id, ownerId, ownerType, createdAt",
+      reviews: "id, noteId, receivedAt",
     });
   }
 }

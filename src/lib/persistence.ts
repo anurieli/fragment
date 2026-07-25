@@ -1,5 +1,5 @@
 import { db } from "./db";
-import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample } from "./types";
+import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample, StoredReview } from "./types";
 import { logPersistence, summarizeNotes } from "./persistence-logger";
 import { backupNoteToFs, removeNoteFromFs, loadNotesFromFs } from "./fs-backup";
 import {
@@ -452,6 +452,36 @@ export async function saveResource(resource: Resource): Promise<void> {
 export async function deleteResourceRow(id: string): Promise<void> {
   try {
     await db.resources.delete(id);
+  } catch {
+    // best-effort
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Pass (ARI-165) — review history. Each imported `.fragment-review.json`
+// becomes one row, keyed by the note it was returned for.
+// ---------------------------------------------------------------------------
+
+export async function loadReviewsForNote(noteId: string): Promise<StoredReview[]> {
+  try {
+    return await db.reviews.where("noteId").equals(noteId).reverse().sortBy("receivedAt");
+  } catch {
+    return [];
+  }
+}
+
+export async function saveReview(review: StoredReview): Promise<void> {
+  try {
+    await db.reviews.put(review);
+  } catch {
+    logPersistence("review_save_fail", { noteId: review.noteId, reviewId: review.id });
+  }
+}
+
+export async function deleteReview(id: string): Promise<void> {
+  try {
+    await db.reviews.delete(id);
   } catch {
     // best-effort
   }
