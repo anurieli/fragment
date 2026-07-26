@@ -32,7 +32,10 @@ src-tauri/target/
 .idea/
 
 # agent state / local tooling (not part of the app)
-.claude/
+.claude/*
+!.claude/skills
+.claude/skills/*
+!.claude/skills/fragment-push
 .agents/
 
 # internal docs — kept locally and in the private fragment-desktop repo,
