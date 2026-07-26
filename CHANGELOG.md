@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Fix: Draft with Flow left a piece stuck read-only (ARI-184)
+
+**Commit**: `d7e445d` on `main`
+
+**Summary**: Using Flow on a piece could lock it — the only way to edit that piece again was reloading the page. `flowGenerating` holds the textarea `readOnly` while a generation streams, and it was cleared inside `generateStream`'s `onDone` / `onError`. But `useSlashCommand.generateStream` settles **neither** callback when a generation is aborted: both abort paths (an `AbortError` thrown mid-request, and the post-loop `if (!signal.aborted)` guard) return silently, deliberately, since an abort is the caller's own doing and there's no final text to hand back. It also never settles at all if the request just hangs. Either way the flag stayed on and the piece stayed read-only. Three fixes: the flag is now cleared from the returned promise's `.finally`, which runs on every path the hook can take; a **Stop** button appears in the piece footer while generating (mirroring the long-form editor's, and keeping whatever has already streamed); and a card that unmounts mid-stream aborts its own request rather than leaving one running against a piece nobody is looking at. Separately, `⌘⏎` with Flow switched off did nothing at all, which reads as a broken feature rather than an off one — it now points at the setting, and the disabled ⋯ item's tooltip gives the reason. The trap itself is documented on `StreamCallbacks`, so the next caller doesn't flip a flag on and clear it in a callback that may never fire.
+
+**Verification**: reproduced in a browser by intercepting `/api/generate` with a request that never resolves — the piece went read-only with Stop showing; clicking Stop cleared the state, the piece became editable again with no reload, typing was accepted, and the "Stopped — kept what was written" toast fired. `tsc --noEmit` and `npm run build` clean; 541 tests passing with the same 22 pre-existing `api-*` failures (ARI-132).
+
+**Files**: `src/components/shortform/piece-card.tsx`, `src/hooks/use-slash-command.ts`, `docs/FEATURES.md`
+
 ## 2026-07-26 - Fix: dropdown menus cut off at the bottom of the window (ARI-183)
 
 **Commit**: `20a0b2e` on `main`
