@@ -161,6 +161,29 @@ queued 1 piece(s); open Fragment to import.
 
 (Verified by actually running this against a scratch `FRAGMENT_INBOX_DIR` while writing this document — the frontmatter round-trips byte-exact through `parsePieceFile` → `serializePieceFile`.)
 
+### Delivery preflight: `fragment-mcp doctor`
+
+A write to the inbox directory is not the same as a piece the user will ever see — the running app is a separate process, and if its ingress gate refuses the user's browser origin, files pile up forever while every push "succeeds." `fragment-mcp doctor` answers the question that matters: *if I push now, will it arrive?*
+
+```bash
+fragment-mcp doctor      # full report; exit 1 when delivery is broken
+```
+
+It scans the inbox for pending/imported evidence and probes the app's agent-inbox route, then reports one of three states:
+
+- **ok** — ingress is open for the probed origin. A backlog is reported (pieces only import while the app is open) but isn't a failure.
+- **app_down** — nothing answered. Legitimate: pushes queue on disk until the app comes back. Doesn't block.
+- **ingress_blocked** — the app answered 404 for the probed origin: misconfiguration, nothing pushed will ever import. `fragment-mcp push` and the `create_idea`/`add_piece` MCP tools **refuse** in this state instead of reporting a success the user will never see.
+
+Two env vars control the probe:
+
+| Var | Meaning |
+|---|---|
+| `FRAGMENT_APP_URL` | Where the app listens locally. Defaults to `http://127.0.0.1:3011`. |
+| `FRAGMENT_APP_ORIGIN` | The origin the human actually opens in their browser (reverse proxy / tailnet / LAN name). When set, the probe requests **this** URL — the same Host the gate judges. Without it the probe tests localhost, which can pass while the real browser is being refused, which is exactly the silent failure this exists to catch. Set it on the process that spawns fragment-mcp (your `claude mcp add --env ...` / agent config). |
+
+Implementation note for anyone tempted to "optimize" this into a Host-header spoof against the local URL: undici silently drops a manually set `Host` header, so a header-spoofed probe tests localhost and returns a false pass. The probe must request the real origin.
+
 ## Security: enabling ingress
 
 The HTTP routes above (and the LinkedIn-publish proxy) are closed by default and gated by three env vars, all resolved server-side in `src/lib/agent-inbox/gate.ts`:
