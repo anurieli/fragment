@@ -12,7 +12,7 @@
 import { mkdir, readdir, readFile, appendFile, rename, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentInboxFile, AgentResourceFile } from "./import";
+import type { AgentIdeaFile, AgentInboxFile, AgentResourceFile } from "./import";
 import { IMPORTED_DIR_NAME, STATUS_LOG_FILE_NAME, resolveInboxRelPath } from "./paths";
 
 const SKIP_ENTRY_NAMES = new Set([IMPORTED_DIR_NAME, STATUS_LOG_FILE_NAME]);
@@ -103,6 +103,40 @@ export async function listPendingResourceFiles(inboxDir: string): Promise<AgentR
       });
     } catch {
       // no resources.jsonl for this idea, or unreadable mid-scan — skip
+    }
+  }
+  return results;
+}
+
+/**
+ * List every `<ideaId>/idea.json` manifest directly under `inboxDir` (one
+ * level, same layout rule as resources.jsonl). Always returned in full —
+ * ingestion is idempotent by idea id, and manifests are never acked/moved
+ * because fragment-mcp still reads them for list_ideas/get_piece.
+ */
+export async function listIdeaFiles(inboxDir: string): Promise<AgentIdeaFile[]> {
+  const resolvedRoot = path.resolve(inboxDir);
+  let entries;
+  try {
+    entries = await readdir(resolvedRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const results: AgentIdeaFile[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+
+    const filePath = path.join(resolvedRoot, entry.name, "idea.json");
+    try {
+      const content = await readFile(filePath, "utf-8");
+      results.push({
+        ideaId: entry.name,
+        relPath: path.relative(resolvedRoot, filePath).split(path.sep).join("/"),
+        content,
+      });
+    } catch {
+      // no idea.json for this directory, or unreadable mid-scan — skip
     }
   }
   return results;

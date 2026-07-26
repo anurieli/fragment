@@ -196,6 +196,23 @@ export const resourceLineSchema = z.object({
 });
 export type ResourceLine = z.infer<typeof resourceLineSchema>;
 
+// An idea manifest (`<inboxDir>/<ideaId>/idea.json`): what fragment-mcp's
+// `create_idea` tool writes, and what the agent-inbox importer reads back so
+// a piece that references an agent-created `idea_id` can resolve. Additive
+// within `fragment: 1` — the manifest existed since ARI-151; ingesting it is
+// the new part. Tolerant on optionals so a hand-written manifest imports.
+export const ideaFileSchema = z.object({
+  id: idSchema,
+  title: z.string().min(1),
+  summary: z.string().optional(),
+  parentId: idSchema.nullable().optional(),
+  priority: prioritySchema.optional(),
+  origin: z.enum(PIECE_ORIGINS).optional(),
+  createdAt: timestampSchema.optional(),
+  updatedAt: timestampSchema.optional(),
+});
+export type IdeaFile = z.infer<typeof ideaFileSchema>;
+
 // ---------------------------------------------------------------------------
 // Piece handoff: the canonical shape an agent submission normalizes into,
 // whether it arrived as a frontmatter .md file or a JSON API body.

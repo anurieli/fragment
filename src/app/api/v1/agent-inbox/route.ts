@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isHosted } from "@/lib/edition";
 import { gateAgentInbox } from "@/lib/agent-inbox/gate";
 import { getInboxDir } from "@/lib/agent-inbox/paths";
-import { listPendingHandoffFiles, listPendingResourceFiles } from "@/lib/agent-inbox/server-fs";
+import { listIdeaFiles, listPendingHandoffFiles, listPendingResourceFiles } from "@/lib/agent-inbox/server-fs";
 
 // Reads the local filesystem — never runs on the edge runtime.
 export const runtime = "nodejs";
@@ -50,9 +50,10 @@ export async function GET(req: NextRequest) {
     inboxDirOverride: process.env.FRAGMENT_INBOX_DIR,
   });
 
-  const [files, resourceFiles] = await Promise.all([
+  const [files, resourceFiles, ideaFiles] = await Promise.all([
     listPendingHandoffFiles(inboxDir, sinceMs),
     listPendingResourceFiles(inboxDir),
+    listIdeaFiles(inboxDir),
   ]);
-  return NextResponse.json({ files, resourceFiles });
+  return NextResponse.json({ files, resourceFiles, ideaFiles });
 }

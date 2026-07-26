@@ -3,8 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isTauri } from "@/lib/ai-client";
-import { importHandoffFiles, importResourceLines, type AgentInboxFile, type AgentResourceFile } from "@/lib/agent-inbox/import";
-import { ackTauriImportedFiles, readTauriInboxFiles, readTauriResourceFiles } from "@/lib/agent-inbox/tauri-inbox";
+import {
+  importHandoffFiles,
+  importIdeaFiles,
+  importResourceLines,
+  type AgentIdeaFile,
+  type AgentInboxFile,
+  type AgentResourceFile,
+} from "@/lib/agent-inbox/import";
+import { ackTauriImportedFiles, readTauriIdeaFiles, readTauriInboxFiles, readTauriResourceFiles } from "@/lib/agent-inbox/tauri-inbox";
 import { generateId } from "@/lib/utils";
 import { saveIdea, savePiece, saveResource } from "@/lib/persistence";
 import { useContentStore } from "@/stores/content-store";
@@ -14,6 +21,7 @@ const POLL_INTERVAL_MS = 10_000;
 async function fetchIngressFiles(sinceMs: number | undefined): Promise<{
   files: AgentInboxFile[];
   resourceFiles: AgentResourceFile[];
+  ideaFiles: AgentIdeaFile[];
   gateOpen: boolean;
 }> {
   const params = new URLSearchParams();
@@ -22,13 +30,17 @@ async function fetchIngressFiles(sinceMs: number | undefined): Promise<{
 
   const res = await fetch(`/api/v1/agent-inbox${query ? `?${query}` : ""}`);
   if (res.status === 404) {
-    return { files: [], resourceFiles: [], gateOpen: false };
+    return { files: [], resourceFiles: [], ideaFiles: [], gateOpen: false };
   }
   if (!res.ok) {
-    return { files: [], resourceFiles: [], gateOpen: true };
+    return { files: [], resourceFiles: [], ideaFiles: [], gateOpen: true };
   }
-  const body = (await res.json()) as { files: AgentInboxFile[]; resourceFiles: AgentResourceFile[] };
-  return { files: body.files, resourceFiles: body.resourceFiles, gateOpen: true };
+  const body = (await res.json()) as {
+    files: AgentInboxFile[];
+    resourceFiles: AgentResourceFile[];
+    ideaFiles?: AgentIdeaFile[];
+  };
+  return { files: body.files, resourceFiles: body.resourceFiles, ideaFiles: body.ideaFiles ?? [], gateOpen: true };
 }
 
 async function ackIngress(relPaths: readonly string[]): Promise<void> {
@@ -71,25 +83,37 @@ export function useAgentInbox() {
     try {
       let files: AgentInboxFile[];
       let resourceFiles: AgentResourceFile[];
+      let ideaFiles: AgentIdeaFile[];
 
       if (isTauri()) {
         setIngressAvailable(true);
-        [files, resourceFiles] = await Promise.all([readTauriInboxFiles(), readTauriResourceFiles()]);
+        [files, resourceFiles, ideaFiles] = await Promise.all([
+          readTauriInboxFiles(),
+          readTauriResourceFiles(),
+          readTauriIdeaFiles(),
+        ]);
       } else {
-        const { files: fetched, resourceFiles: fetchedResources, gateOpen } = await fetchIngressFiles(
-          cursorRef.current,
-        );
-        setIngressAvailable(gateOpen);
-        if (!gateOpen) return;
-        files = fetched;
-        resourceFiles = fetchedResources;
+        const fetched = await fetchIngressFiles(cursorRef.current);
+        setIngressAvailable(fetched.gateOpen);
+        if (!fetched.gateOpen) return;
+        files = fetched.files;
+        resourceFiles = fetched.resourceFiles;
+        ideaFiles = fetched.ideaFiles;
       }
 
-      if (files.length === 0 && resourceFiles.length === 0) return;
+      if (files.length === 0 && resourceFiles.length === 0 && ideaFiles.length === 0) return;
 
       const contentState = useContentStore.getState();
+
+      // Idea manifests first, so pieces in this same batch that reference an
+      // agent-created ideaId resolve instead of erroring.
+      const ideaResult = importIdeaFiles(ideaFiles, {
+        existingIdeaIds: new Set(Object.keys(contentState.ideas)),
+        now: Date.now(),
+      });
+
       const result = importHandoffFiles(files, {
-        ideas: Object.values(contentState.ideas),
+        ideas: [...Object.values(contentState.ideas), ...ideaResult.ideasToCreate],
         pieces: Object.values(contentState.pieces),
         now: Date.now(),
         generateId,
@@ -100,14 +124,15 @@ export function useAgentInbox() {
         generateId,
       });
 
+      const allNewIdeas = [...ideaResult.ideasToCreate, ...result.ideasToCreate];
       if (
-        result.ideasToCreate.length > 0 ||
+        allNewIdeas.length > 0 ||
         result.piecesToUpsert.length > 0 ||
         resourceResult.resourcesToUpsert.length > 0
       ) {
         useContentStore.setState((s) => {
           const ideas = { ...s.ideas };
-          for (const idea of result.ideasToCreate) ideas[idea.id] = idea;
+          for (const idea of allNewIdeas) ideas[idea.id] = idea;
           const pieces = { ...s.pieces };
           for (const piece of result.piecesToUpsert) pieces[piece.id] = piece;
           const resources = { ...s.resources };
@@ -116,7 +141,7 @@ export function useAgentInbox() {
           return { ideas, pieces, resources };
         });
 
-        await Promise.all(result.ideasToCreate.map((idea) => saveIdea(idea)));
+        await Promise.all(allNewIdeas.map((idea) => saveIdea(idea)));
         await Promise.all(result.piecesToUpsert.map((piece) => savePiece(piece)));
         await Promise.all(result.resourcesToCreate.map((resource) => saveResource(resource)));
         await Promise.all(resourceResult.resourcesToUpsert.map((resource) => saveResource(resource)));

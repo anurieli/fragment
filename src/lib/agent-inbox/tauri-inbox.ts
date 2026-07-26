@@ -11,7 +11,7 @@
  * inbox location.
  */
 
-import type { AgentInboxFile, AgentResourceFile } from "./import";
+import type { AgentIdeaFile, AgentInboxFile, AgentResourceFile } from "./import";
 import { isTauri } from "@/lib/ai-client";
 
 const INBOX_REL_DIR = ".fragment/inbox";
@@ -75,6 +75,46 @@ export async function readTauriInboxFiles(): Promise<AgentInboxFile[]> {
         content,
         mtime: info.mtime ? info.mtime.getTime() : Date.now(),
       });
+    } catch {
+      // unreadable/vanished mid-scan — skip, picked up next poll
+    }
+  }
+  return files;
+}
+
+
+/** Read every idea's `idea.json` manifest from `~/.fragment/inbox` (one
+ * level). Best-effort, mirrors server-fs.ts's listIdeaFiles for the Tauri
+ * (direct fs) path. Never acked/moved — fragment-mcp still reads manifests
+ * for list_ideas/get_piece; ingestion is idempotent by idea id. */
+export async function readTauriIdeaFiles(): Promise<AgentIdeaFile[]> {
+  const fs = await getTauriFs();
+  if (!fs) return [];
+
+  try {
+    const rootExists = await fs.exists(INBOX_REL_DIR, { baseDir: fs.BaseDirectory.Home });
+    if (!rootExists) return [];
+  } catch {
+    return [];
+  }
+
+  let entries;
+  try {
+    entries = await fs.readDir(INBOX_REL_DIR, { baseDir: fs.BaseDirectory.Home });
+  } catch {
+    return [];
+  }
+
+  const files: AgentIdeaFile[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory || entry.name.startsWith(".")) continue;
+    const relPath = `${entry.name}/idea.json`;
+    const filePath = `${INBOX_REL_DIR}/${relPath}`;
+    try {
+      const exists = await fs.exists(filePath, { baseDir: fs.BaseDirectory.Home });
+      if (!exists) continue;
+      const content = await fs.readTextFile(filePath, { baseDir: fs.BaseDirectory.Home });
+      files.push({ ideaId: entry.name, relPath, content });
     } catch {
       // unreadable/vanished mid-scan — skip, picked up next poll
     }

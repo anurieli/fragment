@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import { gateAgentInbox } from "@/lib/agent-inbox/gate";
 import { resolveInboxRelPath } from "@/lib/agent-inbox/paths";
-import { importHandoffFiles, type AgentInboxFile } from "@/lib/agent-inbox/import";
+import { importHandoffFiles, importIdeaFiles, type AgentIdeaFile, type AgentInboxFile } from "@/lib/agent-inbox/import";
 import { serializePieceFile } from "@/lib/content-engine";
 import type { ContentPiece, Idea, PieceHandoff } from "@/lib/content-engine";
 
@@ -336,5 +336,120 @@ describe("importHandoffFiles", () => {
     const result = importHandoffFiles([file], { ideas: [], pieces: [], now: 5000, generateId: nextId });
 
     expect(result.piecesToUpsert[0]).toMatchObject({ status: "inbox", origin: "agent", seen: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// idea.json manifest ingestion + batch poison isolation
+// ---------------------------------------------------------------------------
+
+function makeIdeaFile(manifest: object, ideaId = "idea_agent1"): AgentIdeaFile {
+  return { ideaId, relPath: `${ideaId}/idea.json`, content: JSON.stringify(manifest) };
+}
+
+describe("importIdeaFiles", () => {
+  const manifest = {
+    id: "idea_agent1",
+    title: "Society is changing",
+    summary: "One loop runs it all.",
+    parentId: null,
+    priority: 0,
+    origin: "agent",
+    createdAt: 5000,
+    updatedAt: 5000,
+  };
+
+  it("creates an idea from a valid manifest", () => {
+    const result = importIdeaFiles([makeIdeaFile(manifest)], { existingIdeaIds: new Set(), now: 9000 });
+    expect(result.ideasToCreate).toHaveLength(1);
+    expect(result.ideasToCreate[0]).toMatchObject({
+      id: "idea_agent1",
+      title: "Society is changing",
+      parentId: null,
+      origin: "agent",
+      createdAt: 5000,
+    });
+  });
+
+  it("never overwrites an idea the store already knows", () => {
+    const result = importIdeaFiles([makeIdeaFile(manifest)], {
+      existingIdeaIds: new Set(["idea_agent1"]),
+      now: 9000,
+    });
+    expect(result.ideasToCreate).toHaveLength(0);
+    expect(result.skips[0]?.reason).toBe("unchanged");
+  });
+
+  it("skips malformed JSON and invalid manifests without failing the batch", () => {
+    const result = importIdeaFiles(
+      [
+        { ideaId: "idea_bad", relPath: "idea_bad/idea.json", content: "{not json" },
+        makeIdeaFile({ id: "idea_x" }, "idea_x"), // missing title
+        makeIdeaFile(manifest),
+      ],
+      { existingIdeaIds: new Set(), now: 9000 },
+    );
+    expect(result.ideasToCreate.map((i) => i.id)).toEqual(["idea_agent1"]);
+    expect(result.skips.filter((skip) => skip.reason === "parse-error")).toHaveLength(2);
+  });
+
+  it("drops an unknown parentId to root rather than dangling", () => {
+    const result = importIdeaFiles(
+      [makeIdeaFile({ ...manifest, parentId: "idea_missing" })],
+      { existingIdeaIds: new Set(), now: 9000 },
+    );
+    expect(result.ideasToCreate[0]?.parentId).toBeNull();
+  });
+
+  it("keeps a parentId that exists in the store", () => {
+    const result = importIdeaFiles(
+      [makeIdeaFile({ ...manifest, parentId: "idea_parent" })],
+      { existingIdeaIds: new Set(["idea_parent"]), now: 9000 },
+    );
+    expect(result.ideasToCreate[0]?.parentId).toBe("idea_parent");
+  });
+});
+
+describe("importHandoffFiles poison isolation", () => {
+  it("a piece referencing an unknown ideaId costs only that file, not the batch", () => {
+    const poison = makeFile(
+      makeHandoff({ ideaTitle: undefined, ideaId: "idea_nowhere" }),
+      "idea_nowhere/pc_1.md",
+    );
+    const healthy = makeFile(makeHandoff(), "healthy.md");
+
+    const result = importHandoffFiles([poison, healthy], {
+      ideas: [],
+      pieces: [],
+      now: 9000,
+      generateId: nextId,
+    });
+
+    expect(result.skips).toEqual([
+      expect.objectContaining({ relPath: "idea_nowhere/pc_1.md", reason: "import-error" }),
+    ]);
+    expect(result.acks).toEqual(["healthy.md"]);
+    expect(result.piecesToUpsert).toHaveLength(1);
+  });
+
+  it("a piece resolves against an idea ingested from a manifest in the same batch", () => {
+    const ideaResult = importIdeaFiles(
+      [makeIdeaFile({ id: "idea_agent1", title: "Society is changing" })],
+      { existingIdeaIds: new Set(), now: 9000 },
+    );
+    const piece = makeFile(
+      makeHandoff({ ideaTitle: undefined, ideaId: "idea_agent1" }),
+      "idea_agent1/pc_1.md",
+    );
+
+    const result = importHandoffFiles([piece], {
+      ideas: ideaResult.ideasToCreate,
+      pieces: [],
+      now: 9000,
+      generateId: nextId,
+    });
+
+    expect(result.skips).toEqual([]);
+    expect(result.piecesToUpsert[0]?.ideaId).toBe("idea_agent1");
   });
 });
