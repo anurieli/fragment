@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { Flag, MoreHorizontal, ChevronDown } from "lucide-react";
 import type { ContentFormat, ContentPiece, Priority } from "@/lib/content-engine";
 import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml, publishPendingState } from "@/lib/publish";
@@ -147,6 +148,10 @@ export function PieceCard({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const overflowAnchorRef = useRef<HTMLDivElement>(null);
+  const overflowMenuRef = useRef<HTMLDivElement>(null);
+  // The footer this hangs off is pinned to the bottom of the page.
+  const menuPlacement = useMenuPlacement(menuOpen, overflowAnchorRef, overflowMenuRef);
   const [priorityMenuOpen, setPriorityMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
   // Flow (⌘⏎ / "Draft with Flow"): streamedBody mirrors the long-form
@@ -503,7 +508,7 @@ export function PieceCard({
         <div className="ml-auto flex items-center gap-1.5">
           <PieceShareMenu piece={piece} />
 
-          <div className="relative">
+          <div ref={overflowAnchorRef} className="relative">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -517,7 +522,9 @@ export function PieceCard({
 
             {menuOpen && (
               <div
-                className="absolute right-0 top-full mt-1 z-20 w-40 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1"
+                ref={overflowMenuRef}
+                className={`absolute right-0 ${menuPlacement.className} z-20 w-40 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+                style={{ maxHeight: menuPlacement.maxHeight || undefined }}
                 onMouseLeave={() => { setMenuOpen(false); setPriorityMenuOpen(false); }}
               >
                 <button
@@ -586,7 +593,7 @@ export function PieceCard({
             )}
 
             {resourcesOpen && (
-              <PieceResourcesPopover pieceId={piece.id} onClose={() => setResourcesOpen(false)} />
+              <PieceResourcesPopover pieceId={piece.id} anchorRef={overflowAnchorRef} onClose={() => setResourcesOpen(false)} />
             )}
           </div>
         </div>

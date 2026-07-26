@@ -826,6 +826,8 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 
 **Resources & inheritance:** attach a link, note, or asset to an idea from the collapsible "Resources" rail at the top of the Pieces feed (or to a single piece from its card menu). A child idea's pieces see everything attached to their own idea *and* everything attached to the parent idea — inherited entries show a `from <parent idea>` tag and can't be removed or edited from the child's view (the source of truth stays on the parent).
 
+**Menus stay on screen.** Every dropdown that hangs off a low-sitting trigger — a piece's Share and ⋯ menus (their footer is pinned to the bottom of the page), the editor's Share menu, a sidebar idea's ⋯ menu — measures itself against the space above and below before opening (`src/hooks/use-menu-placement.ts`). It prefers opening downward, flips up when down doesn't fit and there's more room above, and caps its height either way so a menu taller than the window scrolls inside itself instead of putting its last item out of reach. Re-measured on resize, on scroll, and when the menu's own content grows (submenus, the inline "Mark as published…" and "Schedule…" forms).
+
 **Publish by copy:** each piece's **Share ▾** menu offers platform-appropriate actions:
 - **Copy for X / LinkedIn / Substack** — copies the piece's body formatted for that platform. Tweet and LinkedIn copies are byte-for-byte the raw text, not even trimmed. Substack copies a rich HTML flavor (for pasting into Substack's editor) plus a plain-text fallback. Every copy shows the toast "Copied — whitespace preserved."
 - **Open X composer** / **Open Substack editor** — opens that platform's own compose page in a new tab, pre-filled where the platform's URL scheme allows it (X only).
@@ -870,6 +872,8 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 - [ ] The caret stays exactly on the glyphs while typing markdown (no drift on a long wrapped line with bold and headings)
 - [ ] Undo (⌘Z), spellcheck and text selection still work inside a piece
 - [ ] The workspace row for the focused piece shows the gold rail; hovering a card lights its row
+- [ ] A piece's Share and ⋯ menus open upward when its footer sits at the window's edge, and never run off screen
+- [ ] The editor's Share menu and a sidebar idea's ⋯ menu do the same, scrolling inside themselves on a short window
 - [ ] The Pieces space opens on the Inbox filter when the idea has untriaged pieces, on All when it doesn't
 - [ ] Every inbox card shows the triage row; it disappears once the piece is triaged
 - [ ] Work on it / Ready to ship move the piece to that status and out of the Inbox filter

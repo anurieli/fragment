@@ -14,6 +14,7 @@ import {
   markdownToCleanHtml,
 } from "@/lib/publish";
 import { canPublishToLinkedIn, publishLinkedInPost, ComposioApiError } from "@/lib/composio/linkedin";
+import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -93,6 +94,10 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const [kitBusy, setKitBusy] = useState<"draft" | "schedule" | null>(null);
   const [linkedinBusy, setLinkedinBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  // A piece's footer is pinned to the bottom of its page, so this menu would
+  // open into the window's edge every single time without flipping.
+  const placement = useMenuPlacement(open, menuRef, dropdownRef);
 
   const updatePiece = useContentStore((s) => s.updatePiece);
   const setPieceStatus = useContentStore((s) => s.setPieceStatus);
@@ -293,8 +298,9 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-20 w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1"
-          style={{ animation: "fadeIn 0.12s ease-out" }}
+          ref={dropdownRef}
+          className={`absolute right-0 ${placement.className} z-20 w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+          style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
         >
           {platform && (
             <MenuButton onClick={handleCopy}>

@@ -1,13 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 import { ExternalLink, Plus } from "lucide-react";
+import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { useContentStore } from "@/stores/content-store";
 import { effectiveResourcesForPiece } from "@/stores/resources-selectors";
 
 interface PieceResourcesPopoverProps {
   pieceId: string;
   onClose: () => void;
+  /** The `relative` wrapper this popover is positioned against, so it can
+   * flip above the trigger when the card's footer sits at the window's edge. */
+  anchorRef: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -16,7 +20,9 @@ interface PieceResourcesPopoverProps {
  * accordingly) plus a lean attach-link form. Inherited entries aren't
  * removable from here — remove them from the owning idea's Resources rail.
  */
-export function PieceResourcesPopover({ pieceId, onClose }: PieceResourcesPopoverProps) {
+export function PieceResourcesPopover({ pieceId, onClose, anchorRef }: PieceResourcesPopoverProps) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const placement = useMenuPlacement(true, anchorRef, popoverRef);
   const pieces = useContentStore((s) => s.pieces);
   const ideas = useContentStore((s) => s.ideas);
   const resources = useContentStore((s) => s.resources);
@@ -51,10 +57,11 @@ export function PieceResourcesPopover({ pieceId, onClose }: PieceResourcesPopove
 
   return (
     <div
+      ref={popoverRef}
       onClick={(e) => e.stopPropagation()}
       onMouseLeave={onClose}
-      className="absolute right-0 top-full mt-1 z-20 w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl p-2.5"
-      style={{ animation: "fadeIn 0.12s ease-out" }}
+      className={`absolute right-0 ${placement.className} z-20 w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl p-2.5 overflow-y-auto`}
+      style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
     >
       <p className="text-[10px] uppercase tracking-wider text-text-faint px-0.5 pb-1.5">
         Resources — this piece&apos;s, plus what its idea shares down

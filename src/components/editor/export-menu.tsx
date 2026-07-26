@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail } from "lucide-react";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -47,7 +48,11 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
   const [kitDraftBusy, setKitDraftBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  // This menu hangs off a toolbar that can sit low in the window, and it's
+  // long enough (publish, copy, download, review) to run off the bottom.
+  const placement = useMenuPlacement(open, menuRef, dropdownRef);
   const { notes, createVersion } = useDataStore();
   const markNotePublishPending = useDataStore((s) => s.markNotePublishPending);
   const userProfile = useSettingsStore((s) => s.settings.userProfile);
@@ -221,8 +226,9 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-2 w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl z-20 overflow-hidden"
-          style={{ animation: "fadeIn 0.12s ease-out" }}
+          ref={dropdownRef}
+          className={`absolute right-0 ${placement.className} w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl z-20 overflow-y-auto`}
+          style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
         >
           <button
             onClick={handlePublishToSubstack}
