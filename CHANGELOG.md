@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Pieces read as formatted markdown, and a single piece is reachable again (ARI-174)
+
+**Commit**: `72a20e4` on `main`
+
+**Summary**: Three complaints from using the feed on real agent-pushed content, one root cause: it was a wall of raw text with no way to navigate to one item. **Rendering** — a card shows its body as formatted markdown (headings, bold, lists, links, blockquotes) and swaps to raw markdown in the plain textarea the moment you click in, so what you edit and publish stays byte-exact and the char count still counts the raw string. New `markdownToPreviewHtml` is the same markdown-it engine as the clipboard flavor with `breaks: true`, because a single newline in short-form is a line the author meant and X/LinkedIn post it verbatim; `html: false` keeps agent-pushed bodies from injecting markup. **Length** — bodies past ~340px clip with a Show more, measured from rendered height rather than guessed from character count. **Navigation** — clicking a piece in the idea workspace did nothing when the feed was already open; it now names the piece through a one-shot `revealPieceId`, and the feed focuses it, widens the filter to All if it was hidden, and scrolls it into view. Roving with J/K scrolls the focused card into view too (it never did). Panel row labels run through `markdownToPlainText` so a `## heading` reads as a title. Focus alone now clears the unseen dot, since a focused card is readable without editing it — requiring an edit left the inbox looking full of unread work that had been read.
+
+**Verification**: 4 new tests (preview breaks vs clipboard breaks, emphasis/heading/list rendering, HTML escaping); 499 passing with the same 22 pre-existing `api-*` failures (ARI-132); `tsc --noEmit` and `npm run build` clean. Driven in a browser on a markdown-heavy piece: rendered heading/bold/list/quote with the single line break intact and the char count still on the raw text, editing swaps to raw and back, a 30-paragraph piece clips at 340px and expands to 845px, and a click in the workspace scrolls the named card into focus. Deployed to the Olympus service.
+
+**Files**: `src/lib/publish/markdown.ts`, `src/lib/publish/index.ts`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/shortform-view.tsx`, `src/components/idea/idea-panel.tsx`, `src/stores/app-store.ts`, `src/app/globals.css`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `src/__tests__/publish.test.ts`
+
 ## 2026-07-26 - Idea workspace: a second column for what's inside the idea you're in (ARI-174)
 
 **Commit**: on `main`
