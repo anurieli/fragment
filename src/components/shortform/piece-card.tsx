@@ -141,7 +141,7 @@ export function PieceCard({
   const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
   const showToast = useToastStore((s) => s.showToast);
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
-  const { generateStream, enabled: slashEnabled } = useSlashCommand();
+  const { generateStream, abort: abortFlow, enabled: slashEnabled } = useSlashCommand();
   const { labelSnippet } = useLabelSnippet();
   const idea = ideas[piece.ideaId];
 
@@ -217,7 +217,13 @@ export function PieceCard({
   // see buildFlowContext in piece-ai.ts). Triggered by ⌘⏎ in the textarea or
   // the ⋯ menu's "Draft with Flow" item.
   const handleFlowGenerate = useCallback(() => {
-    if (!slashEnabled || flowGenerating) return;
+    if (flowGenerating) return;
+    // Silence was the worst answer here: ⌘⏎ with Flow switched off did
+    // nothing at all, which reads as a broken feature rather than an off one.
+    if (!slashEnabled) {
+      showToast("Flow is off — turn on slash commands in Settings → AI.");
+      return;
+    }
     const linkedNoteContent = findLinkedNoteContent(piece.ideaId, Object.values(allPieces), notes);
     const ctx = buildFlowContext({ format: piece.format, idea, linkedNoteContent });
     const baseBody = piece.body ?? "";
@@ -240,18 +246,50 @@ export function PieceCard({
         onDone: (final) => {
           const finalBody = baseBody ? `${baseBody}\n\n${final}` : final;
           updatePiece(piece.id, { body: finalBody });
-          setStreamedBody(null);
-          setFlowGenerating(false);
         },
-        onError: () => {
-          setStreamedBody(null);
-          setFlowGenerating(false);
-        },
+        onError: () => {},
       },
       piece.id,
       idea?.voiceId,
-    );
-  }, [slashEnabled, flowGenerating, piece, allPieces, notes, idea, generateStream, updatePiece]);
+    )
+      // Clearing here, not in onDone/onError: generateStream resolves on every
+      // path, including its two abort returns, which call NO callback at all
+      // (see use-slash-command.ts). Leaving `flowGenerating` true is not a
+      // cosmetic bug — it holds the textarea readOnly, so a cancelled or
+      // stalled generation locked the piece until a page reload.
+      .finally(() => {
+        setStreamedBody(null);
+        setFlowGenerating(false);
+      });
+  }, [
+    slashEnabled,
+    flowGenerating,
+    piece,
+    allPieces,
+    notes,
+    idea,
+    generateStream,
+    updatePiece,
+    showToast,
+  ]);
+
+  /** Stop mid-generation and keep what already streamed — the same bargain the
+   * long-form editor's Stop makes. Without this the only exit from a stalled
+   * generation was reloading the page. */
+  const handleFlowStop = useCallback(() => {
+    const partial = streamedBody;
+    abortFlow();
+    if (partial !== null && partial !== (piece.body ?? "")) {
+      updatePiece(piece.id, { body: partial });
+    }
+    setStreamedBody(null);
+    setFlowGenerating(false);
+    showToast("Stopped — kept what was written.");
+  }, [streamedBody, abortFlow, piece.id, piece.body, updatePiece, showToast]);
+
+  // A card that goes away mid-stream (filter change, delete, switching ideas)
+  // shouldn't leave a request running against a piece nobody is looking at.
+  useEffect(() => () => abortFlow(), [abortFlow]);
 
   const handleTextareaKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -505,6 +543,17 @@ export function PieceCard({
           {footer.text}
         </span>
 
+        {flowGenerating && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handleFlowStop(); }}
+            title="Stop generating and keep what's been written"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] border border-gold/30 bg-gold/5 text-[11px] text-gold hover:bg-gold/10 transition-all duration-150"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-gold" style={{ animation: "pulse-gold 1.2s ease-in-out infinite" }} />
+            Stop
+          </button>
+        )}
+
         <div className="ml-auto flex items-center gap-1.5">
           <PieceShareMenu piece={piece} />
 
@@ -573,7 +622,13 @@ export function PieceCard({
                   }}
                   disabled={!slashEnabled || flowGenerating}
                   className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
-                  title="Generate a first draft for this piece with AI (⌘⏎)"
+                  title={
+                    !slashEnabled
+                      ? "Flow is off — turn on slash commands in Settings → AI"
+                      : flowGenerating
+                        ? "Already generating"
+                        : "Generate a first draft for this piece with AI (⌘⏎)"
+                  }
                 >
                   Draft with Flow
                 </button>

@@ -20,6 +20,16 @@ export interface StreamCallbacks {
   onError: (message: string) => void;
 }
 
+// NOTE FOR CALLERS: an aborted generation settles NEITHER callback. Both abort
+// paths below (an AbortError thrown mid-request, and the post-loop
+// `if (!signal.aborted)` guard) return silently, by design — abort is the
+// caller's own doing, so it isn't an error and there's no final text to hand
+// back. The consequence is that anything you flip on before calling
+// generateStream must be flipped off from the returned promise's `.finally`,
+// never from onDone/onError alone. `flowGenerating` in piece-card.tsx was
+// cleared in the callbacks and stayed stuck on, holding the piece read-only
+// until the page was reloaded (ARI-184).
+
 export function useSlashCommand() {
   const settings = useSettingsStore((s) => s.settings);
   const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);

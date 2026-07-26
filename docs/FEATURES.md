@@ -826,6 +826,8 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 
 **Resources & inheritance:** attach a link, note, or asset to an idea from the collapsible "Resources" rail at the top of the Pieces feed (or to a single piece from its card menu). A child idea's pieces see everything attached to their own idea *and* everything attached to the parent idea — inherited entries show a `from <parent idea>` tag and can't be removed or edited from the child's view (the source of truth stays on the parent).
 
+**Draft with Flow, and getting out of it.** `⌘⏎` in a piece's textarea (or ⋯ → Draft with Flow) generates a first draft through the same provider plumbing as the editor's `/` command, streaming into the card. While it runs the piece is read-only and a **Stop** button sits in the footer: stopping keeps whatever has already streamed, the same bargain the long-form editor's Stop makes. The generating flag is cleared from the request promise's `finally`, not from its callbacks — an aborted generation deliberately settles neither `onDone` nor `onError` (see the note in `use-slash-command.ts`), and clearing in the callbacks alone left the piece read-only until the page was reloaded. A card that unmounts mid-stream aborts its own request.
+
 **Menus stay on screen.** Every dropdown that hangs off a low-sitting trigger — a piece's Share and ⋯ menus (their footer is pinned to the bottom of the page), the editor's Share menu, a sidebar idea's ⋯ menu — measures itself against the space above and below before opening (`src/hooks/use-menu-placement.ts`). It prefers opening downward, flips up when down doesn't fit and there's more room above, and caps its height either way so a menu taller than the window scrolls inside itself instead of putting its last item out of reach. Re-measured on resize, on scroll, and when the menu's own content grows (submenus, the inline "Mark as published…" and "Schedule…" forms).
 
 **Publish by copy:** each piece's **Share ▾** menu offers platform-appropriate actions:
@@ -872,6 +874,9 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 - [ ] The caret stays exactly on the glyphs while typing markdown (no drift on a long wrapped line with bold and headings)
 - [ ] Undo (⌘Z), spellcheck and text selection still work inside a piece
 - [ ] The workspace row for the focused piece shows the gold rail; hovering a card lights its row
+- [ ] Draft with Flow shows a Stop button while generating; Stop keeps the partial text and leaves the piece editable
+- [ ] A failed, cancelled or stalled generation never leaves a piece stuck read-only (no reload needed)
+- [ ] ⌘⏎ with Flow switched off says so instead of doing nothing
 - [ ] A piece's Share and ⋯ menus open upward when its footer sits at the window's edge, and never run off screen
 - [ ] The editor's Share menu and a sidebar idea's ⋯ menu do the same, scrolling inside themselves on a short window
 - [ ] The Pieces space opens on the Inbox filter when the idea has untriaged pieces, on All when it doesn't
