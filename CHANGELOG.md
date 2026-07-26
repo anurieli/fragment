@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Fix: dropdown menus cut off at the bottom of the window (ARI-183)
+
+**Commit**: `20a0b2e` on `main`
+
+**Summary**: Opening Share on a note put the menu partly below the window's bottom edge, with items like "Copy for Substack" unreachable; same for a piece's Share and ⋯ menus. Every dropdown in the app is `absolute right-0 top-full`, unconditionally downward, which was survivable until pieces gained a footer pinned to the bottom of each page (ARI-182) and put those triggers at the window's edge by construction. New `src/hooks/use-menu-placement.ts` measures the real menu against the space above and below its trigger: it prefers opening downward (the way every menu here reads), flips up when down doesn't fit and there's more room above, and caps the height either way so a menu taller than the space available scrolls inside itself rather than off the screen. It re-measures on resize, on scroll with capture (so the feed's inner scrollers count), and through a `ResizeObserver` — these menus grow *after* opening, when a priority submenu or the inline "Mark as published…" / "Schedule…" forms expand. Applied to all five affected menus: the piece Share menu, the piece ⋯ menu, the piece resources popover, the editor's Share/Export menu, and the sidebar idea menu, which became a real `IdeaRowMenu` component so each row can own the refs the hook measures.
+
+**Verification**: `tsc --noEmit`, `npm run build`, 536 tests passing (same 22 pre-existing `api-*` failures, ARI-132). Measured in a browser at three window heights: at 1000px the piece Share (178px) and ⋯ (139px) menus both flip upward and end at y=925; at 400px the editor's Share menu caps at y=392, scrolls internally, and its last item ("View reviews") is reachable; the sidebar idea menu on the lowest row stays fully on screen at 560px.
+
+**Files**: `src/hooks/use-menu-placement.ts` (new), `src/components/editor/export-menu.tsx`, `src/components/shortform/piece-share-menu.tsx`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/piece-resources-popover.tsx`, `src/components/sidebar/sidebar.tsx`, `docs/FEATURES.md`
+
 ## 2026-07-26 - The Pieces feed is a deck, and markdown formats as you type (ARI-182)
 
 **Commit**: `3b6dc7f` on `main`
