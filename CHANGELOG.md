@@ -2,6 +2,15 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Delivery preflight: agents stop reporting success for pushes the app can never import
+
+**Commit**: on `feat/mcp-delivery-preflight` (PR #4)
+
+**Summary**: A push that lands on disk is not a push the user will ever see, and fragment-mcp had no way to tell the difference. Real-world failure that prompted this: the agent-inbox gate refuses a request whose `Host` is not localhost, so a browser opening the app over a tailnet name got 404 while a localhost probe got 200; nine pieces accumulated in `~/.fragment/inbox` over 27 hours with every push reporting success. (The gate-side fix is the separate `FRAGMENT_INGRESS_ALLOWED_HOSTS` change, PR #3.) New `packages/fragment-mcp/src/delivery-check.ts` answers "if I push now, will it arrive?" by probing the running app and scanning the inbox. It probes the origin the human actually opens (`FRAGMENT_APP_ORIGIN`) as a real request rather than spoofing a `Host` header on the local URL, because undici drops a manually set `Host` and a header-spoofed probe silently tests localhost and passes while the browser is being refused. Three states: `ok`, `app_down` (queueing is legitimate, the app is just closed), and `ingress_blocked` (misconfiguration, nothing will ever import). New `fragment-mcp doctor` prints the full report and exits nonzero when delivery is broken; `fragment-mcp push` and the `create_idea` / `add_piece` MCP tools refuse outright on `ingress_blocked` rather than returning a success the user will never see. Documented in AGENT-API.md.
+
+**Verification**: classification matrix extracted pure (`classifyDelivery`) and unit-tested; package suite 28 passing; `tsc --noEmit` clean; esbuild bundle green. Doctor exercised live on olympus against the real tailnet origin (200, ok, honest backlog report), an unreachable host (app_down), a second instance with ingress unset (404, ingress_blocked, exit 1), and a bogus port (app_down). Push blocking verified both ways: refused with remediation text while ingress was closed, queued normally against the live app.
+
+**Files**: `packages/fragment-mcp/src/delivery-check.ts`, `packages/fragment-mcp/src/bin.ts`, `packages/fragment-mcp/src/tools.ts`, `packages/fragment-mcp/src/__tests__/delivery-check.test.ts`, `docs/AGENT-API.md`
 ## 2026-07-26 - Fix: inbox imports silently failed behind reverse proxies
 
 **Commit**: on `feat/ingress-allowed-hosts` (PR #3) "fix(ingress): allow operator-listed hosts through the agent-inbox gate"
