@@ -21,13 +21,14 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
-import { pieceCountsForIdea } from "@/stores/content-selectors";
+import { draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { useToastStore } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
 import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
-import type { Idea, Priority } from "@/lib/content-engine";
+import type { ContentPiece, Idea, Priority } from "@/lib/content-engine";
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -74,6 +75,32 @@ function ideaMatches(idea: Idea, query: string): boolean {
   return idea.title.toLowerCase().includes(q) || (idea.summary ?? "").toLowerCase().includes(q);
 }
 
+function IdeaMenuItem({
+  label,
+  hint,
+  destructive,
+  onClick,
+}: {
+  label: string;
+  hint?: string;
+  destructive?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`block w-full text-left px-3 py-1.5 transition-colors duration-150 ${
+        destructive
+          ? "text-red hover:bg-red-muted"
+          : "text-text-secondary hover:bg-surface-hover"
+      }`}
+    >
+      <span className="block text-[12px]">{label}</span>
+      {hint && <span className="block text-[10px] text-text-faint">{hint}</span>}
+    </button>
+  );
+}
+
 export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps) {
   const { activeNoteId, setActiveNote, toggleSidebar } = useAppStore();
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
@@ -84,13 +111,20 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
   const ideas = useContentStore((s) => s.ideas);
   const pieces = useContentStore((s) => s.pieces);
   const createIdea = useContentStore((s) => s.createIdea);
+  const updateIdea = useContentStore((s) => s.updateIdea);
   const pinIdea = useContentStore((s) => s.pinIdea);
   const unpinIdea = useContentStore((s) => s.unpinIdea);
+  const linkNoteToIdea = useContentStore((s) => s.linkNoteToIdea);
+  const deleteIdeaCascade = useContentStore((s) => s.deleteIdeaCascade);
+  const restoreIdeaCascade = useContentStore((s) => s.restoreIdeaCascade);
+  const showToast = useToastStore((s) => s.showToast);
   const isOnline = useOnlineStatus();
   const [searchQuery, setSearchQuery] = useState("");
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // Media capture state is shared so the compact bar can control it
   const media = useMediaCapture();
@@ -102,6 +136,9 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
   const showFullFeedback = isFeedbackOpen && !showCompactBar;
 
   const allPieces = useMemo(() => Object.values(pieces), [pieces]);
+  // Counts on an idea row mean short-form pieces. Its long-form drafts are
+  // listed by name underneath instead, so counting them here would double up.
+  const shortPieces = useMemo(() => shortformOnly(allPieces), [allPieces]);
   const allIdeas = useMemo(() => Object.values(ideas).filter((i) => !i.deletedAt), [ideas]);
 
   const childrenByParent = useMemo(() => {
@@ -172,7 +209,12 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
 
   function handleNewIdea() {
     const id = createIdea({ title: "Untitled idea" });
-    if (id) setActiveIdea(id);
+    if (!id) return;
+    setActiveIdea(id);
+    setActiveNote(null);
+    // Straight into rename — an idea called "Untitled idea" is worthless as a
+    // container, and naming it is the whole point of creating one.
+    startRename(id, "Untitled idea");
   }
 
   function handleDelete(e: React.MouseEvent, noteId: string) {
@@ -183,12 +225,64 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     }
   }
 
-  function handleSelectIdea(ideaId: string) {
+  /** Select an idea, and with it a draft to write in: the one asked for, else
+   * the idea's first draft, else nothing (the editor then offers to start one). */
+  function handleSelectIdea(ideaId: string, noteId?: string) {
     setActiveIdea(ideaId);
-    const linkedPiece = allPieces.find(
-      (p) => p.ideaId === ideaId && p.noteId !== undefined && p.deletedAt === undefined,
-    );
-    setActiveNote(linkedPiece?.noteId ?? null);
+    if (noteId) {
+      setActiveNote(noteId);
+      return;
+    }
+    const drafts = draftsForIdea(ideaId, allPieces);
+    setActiveNote(drafts[0]?.noteId ?? null);
+  }
+
+  /** Start a fresh long-form draft inside an idea, linked to it from birth. */
+  function handleNewDraft(ideaId: string) {
+    const noteId = createNote();
+    if (!noteId) return;
+    linkNoteToIdea(ideaId, noteId);
+    setActiveIdea(ideaId);
+    setActiveNote(noteId);
+    setShowCreationFlow(true);
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.delete(ideaId);
+      return next;
+    });
+  }
+
+  function handleDeleteIdea(idea: Idea) {
+    const cascade = deleteIdeaCascade(idea.id);
+    if (!cascade.ideaIds.length) return;
+    if (cascade.ideaIds.includes(activeIdeaId ?? "")) {
+      setActiveIdea(null);
+      setActiveNote(null);
+    }
+    showToast(`Deleted "${idea.title || "Untitled idea"}"`, {
+      label: "Undo",
+      onClick: () => restoreIdeaCascade(cascade),
+    });
+  }
+
+  /** Delete one draft. The note goes; the idea and its other drafts stay. */
+  function handleDeleteDraft(e: React.MouseEvent, ideaId: string, noteId: string) {
+    e.stopPropagation();
+    deleteNote(noteId);
+    if (activeNoteId === noteId) handleSelectIdea(ideaId);
+  }
+
+  function startRename(ideaId: string, currentTitle: string) {
+    setOpenMenuId(null);
+    setRenamingId(ideaId);
+    setRenameValue(currentTitle);
+  }
+
+  function commitRename() {
+    if (!renamingId) return;
+    const title = renameValue.trim();
+    if (title) updateIdea(renamingId, { title });
+    setRenamingId(null);
   }
 
   function toggleCollapsed(ideaId: string) {
@@ -200,26 +294,63 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     });
   }
 
+  /** One long-form draft inside an idea: the note you actually write in. */
+  function renderDraftRow(ideaId: string, piece: ContentPiece) {
+    const noteId = piece.noteId;
+    if (!noteId) return null;
+    const note = notes[noteId];
+    if (!note) return null;
+    const isActive = activeIdeaId === ideaId && activeNoteId === noteId;
+
+    return (
+      <div
+        key={piece.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => handleSelectIdea(ideaId, noteId)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectIdea(ideaId, noteId); }}
+        className={`group/draft flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150
+          ${isActive ? "bg-surface-3" : "hover:bg-surface-2"}`}
+      >
+        <FileText size={11} className={`shrink-0 ${isActive ? "text-gold" : "text-text-faint"}`} />
+        <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-muted"}`}>
+          {note.title.trim() || "Untitled draft"}
+        </span>
+        <button
+          onClick={(e) => handleDeleteDraft(e, ideaId, noteId)}
+          title="Delete this draft"
+          className="opacity-0 group-hover/draft:opacity-100 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
+        >
+          <Trash2 size={11} />
+        </button>
+      </div>
+    );
+  }
+
   function renderIdeaRow(idea: Idea, depth: 0 | 1) {
     const isActive = idea.id === activeIdeaId;
     const isPinned = idea.pinnedAt !== undefined;
     const kids = depth === 0 ? childrenFor(idea) : [];
-    const hasKids = kids.length > 0;
+    const drafts = draftsForIdea(idea.id, allPieces);
+    const hasChildren = kids.length > 0 || drafts.length > 0;
     const isCollapsed = collapsed.has(idea.id);
-    const counts = pieceCountsForIdea(idea.id, allPieces);
+    const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
-    const hasUnseenAgent = allPieces.some(
+    const hasUnseenAgent = shortPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
     const menuOpen = openMenuId === idea.id;
+    const isRenaming = renamingId === idea.id;
 
     return (
-      <div key={idea.id} className={depth === 1 ? "ml-4 pl-3 border-l border-border" : ""}>
+      <div key={idea.id}>
         <div
           role="button"
           tabIndex={0}
           onClick={() => handleSelectIdea(idea.id)}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectIdea(idea.id); }}
+          onDoubleClick={() => startRename(idea.id, idea.title)}
+          onContextMenu={(e) => { e.preventDefault(); setOpenMenuId(idea.id); }}
           className={`group relative flex flex-col w-full text-left px-4 py-3 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
             ${isActive ? "bg-surface-3 border border-border-strong" : "hover:bg-surface-2"}`}
         >
@@ -227,18 +358,34 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
             <div className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-gold" />
           )}
           <div className="flex items-center gap-2">
-            {depth === 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); if (hasKids) toggleCollapsed(idea.id); }}
-                className={`shrink-0 p-0.5 rounded text-text-faint ${hasKids ? "hover:text-text-secondary" : "opacity-0 pointer-events-none"}`}
-              >
-                {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-              </button>
-            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleCollapsed(idea.id); }}
+              title={hasChildren ? "Show drafts and sub-ideas" : undefined}
+              className={`shrink-0 p-0.5 rounded text-text-faint ${hasChildren ? "hover:text-text-secondary" : "opacity-0 pointer-events-none"}`}
+            >
+              {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            </button>
             {isPinned && <Pin size={10} className="shrink-0 text-gold" fill="currentColor" />}
-            <span className={`flex-1 min-w-0 truncate text-[13px] font-medium ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
-              {idea.title || "Untitled idea"}
-            </span>
+            {isRenaming ? (
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") setRenamingId(null);
+                }}
+                placeholder="Name this idea…"
+                className="flex-1 min-w-0 bg-surface-2 border border-border-active rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[13px] text-text-primary outline-none"
+              />
+            ) : (
+              <span className={`flex-1 min-w-0 truncate text-[13px] font-medium ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
+                {idea.title || "Untitled idea"}
+              </span>
+            )}
             {hasUnseenAgent && (
               <span
                 className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"
@@ -257,40 +404,71 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
                 <div
                   onClick={(e) => e.stopPropagation()}
                   onMouseLeave={() => setOpenMenuId(null)}
-                  className="absolute right-0 top-full mt-1 z-30 w-40 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1"
+                  className="absolute right-0 top-full mt-1 z-30 w-44 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1"
                 >
-                  <button
-                    onClick={() => { isPinned ? unpinIdea(idea.id) : pinIdea(idea.id); setOpenMenuId(null); }}
-                    className="block w-full text-left px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                  >
-                    {isPinned ? "Unpin" : "Pin"}
-                  </button>
+                  <IdeaMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
+                  <IdeaMenuItem
+                    label="New draft"
+                    hint="A long-form note in this idea"
+                    onClick={() => { setOpenMenuId(null); handleNewDraft(idea.id); }}
+                  />
                   {depth === 0 && (
-                    <button
+                    <IdeaMenuItem
+                      label="New sub-idea"
                       onClick={() => {
                         const childId = createIdea({ title: "Untitled idea", parentId: idea.id });
-                        if (childId) { setCollapsed((prev) => { const n = new Set(prev); n.delete(idea.id); return n; }); handleSelectIdea(childId); }
+                        if (childId) {
+                          setCollapsed((prev) => { const n = new Set(prev); n.delete(idea.id); return n; });
+                          handleSelectIdea(childId);
+                          startRename(childId, "Untitled idea");
+                        }
                         setOpenMenuId(null);
                       }}
-                      className="block w-full text-left px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                    >
-                      New sub-idea
-                    </button>
+                    />
                   )}
+                  <IdeaMenuItem
+                    label={isPinned ? "Unpin" : "Pin"}
+                    onClick={() => { isPinned ? unpinIdea(idea.id) : pinIdea(idea.id); setOpenMenuId(null); }}
+                  />
+                  <div className="my-1 border-t border-border" />
+                  <IdeaMenuItem
+                    label="Delete idea"
+                    hint="Drafts return to Notes"
+                    destructive
+                    onClick={() => { setOpenMenuId(null); handleDeleteIdea(idea); }}
+                  />
                 </div>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2 mt-1 pl-0">
             <span className="text-[11px] text-text-muted truncate">
+              {drafts.length} {drafts.length === 1 ? "draft" : "drafts"}
+              {" · "}
               {total} {total === 1 ? "piece" : "pieces"}
               {counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}
             </span>
           </div>
         </div>
-        {depth === 0 && hasKids && !isCollapsed && (
-          <div className="space-y-1 mt-1">
+
+        {/* Everything inside the idea: its long-form drafts first, then its
+            sub-ideas. Without this the drafts are unreachable — a note linked
+            to an idea is filtered out of the Notes list below. */}
+        {hasChildren && !isCollapsed && (
+          <div className="ml-4 pl-3 border-l border-border space-y-1 mt-1">
+            {drafts.map((piece) => renderDraftRow(idea.id, piece))}
             {kids.map((child) => renderIdeaRow(child, 1))}
+          </div>
+        )}
+        {!isCollapsed && !hasChildren && isActive && (
+          <div className="ml-4 pl-3 border-l border-border mt-1">
+            <button
+              onClick={() => handleNewDraft(idea.id)}
+              className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-text-faint hover:text-gold transition-colors duration-150"
+            >
+              <Plus size={11} />
+              Start this idea&apos;s first draft
+            </button>
           </div>
         )}
       </div>
@@ -388,13 +566,21 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
             </div>
 
             {visibleRoots.length === 0 ? (
-              <p className="px-1 pb-3 text-[12px] text-text-faint">
-                {searchQuery.trim() ? "No matching ideas" : "No ideas yet — an idea holds a long-form draft plus a short-form feed of pieces"}
+              <p className="px-1 pb-3 text-[12px] text-text-faint leading-relaxed">
+                {searchQuery.trim()
+                  ? "No matching ideas"
+                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit the bulb above to make one."}
               </p>
             ) : (
-              <div className="space-y-1 mb-4">
-                {visibleRoots.map((idea) => renderIdeaRow(idea, 0))}
-              </div>
+              <>
+                <p className="px-1 pb-2 text-[11px] text-text-faint leading-relaxed">
+                  Expand an idea to see the drafts inside it. Right-click or use ⋯ to rename,
+                  add a draft, or delete.
+                </p>
+                <div className="space-y-1 mb-4">
+                  {visibleRoots.map((idea) => renderIdeaRow(idea, 0))}
+                </div>
+              </>
             )}
 
             {/* Standalone notes section */}
@@ -402,6 +588,9 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
               <span className="text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)]">
                 Notes
               </span>
+              <p className="text-[11px] text-text-faint leading-relaxed mt-0.5">
+                Notes that don&apos;t belong to any idea.
+              </p>
             </div>
             {sortedNotes.length === 0 ? (
               <div className="px-4 py-10 text-center">

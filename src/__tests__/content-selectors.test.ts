@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  draftsForIdea,
   hierarchyRollup,
   pieceAge,
   pieceCountsForIdea,
   pinnedFirst,
   publishQueue,
+  shortformOnly,
   staleness,
   workingOn,
 } from "@/stores/content-selectors";
@@ -178,6 +180,29 @@ describe("hierarchyRollup", () => {
       makePiece({ id: "child-piece", ideaId: "child" }),
     ];
     expect(hierarchyRollup("root", ideas, pieces)).toHaveLength(0);
+  });
+});
+
+describe("shortformOnly", () => {
+  it("drops long-form pieces, which live in the Write space", () => {
+    const pieces = [
+      makePiece({ id: "short", body: "inline" }),
+      makePiece({ id: "long", body: undefined, noteId: "note-1" }),
+    ];
+    expect(shortformOnly(pieces).map((p) => p.id)).toEqual(["short"]);
+  });
+});
+
+describe("draftsForIdea", () => {
+  it("returns only this idea's live note-backed pieces, oldest first", () => {
+    const pieces = [
+      makePiece({ id: "b", ideaId: "root", body: undefined, noteId: "n2", createdAt: 2000 }),
+      makePiece({ id: "a", ideaId: "root", body: undefined, noteId: "n1", createdAt: 1000 }),
+      makePiece({ id: "short", ideaId: "root", body: "inline" }),
+      makePiece({ id: "other", ideaId: "elsewhere", body: undefined, noteId: "n3" }),
+      makePiece({ id: "gone", ideaId: "root", body: undefined, noteId: "n4", deletedAt: 5 }),
+    ];
+    expect(draftsForIdea("root", pieces).map((p) => p.id)).toEqual(["a", "b"]);
   });
 });
 

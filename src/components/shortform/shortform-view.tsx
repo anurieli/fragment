@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ContentPiece } from "@/lib/content-engine";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { hierarchyRollup } from "@/stores/content-selectors";
+import { hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
 import { useToastStore } from "@/hooks/use-toast";
 import { SpaceToggle } from "./space-toggle";
 import { PieceFilterBar } from "./piece-filter-bar";
@@ -62,8 +62,10 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     return () => clearInterval(id);
   }, []);
 
+  // Short-form only: the idea's long-form drafts live in the Write space and
+  // are edited in the editor, so they never appear as cards here.
   const rollup = useMemo(
-    () => hierarchyRollup(ideaId, Object.values(ideas), Object.values(pieces)),
+    () => shortformOnly(hierarchyRollup(ideaId, Object.values(ideas), Object.values(pieces))),
     [ideaId, ideas, pieces],
   );
   const counts = useMemo(() => filterCounts(rollup), [rollup]);

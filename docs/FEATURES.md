@@ -762,6 +762,12 @@ Every idea gets a second writing space alongside its long-form note: **Write** (
 
 **Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **Piece** always belongs to an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` moves `inbox → in-progress → ready → published`.
 
+**Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Each idea row expands to show what's inside: its **drafts** (long-form notes) first, then its sub-ideas. Click a draft to write in it. The row's summary reads `N drafts · M pieces`, where the piece count is short-form only — drafts are listed by name instead of counted twice.
+
+Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and pieces with a single Undo toast; the underlying notes are never deleted, they just return to the standalone **Notes** list below. Each draft row has its own trash button that deletes only that note.
+
+**How a note ends up inside an idea:** any note created while an idea is open belongs to that idea — blank, pasted, imported, or AI-generated. The link is itself a piece (`format: essay`, `status: in-progress`) whose content home is the note (`noteId`) rather than inline text. That's also why an idea's drafts never appear as cards in its Pieces feed: long-form text is edited in the editor, short-form text in a card. Notes belonging to an idea are filtered out of the standalone Notes list, since they're reachable under their idea.
+
 **Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default — see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
 
 **Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment you focus its card to edit it.
@@ -806,6 +812,13 @@ Every idea gets a second writing space alongside its long-form note: **Write** (
 8. **Resources inheritance.** Attach a resource to a parent idea's Resources rail, then open a child idea (or one of its pieces) — the resource should appear there tagged `from <parent idea>`, with no way to remove it from the child's view.
 
 ### QA checklist
+- [ ] New idea opens directly in rename; Enter commits, Esc cancels, double-click renames later
+- [ ] A note created inside an open idea (blank / paste / import / generate) is listed under that idea, not in Notes
+- [ ] An idea with no draft yet still shows the Write | Pieces toggle and offers to start one
+- [ ] Expanding an idea lists every draft by title; clicking one opens it in the editor
+- [ ] Reopening the app restores both the note and the idea it belongs to
+- [ ] Long-form drafts never appear as cards in the Pieces feed
+- [ ] Delete idea removes its sub-ideas and pieces, Undo restores exactly those, and its notes reappear under Notes
 - [ ] Write | Pieces toggle switches spaces and persists per idea for the session
 - [ ] `⌘1` / `⌘2` switch spaces
 - [ ] Agent-pushed piece lands in `inbox` status regardless of what the file requested

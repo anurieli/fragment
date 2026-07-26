@@ -14,6 +14,7 @@ import {
   Lightbulb,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
@@ -29,10 +30,16 @@ interface NoteCreationFlowProps {
   existingNote?: Note;
   onOpenAISettings?: () => void;
   onStartGeneration?: (params: StreamGenerationParams) => Promise<void>;
+  /** The Write | Pieces toggle when an idea is open. Rendered in a toolbar row
+   * so an idea with no draft yet can still reach its pieces feed. */
+  leftToolbarSlot?: React.ReactNode;
 }
 
-export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onOpenAISettings, onStartGeneration }: NoteCreationFlowProps) {
+export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onOpenAISettings, onStartGeneration, leftToolbarSlot }: NoteCreationFlowProps) {
   const createNote = useDataStore((s) => s.createNote);
+  const linkNoteToIdea = useContentStore((s) => s.linkNoteToIdea);
+  const activeIdeaId = useAppStore((s) => s.activeIdeaId);
+  const ideaTitle = useContentStore((s) => (activeIdeaId ? s.ideas[activeIdeaId]?.title : undefined));
   const updateNoteContent = useDataStore((s) => s.updateNoteContent);
   const updateNoteTitle = useDataStore((s) => s.updateNoteTitle);
   const updateNoteGoal = useDataStore((s) => s.updateNoteGoal);
@@ -79,11 +86,15 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
         if (opts?.audience) updateNoteAudience(id, opts.audience);
         if (opts?.tone) updateNoteTone(id, opts.tone);
         if (opts?.remember) updateNoteRemember(id, opts.remember);
+        // Written inside an idea, so it belongs to that idea. Without this
+        // link the note would be born standalone and the idea would still
+        // have nothing to write in the next time it's opened.
+        if (activeIdeaId) linkNoteToIdea(activeIdeaId, id);
         setActiveNote(id);
-        useToastStore.getState().showToast("Note created");
+        useToastStore.getState().showToast(activeIdeaId ? "Draft added to this idea" : "Note created");
       }
     },
-    [existingNote, createNote, setActiveNote, setShowCreationFlow, updateNoteContent, updateNoteTitle, updateNoteGoal, updateNoteAudience, updateNoteTone, updateNoteRemember],
+    [existingNote, createNote, setActiveNote, setShowCreationFlow, updateNoteContent, updateNoteTitle, updateNoteGoal, updateNoteAudience, updateNoteTone, updateNoteRemember, activeIdeaId, linkNoteToIdea],
   );
 
   const handleScratch = useCallback(() => {
@@ -139,8 +150,7 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
   // ─── Sub-flow: Paste ────────────────────────────────────────────────────────
   if (view === "paste") {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6" style={{ animation: "fadeIn 0.2s ease-out" }}>
-        {!sidebarOpen && <SidebarToggle onClick={toggleSidebar} />}
+      <FlowShell leftToolbarSlot={leftToolbarSlot} sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar}>
         <div className="w-full max-w-lg">
           <button
             onClick={() => setView("menu")}
@@ -183,7 +193,7 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
             </button>
           </div>
         </div>
-      </div>
+      </FlowShell>
     );
   }
 
@@ -192,8 +202,12 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
     const modelDisplayName = activeModel.split("/").pop() || activeModel;
 
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-6 overflow-y-auto py-8" style={{ animation: "fadeIn 0.2s ease-out" }}>
-        {!sidebarOpen && <SidebarToggle onClick={toggleSidebar} />}
+      <FlowShell
+        leftToolbarSlot={leftToolbarSlot}
+        sidebarOpen={sidebarOpen}
+        toggleSidebar={toggleSidebar}
+        className="overflow-y-auto py-8"
+      >
         <div className="w-full max-w-lg">
           <button
             onClick={() => setView("menu")}
@@ -323,15 +337,13 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
             </button>
           </div>
         </div>
-      </div>
+      </FlowShell>
     );
   }
 
   // ─── Main menu ──────────────────────────────────────────────────────────────
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6" style={{ animation: "fadeIn 0.2s ease-out" }}>
-      {!sidebarOpen && <SidebarToggle onClick={toggleSidebar} />}
-
+    <FlowShell leftToolbarSlot={leftToolbarSlot} sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar}>
       <input
         ref={fileInputRef}
         type="file"
@@ -342,10 +354,12 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
 
       <div className="w-full max-w-md">
         <h2 className="font-[family-name:var(--font-display)] text-lg text-text-primary mb-1.5 text-center">
-          Start a new note
+          {activeIdeaId ? `Start a draft in “${ideaTitle?.trim() || "Untitled idea"}”` : "Start a new note"}
         </h2>
-        <p className="text-[13px] text-text-muted mb-7 text-center">
-          Choose how you&apos;d like to begin
+        <p className="text-[13px] text-text-muted mb-7 text-center leading-relaxed">
+          {activeIdeaId
+            ? "Whatever you write here stays inside this idea, alongside its short-form pieces. Switch between them with Write | Pieces above."
+            : "Choose how you'd like to begin"}
         </p>
 
         <div className="grid grid-cols-2 gap-3">
@@ -376,11 +390,53 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
           />
         </div>
       </div>
-    </div>
+    </FlowShell>
   );
 }
 
 // ─── Shared sub-components ──────────────────────────────────────────────────
+
+/**
+ * Frame shared by every creation view. When an idea is open the editor hands
+ * down its Write | Pieces toggle, which gets its own toolbar row here — the
+ * creation flow replaces the whole editor, so without it an idea with no
+ * draft yet would have no way back to its pieces.
+ */
+function FlowShell({
+  leftToolbarSlot,
+  sidebarOpen,
+  toggleSidebar,
+  className,
+  children,
+}: {
+  leftToolbarSlot?: React.ReactNode;
+  sidebarOpen: boolean;
+  toggleSidebar: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex-1 flex flex-col min-h-0" style={{ animation: "fadeIn 0.2s ease-out" }}>
+      {leftToolbarSlot && (
+        <div className="flex items-center gap-3 px-8 pt-6 pb-3 shrink-0">
+          {leftToolbarSlot}
+          {!sidebarOpen && (
+            <button
+              onClick={toggleSidebar}
+              className="shrink-0 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
+            >
+              <PanelLeftOpen size={16} />
+            </button>
+          )}
+        </div>
+      )}
+      <div className={`flex-1 flex flex-col items-center justify-center px-6 ${className ?? ""}`}>
+        {!leftToolbarSlot && !sidebarOpen && <SidebarToggle onClick={toggleSidebar} />}
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function SidebarToggle({ onClick }: { onClick: () => void }) {
   return (

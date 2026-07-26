@@ -1134,11 +1134,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   );
 
   if (!note) {
-    return <NoteCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} />;
+    return <NoteCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   if (showCreationFlow && !note.content.trim()) {
-    return <NoteCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingNote={note} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} />;
+    return <NoteCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingNote={note} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   return (

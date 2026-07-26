@@ -119,6 +119,55 @@ describe("content-store — ideas", () => {
     }
   });
 
+  it("deleteIdeaCascade tombstones the idea, its children, and their pieces", () => {
+    const store = useContentStore.getState();
+    const rootId = store.createIdea({ title: "Root" });
+    const childId = store.createIdea({ title: "Child", parentId: rootId });
+    const rootPiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", body: "a" });
+    const childPiece = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", body: "b" });
+
+    const cascade = useContentStore.getState().deleteIdeaCascade(rootId);
+    const after = useContentStore.getState();
+
+    expect(cascade.ideaIds.sort()).toEqual([rootId, childId].sort());
+    expect(cascade.pieceIds.sort()).toEqual([rootPiece, childPiece].sort());
+    expect(after.ideas[rootId].deletedAt).toBeDefined();
+    expect(after.ideas[childId].deletedAt).toBeDefined();
+    expect(after.pieces[rootPiece].deletedAt).toBeDefined();
+    expect(after.pieces[childPiece].deletedAt).toBeDefined();
+  });
+
+  it("deleteIdeaCascade leaves other ideas' pieces alone", () => {
+    const store = useContentStore.getState();
+    const doomedId = store.createIdea({ title: "Doomed" });
+    const keptId = store.createIdea({ title: "Kept" });
+    const keptPiece = store.createPiece({ ideaId: keptId, format: "tweet", origin: "user", body: "keep" });
+
+    useContentStore.getState().deleteIdeaCascade(doomedId);
+
+    expect(useContentStore.getState().ideas[keptId].deletedAt).toBeUndefined();
+    expect(useContentStore.getState().pieces[keptPiece].deletedAt).toBeUndefined();
+  });
+
+  it("restoreIdeaCascade undoes exactly what the cascade deleted", () => {
+    const store = useContentStore.getState();
+    const rootId = store.createIdea({ title: "Root" });
+    const childId = store.createIdea({ title: "Child", parentId: rootId });
+    const pieceId = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", body: "b" });
+    // Already-deleted content must NOT come back with the undo.
+    const stalePiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", body: "old" });
+    useContentStore.getState().rejectPiece(stalePiece);
+
+    const cascade = useContentStore.getState().deleteIdeaCascade(rootId);
+    useContentStore.getState().restoreIdeaCascade(cascade);
+    const after = useContentStore.getState();
+
+    expect(after.ideas[rootId].deletedAt).toBeUndefined();
+    expect(after.ideas[childId].deletedAt).toBeUndefined();
+    expect(after.pieces[pieceId].deletedAt).toBeUndefined();
+    expect(after.pieces[stalePiece].deletedAt).toBeDefined();
+  });
+
   it("pinIdea sets pinnedAt; unpinIdea clears it", () => {
     const id = useContentStore.getState().createIdea({ title: "Pin me" });
     useContentStore.getState().pinIdea(id);
@@ -161,6 +210,34 @@ describe("content-store — pieces", () => {
       noteId: "note-1",
     });
     expect(useContentStore.getState().pieces[id].noteId).toBe("note-1");
+  });
+
+  it("linkNoteToIdea creates the long-form piece that puts a note inside an idea", () => {
+    const ideaId = makeIdea();
+    const pieceId = useContentStore.getState().linkNoteToIdea(ideaId, "note-1", "My essay");
+    const piece = useContentStore.getState().pieces[pieceId];
+
+    expect(piece.ideaId).toBe(ideaId);
+    expect(piece.noteId).toBe("note-1");
+    expect(piece.body).toBeUndefined();
+    expect(piece.title).toBe("My essay");
+    expect(piece.status).toBe("in-progress");
+    // Hand-made, so it never shows up as an unseen arrival.
+    expect(piece.seen).toBe(true);
+  });
+
+  it("linkNoteToIdea is idempotent — a note is never linked twice", () => {
+    const ideaId = makeIdea();
+    const first = useContentStore.getState().linkNoteToIdea(ideaId, "note-1");
+    const second = useContentStore.getState().linkNoteToIdea(ideaId, "note-1");
+
+    expect(second).toBe(first);
+    expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(1);
+  });
+
+  it("linkNoteToIdea ignores an unknown idea", () => {
+    expect(useContentStore.getState().linkNoteToIdea("missing", "note-1")).toBe("");
+    expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(0);
   });
 
   it("createPiece rejects neither noteId nor body", () => {

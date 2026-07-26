@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
@@ -87,6 +88,10 @@ export function useStreamGeneration() {
       noteId = existingNoteId;
     } else {
       noteId = createNote();
+      // Generated inside an open idea → it's a draft of that idea, not a
+      // standalone note (same rule as NoteCreationFlow's finishCreate).
+      const ideaId = useAppStore.getState().activeIdeaId;
+      if (ideaId) useContentStore.getState().linkNoteToIdea(ideaId, noteId);
     }
 
     // Set metadata

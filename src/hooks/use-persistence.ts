@@ -45,6 +45,17 @@ export function usePersistence() {
         setIdeas(ideas);
         setPieces(pieces);
         setResources(resources);
+        // The restored note may be a draft of an idea. Ideas load after
+        // notes, so re-open the idea around it here — otherwise the session
+        // starts inside a draft with no idea context and no Write | Pieces
+        // toggle, even though the sidebar lists it under that idea.
+        const restoredNoteId = useAppStore.getState().activeNoteId;
+        if (restoredNoteId) {
+          const owner = pieces.find(
+            (piece) => piece.noteId === restoredNoteId && piece.deletedAt === undefined,
+          );
+          if (owner) useAppStore.getState().setActiveIdea(owner.ideaId);
+        }
       } catch {
         logPersistence("hydrate_fail", { error: "content-engine load threw" });
       } finally {

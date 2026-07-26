@@ -61,6 +61,15 @@ export interface CreatePieceInput {
   scheduledAt?: number;
   agentMeta?: ContentPiece["agentMeta"];
   order?: number;
+  /** Defaults to false (the unseen dot is for pieces that arrived on their
+   * own). Pieces the user just created by hand start seen. */
+  seen?: boolean;
+}
+
+/** The ids a cascading idea delete touched, enough to undo it exactly. */
+export interface IdeaCascade {
+  ideaIds: string[];
+  pieceIds: string[];
 }
 
 interface ContentState {
@@ -79,6 +88,15 @@ interface ContentState {
   updateIdea: (id: string, partial: Partial<Pick<Idea, "title" | "summary" | "voiceId">>) => void;
   deleteIdea: (id: string) => void;
   undeleteIdea: (id: string) => void;
+  /** Tombstone an idea together with everything only reachable through it: its
+   * child ideas and every piece owned by any of them. Returns the ids it
+   * touched so the caller can offer an exact undo (restoreIdeaCascade).
+   * Deleting the idea alone would strand its children — the sidebar renders
+   * ideas from the roots down, so a child whose parent is gone is invisible
+   * but still there. Notes are never deleted: dropping the linking piece just
+   * returns a draft to the standalone Notes list. */
+  deleteIdeaCascade: (id: string) => IdeaCascade;
+  restoreIdeaCascade: (cascade: IdeaCascade) => void;
   setIdeaPriority: (id: string, priority: Priority) => void;
   cycleIdeaPriority: (id: string) => void;
   pinIdea: (id: string) => void;
@@ -86,6 +104,11 @@ interface ContentState {
 
   // Pieces ----------------------------------------------------------------
   createPiece: (input: CreatePieceInput) => string;
+  /** Attach an existing Note to an idea as one of its long-form drafts. The
+   * link IS a piece: long-form pieces keep their text in a Note (noteId),
+   * short-form pieces keep it inline (body). Returns the existing piece id if
+   * the note is already linked, so repeat calls are harmless. */
+  linkNoteToIdea: (ideaId: string, noteId: string, title?: string) => string;
   updatePiece: (id: string, partial: Partial<Omit<ContentPiece, "id" | "createdAt">>) => void;
   reorderPieces: (updates: { id: string; order: number }[]) => void;
   setPieceStatus: (id: string, status: PieceStatus, publish?: PublishRecord) => void;
@@ -189,6 +212,71 @@ export const useContentStore = create<ContentState>((set, get) => ({
     persistIdea(updated);
   },
 
+  deleteIdeaCascade: (id) => {
+    const empty: IdeaCascade = { ideaIds: [], pieceIds: [] };
+    if (!get().hydrated) return empty;
+    const idea = get().ideas[id];
+    if (!idea) return empty;
+
+    // Depth is capped at 2 by the contract, so one pass over the children is
+    // the whole subtree below `id`.
+    const ideaIds = [id];
+    for (const candidate of Object.values(get().ideas)) {
+      if (candidate.parentId === id && candidate.deletedAt === undefined) {
+        ideaIds.push(candidate.id);
+      }
+    }
+    const owned = new Set(ideaIds);
+    const pieceIds = Object.values(get().pieces)
+      .filter((piece) => piece.deletedAt === undefined && owned.has(piece.ideaId))
+      .map((piece) => piece.id);
+
+    const now = Date.now();
+    set((s) => {
+      const ideas = { ...s.ideas };
+      for (const ideaId of ideaIds) {
+        const updated: Idea = { ...ideas[ideaId], deletedAt: now, updatedAt: now };
+        ideas[ideaId] = updated;
+        persistIdea(updated);
+      }
+      const pieces = { ...s.pieces };
+      for (const pieceId of pieceIds) {
+        const updated: ContentPiece = { ...pieces[pieceId], deletedAt: now, updatedAt: now };
+        pieces[pieceId] = updated;
+        persistPiece(updated);
+      }
+      return { ideas, pieces };
+    });
+
+    return { ideaIds, pieceIds };
+  },
+
+  restoreIdeaCascade: (cascade) => {
+    if (!get().hydrated) return;
+    const now = Date.now();
+    set((s) => {
+      const ideas = { ...s.ideas };
+      for (const ideaId of cascade.ideaIds) {
+        const idea = ideas[ideaId];
+        if (!idea) continue;
+        const { deletedAt: _deletedAt, ...rest } = idea;
+        const updated: Idea = { ...rest, updatedAt: now };
+        ideas[ideaId] = updated;
+        persistIdea(updated);
+      }
+      const pieces = { ...s.pieces };
+      for (const pieceId of cascade.pieceIds) {
+        const piece = pieces[pieceId];
+        if (!piece) continue;
+        const { deletedAt: _deletedAt, ...rest } = piece;
+        const updated: ContentPiece = { ...rest, updatedAt: now };
+        pieces[pieceId] = updated;
+        persistPiece(updated);
+      }
+      return { ideas, pieces };
+    });
+  },
+
   setIdeaPriority: (id, priority) => {
     if (!get().hydrated) return;
     const idea = get().ideas[id];
@@ -238,7 +326,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
       title: input.title,
       noteId: input.noteId,
       body: input.body,
-      seen: false,
+      seen: input.seen ?? false,
       priority: input.priority ?? 0,
       order: input.order ?? siblingMaxOrder + 1,
       scheduledAt: input.scheduledAt,
@@ -251,6 +339,26 @@ export const useContentStore = create<ContentState>((set, get) => ({
     set((s) => ({ pieces: { ...s.pieces, [piece.id]: piece } }));
     persistPiece(piece);
     return piece.id;
+  },
+
+  linkNoteToIdea: (ideaId, noteId, title) => {
+    if (!get().hydrated) return "";
+    const existing = Object.values(get().pieces).find(
+      (piece) => piece.noteId === noteId && piece.deletedAt === undefined,
+    );
+    if (existing) return existing.id;
+    if (!get().ideas[ideaId]) return "";
+    return get().createPiece({
+      ideaId,
+      // Long-form default. The format only drives publish presets and the
+      // format chip; the user can change it on the piece.
+      format: "essay",
+      origin: "user",
+      status: "in-progress",
+      title,
+      noteId,
+      seen: true,
+    });
   },
 
   updatePiece: (id, partial) => {

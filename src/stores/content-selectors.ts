@@ -97,6 +97,35 @@ export function hierarchyRollup(
   );
 }
 
+/**
+ * Short-form pieces only — the ones whose text lives inline (body). A piece
+ * that links a Note instead (noteId) is a long-form draft: it belongs to the
+ * idea's Write space, not its pieces feed, and its text is edited in the
+ * editor rather than in a card textarea.
+ */
+export function shortformOnly(pieces: readonly ContentPiece[]): ContentPiece[] {
+  return pieces.filter((piece) => piece.body !== undefined);
+}
+
+/**
+ * An idea's long-form drafts (the pieces linking a Note), oldest first so the
+ * first draft created stays the idea's primary one across sessions.
+ */
+export function draftsForIdea(
+  ideaId: string,
+  pieces: readonly ContentPiece[],
+): ContentPiece[] {
+  return pieces
+    .filter(
+      (piece) =>
+        piece.deletedAt === undefined &&
+        piece.ideaId === ideaId &&
+        piece.noteId !== undefined,
+    )
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
 /** Count of an idea's own (non-rolled-up) pieces per status, e.g. inbox count. */
 export function pieceCountsForIdea(
   ideaId: string,

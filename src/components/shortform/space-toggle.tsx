@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { PenLine, LayoutList } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { hierarchyRollup } from "@/stores/content-selectors";
+import { hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
 
 interface SpaceToggleProps {
   ideaId: string;
@@ -26,7 +26,9 @@ export function SpaceToggle({ ideaId }: SpaceToggleProps) {
   const pieces = useContentStore((s) => s.pieces);
 
   const hasUnseen = useMemo(() => {
-    const rolled = hierarchyRollup(ideaId, Object.values(ideas), Object.values(pieces));
+    const rolled = shortformOnly(
+      hierarchyRollup(ideaId, Object.values(ideas), Object.values(pieces)),
+    );
     return rolled.some((p) => !p.seen);
   }, [ideaId, ideas, pieces]);
 
