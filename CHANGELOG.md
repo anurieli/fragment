@@ -11,6 +11,29 @@ This changelog starts at the initial public release. Earlier history lives in th
 **Verification**: 7 new tests (manifest ingestion, overwrite protection, malformed-manifest tolerance, parent handling, poison isolation, same-batch id resolution); full suite 482 passing with only the 22 pre-existing `api-*` baseline failures; `tsc --noEmit` clean; verified against the real 9-file inbox that triggered the bug: 6 ideas + 9 pieces + 1 resource import cleanly with zero skips.
 
 **Files**: `src/lib/content-engine/contract.ts`, `src/lib/content-engine/index.ts`, `src/lib/agent-inbox/import.ts`, `src/lib/agent-inbox/server-fs.ts`, `src/lib/agent-inbox/tauri-inbox.ts`, `src/app/api/v1/agent-inbox/route.ts`, `src/hooks/use-agent-inbox.ts`, `src/__tests__/agent-inbox.test.ts`, `docs/AGENT-API.md`
+## 2026-07-26 - Delivery preflight: agents stop reporting success for pushes the app can never import
+
+**Commit**: on `feat/mcp-delivery-preflight` (PR #4)
+
+**Summary**: A push that lands on disk is not a push the user will ever see, and fragment-mcp had no way to tell the difference. Real-world failure that prompted this: the agent-inbox gate refuses a request whose `Host` is not localhost, so a browser opening the app over a tailnet name got 404 while a localhost probe got 200; nine pieces accumulated in `~/.fragment/inbox` over 27 hours with every push reporting success. (The gate-side fix is the separate `FRAGMENT_INGRESS_ALLOWED_HOSTS` change, PR #3.) New `packages/fragment-mcp/src/delivery-check.ts` answers "if I push now, will it arrive?" by probing the running app and scanning the inbox. It probes the origin the human actually opens (`FRAGMENT_APP_ORIGIN`) as a real request rather than spoofing a `Host` header on the local URL, because undici drops a manually set `Host` and a header-spoofed probe silently tests localhost and passes while the browser is being refused. Three states: `ok`, `app_down` (queueing is legitimate, the app is just closed), and `ingress_blocked` (misconfiguration, nothing will ever import). New `fragment-mcp doctor` prints the full report and exits nonzero when delivery is broken; `fragment-mcp push` and the `create_idea` / `add_piece` MCP tools refuse outright on `ingress_blocked` rather than returning a success the user will never see. Documented in AGENT-API.md.
+
+**Verification**: classification matrix extracted pure (`classifyDelivery`) and unit-tested; package suite 28 passing; `tsc --noEmit` clean; esbuild bundle green. Doctor exercised live on olympus against the real tailnet origin (200, ok, honest backlog report), an unreachable host (app_down), a second instance with ingress unset (404, ingress_blocked, exit 1), and a bogus port (app_down). Push blocking verified both ways: refused with remediation text while ingress was closed, queued normally against the live app.
+
+**Files**: `packages/fragment-mcp/src/delivery-check.ts`, `packages/fragment-mcp/src/bin.ts`, `packages/fragment-mcp/src/tools.ts`, `packages/fragment-mcp/src/__tests__/delivery-check.test.ts`, `docs/AGENT-API.md`
+## 2026-07-26 - Fix: inbox imports silently failed behind reverse proxies
+
+**Commit**: on `feat/ingress-allowed-hosts` (PR #3) "fix(ingress): allow operator-listed hosts through the agent-inbox gate"
+
+**Summary**: Serving Fragment to your own browser via a private hostname (tailnet, VPN, LAN reverse proxy) meant the app's own agent-inbox polling carried that hostname in `Host`; the gate treated it as remote, the browser could not attach a bearer token to its own background fetches, and every poll 404ed silently, so nothing ever imported. New opt-in `FRAGMENT_INGRESS_ALLOWED_HOSTS` env (comma-separated hostnames, ports ignored) is trusted like localhost across all four gated routes. Documented in AGENT-API.md including the failure mode. Found and verified end to end on a live tailnet-served instance.
+
+**Files**: `src/lib/agent-inbox/gate.ts`, `src/app/api/v1/agent-inbox/route.ts`, `src/app/api/v1/agent-inbox/ack/route.ts`, `src/app/api/v1/rss-proxy/route.ts`, `src/app/api/v1/publish/linkedin/route.ts`, `src/__tests__/agent-inbox.test.ts`, `docs/AGENT-API.md`
+## 2026-07-26 - fragment-push agent skill shipped in the repo
+
+**Commit**: 8228dc7 "feat: ship fragment-push agent skill in the open source repo" (PR #2)
+
+**Summary**: The repo now ships a ready-made Claude Code skill at `.claude/skills/fragment-push/SKILL.md` teaching agents the Press handoff discipline: list ideas before creating, one piece per `add_piece`, byte-exact bodies, tweet threads via `---` separators, statuses stay with the user except `published`. Includes remote-agent setup (run the MCP over SSH when the Fragment app lives on another machine). `.gitignore` gains a targeted carve-out for exactly this path; all other `.claude/` content stays local. `docs/AGENT-API.md` points to the skill.
+
+**Files**: `.claude/skills/fragment-push/SKILL.md`, `.gitignore`, `docs/AGENT-API.md`, `CHANGELOG.md`
 
 ## 2026-07-25 - Press (the Content Engine) + Pass (review sharing): epic ARI-148 built end to end
 
