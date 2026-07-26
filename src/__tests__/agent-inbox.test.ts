@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { gateAgentInbox } from "@/lib/agent-inbox/gate";
+import { gateAgentInbox, parseAllowedHosts } from "@/lib/agent-inbox/gate";
 import { resolveInboxRelPath } from "@/lib/agent-inbox/paths";
 import { importHandoffFiles, type AgentInboxFile } from "@/lib/agent-inbox/import";
 import { serializePieceFile } from "@/lib/content-engine";
@@ -45,6 +45,49 @@ describe("gateAgentInbox", () => {
   it("opens for a non-local host with the exact bearer token", () => {
     const env = { ...openEnv, ingressToken: "secret-token" };
     expect(gateAgentInbox(env, "myhost.example.com", "Bearer secret-token")).toEqual({ allowed: true });
+  });
+
+  it("opens for an operator-allowed host without a token, matching on hostname regardless of port or case", () => {
+    const env = { ...openEnv, allowedHosts: ["olympus.example.ts.net"] };
+    expect(gateAgentInbox(env, "olympus.example.ts.net:8444", null)).toEqual({ allowed: true });
+    expect(gateAgentInbox(env, "OLYMPUS.example.ts.net", null)).toEqual({ allowed: true });
+  });
+
+  it("still closes for hosts not in the allowed list", () => {
+    const env = { ...openEnv, allowedHosts: ["olympus.example.ts.net"] };
+    expect(gateAgentInbox(env, "evil.example.com", null)).toEqual({ allowed: false });
+  });
+
+  it("allowed hosts do not bypass the hosted or ingress-disabled checks", () => {
+    expect(
+      gateAgentInbox(
+        { isHosted: true, localIngressEnabled: true, ingressToken: undefined, allowedHosts: ["h.example.com"] },
+        "h.example.com",
+        null,
+      ),
+    ).toEqual({ allowed: false });
+    expect(
+      gateAgentInbox(
+        { isHosted: false, localIngressEnabled: false, ingressToken: undefined, allowedHosts: ["h.example.com"] },
+        "h.example.com",
+        null,
+      ),
+    ).toEqual({ allowed: false });
+  });
+});
+
+describe("parseAllowedHosts", () => {
+  it("returns [] for unset or empty input", () => {
+    expect(parseAllowedHosts(undefined)).toEqual([]);
+    expect(parseAllowedHosts("")).toEqual([]);
+    expect(parseAllowedHosts(" , ")).toEqual([]);
+  });
+
+  it("splits on commas, trims, lowercases, and strips ports", () => {
+    expect(parseAllowedHosts("Olympus.Example.ts.net:8444, lan-box.local")).toEqual([
+      "olympus.example.ts.net",
+      "lan-box.local",
+    ]);
   });
 });
 

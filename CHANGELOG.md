@@ -2,6 +2,13 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Fix: inbox imports silently failed behind reverse proxies
+
+**Commit**: on `feat/ingress-allowed-hosts` (PR #3) "fix(ingress): allow operator-listed hosts through the agent-inbox gate"
+
+**Summary**: Serving Fragment to your own browser via a private hostname (tailnet, VPN, LAN reverse proxy) meant the app's own agent-inbox polling carried that hostname in `Host`; the gate treated it as remote, the browser could not attach a bearer token to its own background fetches, and every poll 404ed silently, so nothing ever imported. New opt-in `FRAGMENT_INGRESS_ALLOWED_HOSTS` env (comma-separated hostnames, ports ignored) is trusted like localhost across all four gated routes. Documented in AGENT-API.md including the failure mode. Found and verified end to end on a live tailnet-served instance.
+
+**Files**: `src/lib/agent-inbox/gate.ts`, `src/app/api/v1/agent-inbox/route.ts`, `src/app/api/v1/agent-inbox/ack/route.ts`, `src/app/api/v1/rss-proxy/route.ts`, `src/app/api/v1/publish/linkedin/route.ts`, `src/__tests__/agent-inbox.test.ts`, `docs/AGENT-API.md`
 ## 2026-07-26 - fragment-push agent skill shipped in the repo
 
 **Commit**: 8228dc7 "feat: ship fragment-push agent skill in the open source repo" (PR #2)

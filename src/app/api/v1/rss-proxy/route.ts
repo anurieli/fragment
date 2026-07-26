@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isHosted } from "@/lib/edition";
-import { gateAgentInbox } from "@/lib/agent-inbox/gate";
+import { gateAgentInbox, parseAllowedHosts } from "@/lib/agent-inbox/gate";
 import { isValidFeedHost } from "@/lib/publish/substack-verify";
 
 // Fetches an external host — never runs on the edge runtime, same posture
@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
       isHosted: isHosted(),
       localIngressEnabled: process.env.FRAGMENT_LOCAL_INGRESS === "true",
       ingressToken: process.env.FRAGMENT_INGRESS_TOKEN,
+      allowedHosts: parseAllowedHosts(process.env.FRAGMENT_INGRESS_ALLOWED_HOSTS),
     },
     req.headers.get("host"),
     req.headers.get("authorization"),
