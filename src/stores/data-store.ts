@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type { Note, Snippet, NoteVersion, VersionTrigger } from "@/lib/types";
 import { generateId, wordCount } from "@/lib/utils";
+import { snipHomeKey, snippetHome } from "@/lib/snip-scope";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import {
@@ -58,7 +59,8 @@ interface DataState {
   updateNoteVoice: (id: string, voiceId: string | null | undefined) => void;
   deleteNote: (id: string) => string | null;
 
-  addSnippet: (noteId: string, content: string, atIndex?: number, ideaId?: string) => string;
+  /** noteId null files the snippet against the idea instead (a snip off a piece). */
+  addSnippet: (noteId: string | null, content: string, atIndex?: number, ideaId?: string) => string;
   updateSnippetLabel: (
     id: string,
     label: string | null,
@@ -235,9 +237,17 @@ export const useDataStore = create<DataState>((set, get) => ({
 
   addSnippet: (noteId, content, atIndex?, ideaId?) => {
     if (!get().hydrated) return "";
+    // A snippet with neither home would be written to disk and never loaded
+    // back (the store holds a window keyed on note and idea), so refuse it
+    // here rather than lose it later.
+    const home = snipHomeKey(noteId, ideaId);
+    if (!home) return "";
     const id = generateId();
+    // `order` runs within a home, not across the whole table — see
+    // snip-scope.ts. Two homes can be on screen together; their orders
+    // interleave in the bar and createdAt breaks the ties.
     const existingSnippets = Object.values(get().snippets)
-      .filter((s) => s.noteId === noteId)
+      .filter((s) => snippetHome(s) === home)
       .sort((a, b) => a.order - b.order);
 
     let order: number;

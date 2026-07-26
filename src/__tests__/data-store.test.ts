@@ -199,6 +199,33 @@ describe("data-store — snippets", () => {
     expect(snippets[s2].order).toBe(0);
   });
 
+  it("addSnippet files a piece's snip against the idea when there is no note", () => {
+    const id = useDataStore.getState().addSnippet(null, "cut from a piece", undefined, "idea-1");
+
+    const snippet = useDataStore.getState().snippets[id];
+    expect(snippet).toBeDefined();
+    expect(snippet.noteId).toBeNull();
+    expect(snippet.ideaId).toBe("idea-1");
+  });
+
+  it("addSnippet refuses a snippet with no home rather than losing it", () => {
+    expect(useDataStore.getState().addSnippet(null, "homeless")).toBe("");
+    expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
+  });
+
+  it("addSnippet orders within a home, not across homes", () => {
+    const noteId = useDataStore.getState().createNote();
+
+    const n1 = useDataStore.getState().addSnippet(noteId, "note first");
+    const i1 = useDataStore.getState().addSnippet(null, "idea first", undefined, "idea-1");
+    const n2 = useDataStore.getState().addSnippet(noteId, "note second");
+    const i2 = useDataStore.getState().addSnippet(null, "idea second", undefined, "idea-1");
+
+    const snippets = useDataStore.getState().snippets;
+    expect([snippets[n1].order, snippets[n2].order]).toEqual([0, 1]);
+    expect([snippets[i1].order, snippets[i2].order]).toEqual([0, 1]);
+  });
+
   it("setSnippets hydrates from an array", () => {
     const snippets = [
       { id: "x", noteId: "n1", content: "text", label: null, labelStatus: "idle" as const, createdAt: 1, order: 0 },

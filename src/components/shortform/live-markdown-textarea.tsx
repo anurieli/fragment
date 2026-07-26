@@ -9,9 +9,17 @@ interface LiveMarkdownTextareaProps {
   onFocus?: () => void;
   onBlur?: () => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onMouseDown?: (e: React.MouseEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   readOnly?: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  /**
+   * The mirror, handed back to the caller. A textarea can't say where its
+   * selection sits on screen; the mirror lays the same string out the same
+   * way, so it can — that's what makes a selection draggable out of a piece
+   * (see lib/textarea-selection.ts).
+   */
+  mirrorRef?: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -38,11 +46,14 @@ export function LiveMarkdownTextarea({
   onFocus,
   onBlur,
   onKeyDown,
+  onMouseDown,
   placeholder,
   readOnly,
   textareaRef,
+  mirrorRef: externalMirrorRef,
 }: LiveMarkdownTextareaProps) {
-  const mirrorRef = useRef<HTMLDivElement>(null);
+  const localMirrorRef = useRef<HTMLDivElement>(null);
+  const mirrorRef = externalMirrorRef ?? localMirrorRef;
 
   // Match the mirror's scroll offset to the textarea's, for the rare case
   // where the textarea scrolls internally rather than growing.
@@ -82,6 +93,7 @@ export function LiveMarkdownTextarea({
         onFocus={onFocus}
         onBlur={onBlur}
         onKeyDown={onKeyDown}
+        onMouseDown={onMouseDown}
         onScroll={syncScroll}
         readOnly={readOnly}
         placeholder={placeholder}

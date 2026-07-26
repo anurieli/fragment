@@ -20,13 +20,21 @@ export interface Note {
 
 export interface Snippet {
   id: string;
-  noteId: string;
+  /**
+   * The note this snippet was cut from, or null when it was cut from a
+   * short-form piece — a piece's text lives in the piece, not in any note, so
+   * an idea is the only home such a snippet has. Exactly one of noteId /
+   * ideaId is the snippet's *home* (see snippetHome in snip-scope.ts); a
+   * note-scoped snippet may still carry ideaId so it stays on screen when you
+   * cross from an idea's draft to its pieces.
+   */
+  noteId: string | null;
   content: string;
   label: string | null;
   labelStatus: "idle" | "loading" | "done" | "error";
   createdAt: number;
   order: number;
-  /** Links this snippet to the idea it was snipped toward. Optional — existing rows are not backfilled. */
+  /** The idea this snippet belongs to. Optional — existing rows are not backfilled. */
   ideaId?: string;
 }
 

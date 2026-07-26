@@ -188,31 +188,12 @@ export function findLinkedNoteContent(
   return notes[noteId]?.content ?? null;
 }
 
-/**
- * Where a "Snip out" from a piece's Refine menu should land. addSnippet
- * requires a concrete noteId (Snippet.noteId is non-optional in the data
- * model — see src/lib/types.ts), and a piece itself has no note of its own
- * (short-form pieces hold body inline). Least-invasive resolution, in
- * priority order:
- *   1. The idea's own linked long-form note, if it has one — keeps the
- *      snippet scoped to the idea it came from.
- *   2. The currently active note (whatever the Snip Bar is already showing)
- *      — so the snippet lands somewhere visible instead of silently failing.
- *   3. null — caller should show a toast; there is nowhere to put it.
- * This intentionally does NOT create a note or change the data model; it's
- * a read-only choice among notes that already exist.
- */
-export function resolveSnipTargetNoteId(
-  ideaId: string,
-  pieces: readonly PieceLike[],
-  noteIds: ReadonlySet<string>,
-  activeNoteId: string | null,
-): string | null {
-  const linked = findLinkedNoteId(ideaId, pieces);
-  if (linked && noteIds.has(linked)) return linked;
-  if (activeNoteId && noteIds.has(activeNoteId)) return activeNoteId;
-  return null;
-}
+// A "Snip out" from a piece used to route through resolveSnipTargetNoteId,
+// which hunted for some note to file the snippet against because
+// Snippet.noteId was mandatory. It refused the snip when it found none —
+// which is the normal state of an idea whose pieces came from an agent. A
+// snippet can be filed against an idea now (see lib/snip-scope.ts), so the
+// hunt, and the refusal, are both gone.
 
 // ---------------------------------------------------------------------------
 // Refine menu anchor (selection-range math)

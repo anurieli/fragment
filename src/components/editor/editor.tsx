@@ -298,9 +298,13 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                 if (range && noteId && card) {
                   const idxAttr = dropZone.getAttribute("data-drop-index");
                   const dropIdx = idxAttr ? parseInt(idxAttr, 10) : undefined;
+                  // Tagged with the open idea as well as the note, so the
+                  // parts you cut off a draft are still in the bar when you
+                  // cross to that idea's pieces (see lib/snip-scope.ts).
                   const snippetId = useDataStore.getState().addSnippet(
                     noteId, card.content,
                     Number.isFinite(dropIdx) ? dropIdx : undefined,
+                    useAppStore.getState().activeIdeaId ?? undefined,
                   );
 
                   // Build snippet snapshot for undo tracking
@@ -900,7 +904,13 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     const selectedText = editor.state.doc.textBetween(from, to, "\n");
     if (!selectedText.trim()) return;
 
-    const snippetId = addSnippet(activeNoteId, selectedText);
+    const snippetId = addSnippet(
+      activeNoteId,
+      selectedText,
+      undefined,
+      useAppStore.getState().activeIdeaId ?? undefined,
+    );
+    if (!snippetId) return;
     labelSnippet(snippetId, selectedText, note.content, note.goal, activeNoteId);
 
     // Remove the snipped text from the editor

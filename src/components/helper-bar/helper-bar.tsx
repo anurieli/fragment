@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { PanelRightClose, Puzzle } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
-import { useLabelSnippet } from "@/hooks/use-label-snippet";
+import { useSnipLabeler } from "@/hooks/use-snip-labeler";
+import { visibleSnippets } from "@/lib/snip-scope";
 import { SnippetCard } from "./snippet-card";
 
 export function HelperBar() {
-  const { activeNoteId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
+  const { activeNoteId, activeIdeaId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
   const { notes, snippets, addSnippet, reorderSnippets } = useDataStore();
-  const { labelSnippet } = useLabelSnippet();
+  const labelSnip = useSnipLabeler();
   const [dragOver, setDragOver] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [draggingSnippetId, setDraggingSnippetId] = useState<string | null>(null);
@@ -31,26 +32,26 @@ export function HelperBar() {
 
   const note = activeNoteId ? notes[activeNoteId] : null;
 
-  const noteSnippets = useMemo(
-    () =>
-      Object.values(snippets)
-        .filter((s) => s.noteId === activeNoteId)
-        .sort((a, b) => a.order - b.order),
-    [snippets, activeNoteId],
+  // Everything cut in the place you're standing: the open draft's snips and
+  // the open idea's (see snip-scope.ts). A piece has no note behind it, so
+  // scoping the bar to the active note alone made snips off a piece invisible.
+  const barSnippets = useMemo(
+    () => visibleSnippets(snippets, activeNoteId, activeIdeaId),
+    [snippets, activeNoteId, activeIdeaId],
   );
 
   const getDropIndex = useCallback(
     (clientY: number) => {
-      if (!listRef.current) return noteSnippets.length;
+      if (!listRef.current) return barSnippets.length;
       const cards = listRef.current.querySelectorAll("[data-snippet-card]");
       for (let i = 0; i < cards.length; i++) {
         const rect = cards[i].getBoundingClientRect();
         const midY = rect.top + rect.height / 2;
         if (clientY < midY) return i;
       }
-      return noteSnippets.length;
+      return barSnippets.length;
     },
-    [noteSnippets.length],
+    [barSnippets.length],
   );
 
   const handleDragOver = useCallback(
@@ -108,7 +109,8 @@ export function HelperBar() {
       const draggedId = draggingSnippetId;
       setDraggingSnippetId(null);
 
-      if (!activeNoteId || !note) return;
+      // Somewhere to file it: the open draft, or the open idea.
+      if (!activeNoteId && !activeIdeaId) return;
 
       // Handle drag-back of pending snippet (reversible drop cancel)
       const pendingReturnData = e.dataTransfer.getData(
@@ -133,10 +135,10 @@ export function HelperBar() {
         }
       })();
       if (reorderId) {
-        const currentIndex = noteSnippets.findIndex((s) => s.id === reorderId);
+        const currentIndex = barSnippets.findIndex((s) => s.id === reorderId);
         if (currentIndex === -1) return;
 
-        const reordered = [...noteSnippets];
+        const reordered = [...barSnippets];
         const [moved] = reordered.splice(currentIndex, 1);
         const insertAt =
           targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
@@ -170,8 +172,12 @@ export function HelperBar() {
 
       if (!content.trim()) return;
 
-      // Add snippet first to get its ID for undo tracking
-      const snippetId = addSnippet(activeNoteId, content, targetIndex);
+      // Add snippet first to get its ID for undo tracking. Text dropped in
+      // from the editor is the note's; anything else with no note open is the
+      // idea's.
+      const home = { noteId: activeNoteId && note ? activeNoteId : null, ideaId: activeIdeaId ?? undefined };
+      const snippetId = addSnippet(home.noteId, content, targetIndex, home.ideaId);
+      if (!snippetId) return;
 
       // Tell editor to delete the source text (pass snippetId for undo/redo sync)
       if (editorFrom !== undefined && editorTo !== undefined) {
@@ -185,17 +191,18 @@ export function HelperBar() {
         const { updateSnippetLabel } = useDataStore.getState();
         updateSnippetLabel(snippetId, floatingCard.label, "done");
       } else {
-        labelSnippet(snippetId, content, note.content, note.goal, activeNoteId);
+        labelSnip(snippetId, content, home);
       }
       useAppStore.getState().setFloatingDragCard(null);
     },
     [
       activeNoteId,
+      activeIdeaId,
       note,
-      noteSnippets,
+      barSnippets,
       dropIndex,
       addSnippet,
-      labelSnippet,
+      labelSnip,
       reorderSnippets,
       getDropIndex,
       draggingSnippetId,
@@ -211,9 +218,9 @@ export function HelperBar() {
           <span className="text-[13px] font-medium text-text-secondary">
             Snip Bar
           </span>
-          {noteSnippets.length > 0 && (
+          {barSnippets.length > 0 && (
             <span className="text-[11px] text-text-faint font-[family-name:var(--font-mono)]">
-              {noteSnippets.length}
+              {barSnippets.length}
             </span>
           )}
         </div>
@@ -238,7 +245,7 @@ export function HelperBar() {
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {noteSnippets.length === 0 && !dragOver && !isDraggingToHelper ? (
+        {barSnippets.length === 0 && !dragOver && !isDraggingToHelper ? (
           <div className="flex flex-col items-center justify-center h-full rounded-[var(--radius-lg)] border border-dashed border-border-strong text-text-faint">
             <Puzzle size={24} className="mb-3 opacity-40" />
             <p className="text-[13px] font-medium mb-1.5 text-text-muted">No snippets yet</p>
@@ -248,7 +255,7 @@ export function HelperBar() {
           </div>
         ) : (
           <div ref={listRef} className="space-y-0">
-            {noteSnippets.map((snippet, index) => (
+            {barSnippets.map((snippet, index) => (
               <div key={snippet.id}>
                 {/* Drop indicator BEFORE this card */}
                 {dropIndex === index && (
@@ -265,13 +272,13 @@ export function HelperBar() {
               </div>
             ))}
             {/* Drop indicator at the END */}
-            {dropIndex === noteSnippets.length && (
+            {dropIndex === barSnippets.length && (
               <div className="h-0.5 bg-gold rounded-full mx-2 my-1.5" style={{ animation: "fadeIn 0.1s ease-out" }} />
             )}
             {/* General drop zone when dragging from editor */}
             {(dragOver || isDraggingToHelper) &&
               dropIndex === null &&
-              noteSnippets.length === 0 && (
+              barSnippets.length === 0 && (
                 <div className="h-16 rounded-[var(--radius-default)] border border-dashed border-gold flex items-center justify-center">
                   <span className="text-[12px] text-gold font-medium">
                     Drop here

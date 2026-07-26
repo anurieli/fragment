@@ -175,6 +175,21 @@ export async function loadSnippetsForNote(noteId: string): Promise<Snippet[]> {
   }
 }
 
+/**
+ * Snippets cut inside an idea — off its pieces (noteId null) as well as off
+ * its drafts. The store holds a window onto the snippets table rather than
+ * all of it (see use-persistence), and until this existed that window was the
+ * active note alone: a snippet taken in the pieces feed was written to disk
+ * and then dropped from memory the next time the active note changed.
+ */
+export async function loadSnippetsForIdea(ideaId: string): Promise<Snippet[]> {
+  try {
+    return await db.snippets.where("ideaId").equals(ideaId).sortBy("order");
+  } catch {
+    return [];
+  }
+}
+
 export async function saveNote(note: Note): Promise<void> {
   // Always write to localStorage backup first (synchronous, reliable)
   backupNoteToLocal(note);

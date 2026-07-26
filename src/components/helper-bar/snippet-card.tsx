@@ -6,7 +6,8 @@ import type { Snippet } from "@/lib/types";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { useLabelSnippet } from "@/hooks/use-label-snippet";
+import { useSnipLabeler } from "@/hooks/use-snip-labeler";
+import { visibleSnippets } from "@/lib/snip-scope";
 import { formatSnippetPreview } from "@/lib/utils";
 
 interface SnippetCardProps {
@@ -16,10 +17,8 @@ interface SnippetCardProps {
 export function SnippetCard({ snippet }: SnippetCardProps) {
   const removeSnippet = useDataStore((s) => s.removeSnippet);
   const updateSnippetLabel = useDataStore((s) => s.updateSnippetLabel);
-  const notes = useDataStore((s) => s.notes);
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
   const setDraggingToEditor = useAppStore((s) => s.setDraggingToEditor);
-  const { labelSnippet } = useLabelSnippet();
+  const labelSnip = useSnipLabeler();
   const [showHover, setShowHover] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -30,11 +29,9 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
     snippet.content.split("\n").length > 6 || snippet.content.length > 200;
 
   const handleRetryLabel = useCallback(() => {
-    const note = activeNoteId ? notes[activeNoteId] : null;
-    if (!note) return;
     updateSnippetLabel(snippet.id, null, "loading");
-    labelSnippet(snippet.id, snippet.content, note.content, note.goal, activeNoteId ?? snippet.noteId);
-  }, [snippet, activeNoteId, notes, updateSnippetLabel, labelSnippet]);
+    labelSnip(snippet.id, snippet.content, { noteId: snippet.noteId, ideaId: snippet.ideaId });
+  }, [snippet, updateSnippetLabel, labelSnip]);
 
   // Custom mouse-based drag (replaces native DnD which fails in Tauri/WKWebView)
   const handleMouseDown = useCallback(
@@ -125,19 +122,22 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
               const idxAttr = dropZone.getAttribute("data-drop-index");
               const dropIdx = idxAttr ? parseInt(idxAttr, 10) : null;
               if (dropIdx !== null && Number.isFinite(dropIdx)) {
-                const noteId = useAppStore.getState().activeNoteId;
-                if (noteId) {
-                  const allSnippets = Object.values(useDataStore.getState().snippets)
-                    .filter((s) => s.noteId === noteId)
-                    .sort((a, b) => a.order - b.order);
-                  const currentIndex = allSnippets.findIndex((s) => s.id === snippet.id);
-                  if (currentIndex !== -1) {
-                    const reordered = [...allSnippets];
-                    const [moved] = reordered.splice(currentIndex, 1);
-                    const insertAt = dropIdx > currentIndex ? dropIdx - 1 : dropIdx;
-                    reordered.splice(insertAt, 0, moved);
-                    useDataStore.getState().reorderSnippets(reordered.map((s, i) => ({ id: s.id, order: i })));
-                  }
+                const app = useAppStore.getState();
+                // Reorder across everything the bar is showing, not just one
+                // note's snippets — an idea's pieces put their snips in the
+                // same list (see snip-scope.ts).
+                const allSnippets = visibleSnippets(
+                  useDataStore.getState().snippets,
+                  app.activeNoteId,
+                  app.activeIdeaId,
+                );
+                const currentIndex = allSnippets.findIndex((s) => s.id === snippet.id);
+                if (currentIndex !== -1) {
+                  const reordered = [...allSnippets];
+                  const [moved] = reordered.splice(currentIndex, 1);
+                  const insertAt = dropIdx > currentIndex ? dropIdx - 1 : dropIdx;
+                  reordered.splice(insertAt, 0, moved);
+                  useDataStore.getState().reorderSnippets(reordered.map((s, i) => ({ id: s.id, order: i })));
                 }
               }
             }

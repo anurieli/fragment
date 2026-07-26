@@ -14,7 +14,8 @@ interface PendingSnippetDrop {
 interface FloatingDragCard {
   content: string;
   label: string | null;
-  labelStatus: "loading" | "done" | "error";
+  /** "idle": nothing is being fetched — a drag that labels only on drop. */
+  labelStatus: "idle" | "loading" | "done" | "error";
 }
 
 interface PendingEditorDeletion {

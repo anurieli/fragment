@@ -5,7 +5,6 @@ import {
   buildFlowContext,
   findLinkedNoteId,
   findLinkedNoteContent,
-  resolveSnipTargetNoteId,
   estimateSelectionAnchor,
   type PieceLike,
 } from "@/lib/piece-ai";
@@ -182,31 +181,6 @@ describe("findLinkedNoteId / findLinkedNoteContent", () => {
   });
 });
 
-describe("resolveSnipTargetNoteId", () => {
-  it("prefers the idea's own linked note", () => {
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", noteId: "note-linked" })];
-    const noteIds = new Set(["note-linked", "note-active"]);
-    expect(resolveSnipTargetNoteId("idea-1", pieces, noteIds, "note-active")).toBe("note-linked");
-  });
-
-  it("falls back to the active note when the idea has no linked note", () => {
-    const pieces: PieceLike[] = [];
-    const noteIds = new Set(["note-active"]);
-    expect(resolveSnipTargetNoteId("idea-1", pieces, noteIds, "note-active")).toBe("note-active");
-  });
-
-  it("falls back to the active note when the linked note id no longer exists", () => {
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", noteId: "note-deleted" })];
-    const noteIds = new Set(["note-active"]);
-    expect(resolveSnipTargetNoteId("idea-1", pieces, noteIds, "note-active")).toBe("note-active");
-  });
-
-  it("returns null when there is nowhere to put the snippet", () => {
-    const pieces: PieceLike[] = [];
-    const noteIds = new Set<string>();
-    expect(resolveSnipTargetNoteId("idea-1", pieces, noteIds, null)).toBeNull();
-  });
-});
 
 describe("estimateSelectionAnchor", () => {
   const geometry = { top: 100, left: 20, scrollTop: 0, lineHeight: 18 };

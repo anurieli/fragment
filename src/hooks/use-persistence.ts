@@ -6,16 +6,18 @@ import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore, computeWritingStyleSeed } from "@/stores/voice-store";
 import { useContentStore } from "@/stores/content-store";
-import { loadAllNotes, loadSnippetsForNote, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources } from "@/lib/persistence";
+import { loadAllNotes, loadSnippetsForNote, loadSnippetsForIdea, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources } from "@/lib/persistence";
 import { recoverFromCrash } from "@/hooks/use-auto-save";
 import { logPersistence } from "@/lib/persistence-logger";
 
 export function usePersistence() {
   const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const setActiveNote = useAppStore((s) => s.setActiveNote);
   const { setNotes, setSnippets, setVersions, setHydrated } = useDataStore();
   const { setIdeas, setPieces, setResources, setHydrated: setContentHydrated } = useContentStore();
   const prevNoteId = useRef<string | null>(null);
+  const prevSnipScope = useRef<{ noteId: string | null; ideaId: string | null }>({ noteId: null, ideaId: null });
 
   // Initial hydration + crash recovery
   useEffect(() => {
@@ -123,20 +125,43 @@ export function usePersistence() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load snippets when note changes
+  // Load versions when the note changes.
   useEffect(() => {
     if (!activeNoteId || activeNoteId === prevNoteId.current) return;
     prevNoteId.current = activeNoteId;
 
     async function load() {
-      const snippets = await loadSnippetsForNote(activeNoteId!);
-      setSnippets(snippets);
       const versions = await loadVersionsForNote(activeNoteId!);
       setVersions(versions);
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNoteId]);
+
+  // Load the snippets in scope: the active note's, plus the open idea's (its
+  // pieces' snips have no note to hang off — see snip-scope.ts). Both, not
+  // either: inside an idea with a draft open, the bar shows one pile of parts
+  // whichever space you're in, and crossing Write <-> Pieces never empties it.
+  useEffect(() => {
+    if (activeNoteId === prevSnipScope.current.noteId && activeIdeaId === prevSnipScope.current.ideaId) return;
+    prevSnipScope.current = { noteId: activeNoteId, ideaId: activeIdeaId };
+
+    let cancelled = false;
+    async function load() {
+      const [noteSnippets, ideaSnippets] = await Promise.all([
+        activeNoteId ? loadSnippetsForNote(activeNoteId) : Promise.resolve([]),
+        activeIdeaId ? loadSnippetsForIdea(activeIdeaId) : Promise.resolve([]),
+      ]);
+      if (cancelled) return;
+      // A snippet cut off a draft inside an idea is in both results.
+      const byId = new Map(noteSnippets.map((s) => [s.id, s]));
+      for (const s of ideaSnippets) byId.set(s.id, s);
+      setSnippets([...byId.values()]);
+    }
+    load();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId, activeIdeaId]);
 
   // Save on tab close / visibility change
   useEffect(() => {

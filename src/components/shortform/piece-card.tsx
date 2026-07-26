@@ -11,14 +11,14 @@ import { useAppStore } from "@/stores/app-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
 import { useSlashCommand } from "@/hooks/use-slash-command";
-import { useLabelSnippet } from "@/hooks/use-label-snippet";
+import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import {
   buildRefineContext,
   buildFlowContext,
   findLinkedNoteContent,
-  resolveSnipTargetNoteId,
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
+import { offsetAtPoint, pointInTextareaSelection } from "@/lib/textarea-selection";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
@@ -137,15 +137,16 @@ export function PieceCard({
   const allPieces = useContentStore((s) => s.pieces);
   const notes = useDataStore((s) => s.notes);
   const addSnippet = useDataStore((s) => s.addSnippet);
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const pinHelperBar = useAppStore((s) => s.pinHelperBar);
   const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
   const showToast = useToastStore((s) => s.showToast);
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
   const { generateStream, abort: abortFlow, enabled: slashEnabled } = useSlashCommand();
-  const { labelSnippet } = useLabelSnippet();
+  const labelSnip = useSnipLabeler();
   const idea = ideas[piece.ideaId];
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const overflowAnchorRef = useRef<HTMLDivElement>(null);
@@ -339,32 +340,127 @@ export function PieceCard({
     [inlineEditEnabled, piece, idea, inlineEdit],
   );
 
-  // Snip out: lifts the selection into the Snip Bar via the existing
-  // addSnippet + labelSnippet path, tagged with this piece's ideaId. A piece
-  // has no note of its own (short-form body is inline), so the destination
-  // note is resolved by resolveSnipTargetNoteId — see its doc comment in
-  // piece-ai.ts for the fallback chain and why this doesn't touch the data
-  // model.
-  const handleRefineSnip = useCallback(
-    (selectionStart: number, selectionEnd: number) => {
+  // Snip out: lifts the selection into the Snip Bar, filed against this
+  // piece's idea. It used to need a note to file against and refused the snip
+  // when it couldn't find one — which is most of the time, since an idea full
+  // of agent-pushed pieces has no draft at all. Snippets are idea-scoped now
+  // (see snip-scope.ts), so this always has a home.
+  const snipOut = useCallback(
+    (selectionStart: number, selectionEnd: number, atIndex?: number) => {
       const body = piece.body ?? "";
       const selectedText = body.slice(selectionStart, selectionEnd);
       if (!selectedText.trim()) return;
 
-      const noteIds = new Set(Object.keys(notes));
-      const targetNoteId = resolveSnipTargetNoteId(piece.ideaId, Object.values(allPieces), noteIds, activeNoteId);
-      if (!targetNoteId) {
-        showToast("Link this idea to a note, or open one, before snipping.");
-        return;
-      }
+      const snippetId = addSnippet(null, selectedText, atIndex, piece.ideaId);
+      if (!snippetId) return;
+      labelSnip(snippetId, selectedText, { noteId: null, ideaId: piece.ideaId });
 
-      const snippetId = addSnippet(targetNoteId, selectedText, undefined, piece.ideaId);
-      labelSnippet(snippetId, selectedText, idea?.summary ?? "", idea?.title ?? "", targetNoteId);
-
-      const nextBody = body.slice(0, selectionStart) + body.slice(selectionEnd);
-      updatePiece(piece.id, { body: nextBody });
+      updatePiece(piece.id, {
+        body: body.slice(0, selectionStart) + body.slice(selectionEnd),
+      });
+      // Show where it went. Cutting text out of the page and dropping it into
+      // a panel that is closed (the bar auto-hides) is what made this read as
+      // a no-op, so the bar comes out and stays out — the same move the
+      // long-form editor makes on its Snip button.
+      pinHelperBar();
     },
-    [piece, notes, allPieces, activeNoteId, addSnippet, idea, labelSnippet, showToast, updatePiece],
+    [piece, addSnippet, labelSnip, updatePiece, pinHelperBar],
+  );
+
+  const handleRefineSnip = useCallback(
+    (selectionStart: number, selectionEnd: number) => snipOut(selectionStart, selectionEnd),
+    [snipOut],
+  );
+
+  // Kept in a ref because the drag's mouseup fires from a document listener
+  // installed once, at mousedown, and must not act on a stale piece body.
+  const snipOutRef = useRef(snipOut);
+  useEffect(() => { snipOutRef.current = snipOut; }, [snipOut]);
+
+  /**
+   * Drag a selection out to the Snip Bar — the same gesture the long-form
+   * editor has, which a piece simply didn't answer before: the bar is hidden
+   * until something says a drag is under way, so dragging text out of a piece
+   * aimed at a panel that was never there.
+   *
+   * Mouse events, not HTML5 drag-and-drop, for the reason editor.tsx gives:
+   * the native text-drag ghost can't be overridden in WebKit/Tauri. Hit
+   * testing the selection goes through the markdown mirror, which is the only
+   * thing that knows where a textarea's selection is on screen.
+   */
+  const handleTextareaMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLTextAreaElement>) => {
+      if (e.button !== 0 || flowGenerating) return;
+      const el = textareaRef.current;
+      if (!el || el.selectionStart === el.selectionEnd) return;
+      if (!pointInTextareaSelection(el, mirrorRef.current, e.clientX, e.clientY)) return;
+
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const text = (piece.body ?? "").slice(start, end);
+      if (!text.trim()) return;
+
+      // Hold the selection and suppress the native drag ghost.
+      e.preventDefault();
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let dragging = false;
+
+      const cleanup = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      const onMove = (ev: MouseEvent) => {
+        if (!dragging) {
+          if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+          dragging = true;
+          useAppStore.getState().setDraggingToHelper(true);
+          useAppStore.getState().setFloatingDragCard({
+            content: text,
+            label: null,
+            labelStatus: "idle",
+          });
+        }
+        const card = document.querySelector("[data-floating-card]") as HTMLElement | null;
+        if (card) {
+          card.style.transform = `translate(${ev.clientX + 16}px, ${ev.clientY + 16}px)`;
+          card.style.opacity = "1";
+        }
+      };
+
+      const onUp = (ev: MouseEvent) => {
+        cleanup();
+        if (!dragging) {
+          // A click, not a drag. The mousedown that would have moved the
+          // caret was swallowed to hold the selection, so put it where the
+          // click actually landed — same contract as the editor's mouseup
+          // handler.
+          const offset = offsetAtPoint(mirrorRef.current, ev.clientX, ev.clientY, el);
+          if (el && offset !== null) {
+            el.focus();
+            el.setSelectionRange(offset, offset);
+          }
+          return;
+        }
+
+        const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
+        const over = document.elementFromPoint(ev.clientX, ev.clientY);
+        if (dropZone && (dropZone === over || dropZone.contains(over))) {
+          const idxAttr = dropZone.getAttribute("data-drop-index");
+          const dropIdx = idxAttr ? parseInt(idxAttr, 10) : NaN;
+          snipOutRef.current(start, end, Number.isFinite(dropIdx) ? dropIdx : undefined);
+        }
+
+        useAppStore.getState().setDraggingToHelper(false);
+        useAppStore.getState().setFloatingDragCard(null);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [flowGenerating, piece.body],
   );
 
   const footer = charFooter(piece);
@@ -493,6 +589,8 @@ export function PieceCard({
           <>
             <LiveMarkdownTextarea
               textareaRef={textareaRef}
+              mirrorRef={mirrorRef}
+              onMouseDown={handleTextareaMouseDown}
               value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
               onChange={handleBodyChange}
               onFocus={enterEditing}
