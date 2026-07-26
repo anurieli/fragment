@@ -2,6 +2,8 @@
 
 Fragment is the content store your agents write into. An agent (Claude Code, Codex, Hermes, or anything that can write a file) drafts content pieces — LinkedIn posts, tweet threads, Substack essays — and hands them to Fragment, where they land in your **inbox** grouped under the **Idea** they belong to. You review, refine, and publish. This document is the stable public interface for that handoff.
 
+Claude Code users: the repo ships an agent skill for this workflow at `.claude/skills/fragment-push/`. Point an agent at it (or copy it into your own skills directory) and it knows the handoff discipline described below.
+
 **Contract version: `fragment: 1`.** Every handoff declares this version. Fields are only ever added within a version; breaking changes get a new version number that Fragment supports side by side. Source of truth: `src/lib/content-engine/` (types + zod schemas).
 
 ## The data model in 30 seconds
@@ -186,12 +188,13 @@ Implementation note for anyone tempted to "optimize" this into a Host-header spo
 
 ## Security: enabling ingress
 
-The HTTP routes above (and the LinkedIn-publish proxy) are closed by default and gated by three env vars, all resolved server-side in `src/lib/agent-inbox/gate.ts`:
+The HTTP routes above (and the LinkedIn-publish proxy) are closed by default and gated by these env vars, all resolved server-side in `src/lib/agent-inbox/gate.ts`:
 
 | Var | Effect |
 |---|---|
 | `FRAGMENT_LOCAL_INGRESS` | Must be exactly `"true"` to open the gate at all. Unset or anything else: every gated route 404s, always. Never true on the hosted SaaS build regardless of this value — local ingress reads a local filesystem the hosted build doesn't have. |
-| `FRAGMENT_INGRESS_TOKEN` | Bearer token required for any request whose `Host` header isn't `localhost`/`127.0.0.1`/`::1`. Localhost requests need no token. A non-localhost request with no token configured, or a mismatched `Authorization: Bearer <token>`, is rejected. |
+| `FRAGMENT_INGRESS_TOKEN` | Bearer token required for any request whose `Host` header isn't `localhost`/`127.0.0.1`/`::1` (or in the allowed-hosts list below). Localhost requests need no token. A non-localhost request with no token configured, or a mismatched `Authorization: Bearer <token>`, is rejected. |
+| `FRAGMENT_INGRESS_ALLOWED_HOSTS` | Comma-separated hostnames (ports ignored) treated like localhost: no token required. For serving Fragment to your own browser through a reverse proxy or private-network name (a tailnet/VPN hostname, a LAN name) — the browser's own inbox polling can't attach a bearer token, and without this the gate 404s it. Only list names that are private to you: a `Host` header is caller-controlled, so this trusts your network path, not the caller. |
 | `FRAGMENT_INBOX_DIR` | Overrides the inbox location. Defaults to `~/.fragment/inbox`. Must match between whatever writes files (fragment-mcp, a hand-written script) and the running Fragment app, or they'll be looking at different directories. |
 
 A closed gate always responds `404`, never `401`/`403` — so a scan can't distinguish "ingress disabled" from "route doesn't exist."
@@ -212,6 +215,15 @@ FRAGMENT_INGRESS_TOKEN=a-long-random-string-you-generate
 ```
 
 The remote agent then sends `Authorization: Bearer a-long-random-string-you-generate` on every request. Treat this token like any bearer credential — anyone who has it can read and ack your inbox.
+
+Example for a server you reach in your own browser via a private hostname (VPN/tailnet or LAN) instead of localhost:
+
+```
+FRAGMENT_LOCAL_INGRESS=true
+FRAGMENT_INGRESS_ALLOWED_HOSTS=my-server.my-tailnet.ts.net
+```
+
+Without this, the app loads fine but silently never imports: its own polling arrives with the private hostname in `Host`, the gate treats it as remote, and 404s it.
 
 ## A note on trust and prompt injection
 
