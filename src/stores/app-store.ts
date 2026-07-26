@@ -45,6 +45,9 @@ interface AppState {
   activeIdeaId: string | null;
   /** Per-idea Write/Pieces choice, persisted in-session (see ARI-154 §2). Missing entries default to "write". */
   ideaSpaces: Record<string, IdeaSpace>;
+  /** The idea workspace column between the sidebar and the editor. Only ever
+   * rendered when an idea is open; this is the user's collapse preference. */
+  ideaPanelOpen: boolean;
   liveEditorNoteId: string | null;
   liveEditorContent: string | null;
   isDraggingToHelper: boolean;
@@ -88,6 +91,8 @@ interface AppState {
   setActiveIdea: (id: string | null) => void;
   setIdeaSpace: (ideaId: string, space: IdeaSpace) => void;
   toggleIdeaSpace: (ideaId: string) => void;
+  setIdeaPanelOpen: (v: boolean) => void;
+  toggleIdeaPanel: () => void;
   setShowCreationFlow: (v: boolean) => void;
   setGeneratingNote: (id: string | null) => void;
   setStreamingContent: (content: string | null) => void;
@@ -115,6 +120,7 @@ export const useAppStore = create<AppState>((set) => ({
   activeNoteId: null,
   activeIdeaId: null,
   ideaSpaces: {},
+  ideaPanelOpen: true,
   liveEditorNoteId: null,
   liveEditorContent: null,
   isDraggingToHelper: false,
@@ -185,6 +191,8 @@ export const useAppStore = create<AppState>((set) => ({
   toggleIdeaSpace: (ideaId) => set((s) => ({
     ideaSpaces: { ...s.ideaSpaces, [ideaId]: (s.ideaSpaces[ideaId] ?? "write") === "write" ? "pieces" : "write" },
   })),
+  setIdeaPanelOpen: (v) => set({ ideaPanelOpen: v }),
+  toggleIdeaPanel: () => set((s) => ({ ideaPanelOpen: !s.ideaPanelOpen })),
   setShowCreationFlow: (v) => set({ showCreationFlow: v }),
   setGeneratingNote: (id) => set({ generatingNoteId: id }),
   setStreamingContent: (content) => set({ streamingContent: content }),

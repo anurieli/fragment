@@ -57,8 +57,9 @@ const FEATURES = [
     items: [
       { name: "What an Idea Is", desc: "A folder for one thing you're writing about. It holds long-form drafts (notes) and short-form pieces derived from them." },
       { name: "Create & Name", desc: "The bulb button next to New note creates one. Double-click an idea to rename it — a name is how you find it later." },
-      { name: "Drafts Inside", desc: "Expand an idea to see its drafts. Click one to write in it. ⋯ → New draft adds another; a note written inside an idea belongs to it automatically." },
-      { name: "Sub-ideas", desc: "⋯ → New sub-idea nests one level deep. A parent's Pieces feed rolls up its children's pieces." },
+      { name: "Idea Workspace", desc: "Opening an idea adds a second column beside the sidebar listing its drafts and pieces, with the editor to the right. Collapse it from its header; reopen it from the toolbar button." },
+      { name: "Drafts Inside", desc: "Click a draft in the workspace to write in it. The + beside Drafts adds another; any note written while an idea is open belongs to that idea automatically." },
+      { name: "Sub-ideas", desc: "⋯ → New sub-idea nests one level deep in the sidebar. A parent's Pieces feed and workspace roll up its children's pieces." },
       { name: "Delete", desc: "⋯ → Delete idea removes the idea, its sub-ideas, and its pieces, with an Undo toast. Drafts survive as standalone notes." },
     ],
   },

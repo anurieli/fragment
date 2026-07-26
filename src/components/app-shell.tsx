@@ -17,6 +17,7 @@ import { identify } from "@/lib/convex-client";
 import { initPostHog } from "@/lib/posthog";
 import { initSentry, setSentryUser } from "@/lib/sentry";
 import { Sidebar } from "./sidebar/sidebar";
+import { IdeaPanel, IdeaPanelToggle } from "./idea/idea-panel";
 import { Editor } from "./editor/editor";
 import { HelperBar } from "./helper-bar/helper-bar";
 import { SpaceToggle } from "./shortform/space-toggle";
@@ -116,6 +117,8 @@ export function AppShell() {
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaSpace = useAppStore((s) => (activeIdeaId ? s.ideaSpaces[activeIdeaId] ?? "write" : "write"));
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
+  const ideaPanelOpen = useAppStore((s) => s.ideaPanelOpen);
+  const setIdeaPanelOpen = useAppStore((s) => s.setIdeaPanelOpen);
   const isFeedbackOpen = useAppStore((s) => s.isFeedbackOpen);
   const closeFeedback = useAppStore((s) => s.closeFeedback);
   const toggleHelperBar = useAppStore((s) => s.toggleHelperBar);
@@ -167,6 +170,24 @@ export function AppShell() {
   useEffect(() => {
     localStorage.setItem("fragment:sidebarOpen", String(sidebarOpen));
   }, [sidebarOpen]);
+
+  // Same treatment for the idea workspace column
+  useEffect(() => {
+    const saved = localStorage.getItem("fragment:ideaPanelOpen");
+    if (saved !== null) setIdeaPanelOpen(saved === "true");
+  }, [setIdeaPanelOpen]);
+
+  // A narrow window can't hold sidebar + idea workspace + editor without
+  // crushing the editor, so opening an idea there hands the left rail to the
+  // workspace. ⌘\ brings the sidebar back; this only fires when the idea or
+  // compactness changes, never fighting a deliberate re-open.
+  useEffect(() => {
+    if (isCompact && activeIdeaId && ideaPanelOpen) setSidebarOpen(false);
+  }, [isCompact, activeIdeaId, ideaPanelOpen, setSidebarOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("fragment:ideaPanelOpen", String(ideaPanelOpen));
+  }, [ideaPanelOpen]);
 
   // ─── Snippets panel hover-reveal system ────────────────────────────────────
   //
@@ -391,6 +412,17 @@ export function AppShell() {
             )}
           </div>
 
+          {/* Idea workspace: a second column, only while an idea is open.
+              The sidebar navigates across ideas; this shows what's inside the
+              one you're in (drafts + pieces), with the writing surface to its
+              right. Collapsible, same width animation as the sidebar. */}
+          <div
+            className="transition-all duration-300 ease-out overflow-hidden shrink-0"
+            style={{ width: !showSettings && activeIdeaId && ideaPanelOpen ? 268 : 0 }}
+          >
+            {activeIdeaId && <IdeaPanel ideaId={activeIdeaId} />}
+          </div>
+
           {/* Center panel: editor, short-form feed, or settings content.
               Write <-> Pieces follows the same center-swap precedent as
               showSettings, one level down — scoped to the active idea
@@ -410,7 +442,14 @@ export function AppShell() {
             ) : (
               <Editor
                 onOpenAISettings={() => { setSettingsSection("ai"); setShowSettings(true); }}
-                leftToolbarSlot={activeIdeaId ? <SpaceToggle ideaId={activeIdeaId} /> : undefined}
+                leftToolbarSlot={
+                  activeIdeaId ? (
+                    <>
+                      <IdeaPanelToggle />
+                      <SpaceToggle ideaId={activeIdeaId} />
+                    </>
+                  ) : undefined
+                }
               />
             )}
           </main>

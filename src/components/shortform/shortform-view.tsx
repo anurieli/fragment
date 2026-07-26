@@ -6,6 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
 import { useToastStore } from "@/hooks/use-toast";
+import { IdeaPanelToggle } from "@/components/idea/idea-panel";
 import { SpaceToggle } from "./space-toggle";
 import { PieceFilterBar } from "./piece-filter-bar";
 import { ShortformFeed } from "./shortform-feed";
@@ -186,6 +187,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
       {/* Toolbar — mirrors the editor's toolbar position/padding so the
           space toggle stays in the same spot switching Write <-> Pieces. */}
       <div className="flex items-center px-8 pt-6 pb-3 shrink-0 gap-3 min-w-0">
+        <IdeaPanelToggle />
         <SpaceToggle ideaId={ideaId} />
         <div className="flex-1 min-w-0 flex items-baseline gap-2 overflow-hidden">
           <span className="truncate text-[13px] text-text-secondary">

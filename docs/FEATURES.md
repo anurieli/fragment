@@ -762,9 +762,17 @@ Every idea gets a second writing space alongside its long-form note: **Write** (
 
 **Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **Piece** always belongs to an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` moves `inbox → in-progress → ready → published`.
 
-**Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Each idea row expands to show what's inside: its **drafts** (long-form notes) first, then its sub-ideas. Click a draft to write in it. The row's summary reads `N drafts · M pieces`, where the piece count is short-form only — drafts are listed by name instead of counted twice.
+**Three columns when an idea is open.** The sidebar navigates *across* ideas; opening one adds an **idea workspace** column beside it showing what's *inside* that idea — its drafts and its pieces — with the writing surface to the right of that:
 
-Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and pieces with a single Undo toast; the underlying notes are never deleted, they just return to the standalone **Notes** list below. Each draft row has its own trash button that deletes only that note.
+```
+[ Sidebar: ideas + standalone notes ] [ Idea workspace: drafts + pieces ] [ Editor or Pieces feed ] [ Snip Bar ]
+```
+
+The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form notes with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Pieces** lists the short-form feed (rolled up through child ideas, newest first, capped at 12 with a "N more" link); clicking any of them opens the Pieces space. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace — `⌘\` brings the sidebar back.
+
+**Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Rows expand to show sub-ideas, and read `N drafts · M pieces` where the piece count is short-form only — drafts are listed by name in the workspace instead of counted twice.
+
+Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and pieces with a single Undo toast; the underlying notes are never deleted, they just return to the standalone **Notes** list below.
 
 **How a note ends up inside an idea:** any note created while an idea is open belongs to that idea — blank, pasted, imported, or AI-generated. The link is itself a piece (`format: essay`, `status: in-progress`) whose content home is the note (`noteId`) rather than inline text. That's also why an idea's drafts never appear as cards in its Pieces feed: long-form text is edited in the editor, short-form text in a card. Notes belonging to an idea are filtered out of the standalone Notes list, since they're reachable under their idea.
 
@@ -815,7 +823,10 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 - [ ] New idea opens directly in rename; Enter commits, Esc cancels, double-click renames later
 - [ ] A note created inside an open idea (blank / paste / import / generate) is listed under that idea, not in Notes
 - [ ] An idea with no draft yet still shows the Write | Pieces toggle and offers to start one
-- [ ] Expanding an idea lists every draft by title; clicking one opens it in the editor
+- [ ] Opening an idea adds the workspace column; it lists every draft by title and clicking one opens it in the editor
+- [ ] The workspace's Pieces list reflects the feed (incl. child ideas) and clicking an entry opens the Pieces space
+- [ ] Collapsing the workspace leaves a reopen button in the toolbar of both spaces, and the choice survives a reload
+- [ ] Under 960px, opening an idea collapses the sidebar instead of crushing the editor
 - [ ] Reopening the app restores both the note and the idea it belongs to
 - [ ] Long-form drafts never appear as cards in the Pieces feed
 - [ ] Delete idea removes its sub-ideas and pieces, Undo restores exactly those, and its notes reappear under Notes

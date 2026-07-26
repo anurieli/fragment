@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Idea workspace: a second column for what's inside the idea you're in (ARI-174)
+
+**Commit**: on `main`
+
+**Summary**: Follow-up to the fix below, restructuring where an idea's contents live. Nesting drafts inside the sidebar tree was the cheap answer; the right one is a column of its own. The sidebar now navigates *across* ideas (ideas and sub-ideas only), opening one adds a 268px **idea workspace** between the sidebar and the center panel, and the writing surface sits to its right: `[sidebar] [idea workspace] [editor / pieces feed] [snip bar]`. The workspace renames the idea from its title, carries an optional summary (finally giving `Idea.summary` a UI), lists **Drafts** with word count and last-edited time (click to open in the editor, `+` for another, per-row delete), lists **Pieces** rolled up through child ideas newest-first (capped at 12 with a "N more" link, click opens the Pieces space), and ends with a jump to whichever space you're not in. Collapsible from its header with a reopen button in both spaces' toolbars, persisted in `localStorage` like the sidebar's. Under 960px three columns would crush the editor, so opening an idea hands the left rail to the workspace (`⌘\` brings the sidebar back).
+
+**Verification**: `tsc --noEmit`, `npm run build`, and 496 tests green (the same 22 pre-existing `api-*` failures, ARI-132). Driven in a browser at 1440px and 900px: open idea → workspace lists drafts/pieces → new draft from the panel lands in the editor with the title updating live in the row → new piece switches to the feed and appears in the panel list → collapse (column measures 0, editor reflows) → reopen from the toolbar → at 900px the sidebar yields and the editor keeps 592px.
+
+**Files**: `src/components/idea/idea-panel.tsx` (new), `src/components/app-shell.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/shortform/shortform-view.tsx`, `src/stores/app-store.ts`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `src/__tests__/app-store.test.ts`
+
 ## 2026-07-26 - Fix: the Ideas sidebar was a container you could create but not use (ARI-174)
 
 **Commit**: `34b3832` on `main`

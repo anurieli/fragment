@@ -28,7 +28,7 @@ import { formatDate } from "@/lib/utils";
 import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
-import type { ContentPiece, Idea, Priority } from "@/lib/content-engine";
+import type { Idea, Priority } from "@/lib/content-engine";
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -265,13 +265,6 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     });
   }
 
-  /** Delete one draft. The note goes; the idea and its other drafts stay. */
-  function handleDeleteDraft(e: React.MouseEvent, ideaId: string, noteId: string) {
-    e.stopPropagation();
-    deleteNote(noteId);
-    if (activeNoteId === noteId) handleSelectIdea(ideaId);
-  }
-
   function startRename(ideaId: string, currentTitle: string) {
     setOpenMenuId(null);
     setRenamingId(ideaId);
@@ -294,45 +287,12 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     });
   }
 
-  /** One long-form draft inside an idea: the note you actually write in. */
-  function renderDraftRow(ideaId: string, piece: ContentPiece) {
-    const noteId = piece.noteId;
-    if (!noteId) return null;
-    const note = notes[noteId];
-    if (!note) return null;
-    const isActive = activeIdeaId === ideaId && activeNoteId === noteId;
-
-    return (
-      <div
-        key={piece.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => handleSelectIdea(ideaId, noteId)}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectIdea(ideaId, noteId); }}
-        className={`group/draft flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150
-          ${isActive ? "bg-surface-3" : "hover:bg-surface-2"}`}
-      >
-        <FileText size={11} className={`shrink-0 ${isActive ? "text-gold" : "text-text-faint"}`} />
-        <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-muted"}`}>
-          {note.title.trim() || "Untitled draft"}
-        </span>
-        <button
-          onClick={(e) => handleDeleteDraft(e, ideaId, noteId)}
-          title="Delete this draft"
-          className="opacity-0 group-hover/draft:opacity-100 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
-        >
-          <Trash2 size={11} />
-        </button>
-      </div>
-    );
-  }
-
   function renderIdeaRow(idea: Idea, depth: 0 | 1) {
     const isActive = idea.id === activeIdeaId;
     const isPinned = idea.pinnedAt !== undefined;
     const kids = depth === 0 ? childrenFor(idea) : [];
     const drafts = draftsForIdea(idea.id, allPieces);
-    const hasChildren = kids.length > 0 || drafts.length > 0;
+    const hasChildren = kids.length > 0;
     const isCollapsed = collapsed.has(idea.id);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
@@ -360,7 +320,7 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
           <div className="flex items-center gap-2">
             <button
               onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleCollapsed(idea.id); }}
-              title={hasChildren ? "Show drafts and sub-ideas" : undefined}
+              title={hasChildren ? "Show sub-ideas" : undefined}
               className={`shrink-0 p-0.5 rounded text-text-faint ${hasChildren ? "hover:text-text-secondary" : "opacity-0 pointer-events-none"}`}
             >
               {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
@@ -451,24 +411,12 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
           </div>
         </div>
 
-        {/* Everything inside the idea: its long-form drafts first, then its
-            sub-ideas. Without this the drafts are unreachable — a note linked
-            to an idea is filtered out of the Notes list below. */}
+        {/* Sub-ideas only. What's *inside* an idea — its drafts and pieces —
+            lives in the idea workspace panel that opens beside this sidebar
+            when the idea is selected (see components/idea/idea-panel.tsx). */}
         {hasChildren && !isCollapsed && (
           <div className="ml-4 pl-3 border-l border-border space-y-1 mt-1">
-            {drafts.map((piece) => renderDraftRow(idea.id, piece))}
             {kids.map((child) => renderIdeaRow(child, 1))}
-          </div>
-        )}
-        {!isCollapsed && !hasChildren && isActive && (
-          <div className="ml-4 pl-3 border-l border-border mt-1">
-            <button
-              onClick={() => handleNewDraft(idea.id)}
-              className="flex items-center gap-1.5 px-3 py-2 text-[11px] text-text-faint hover:text-gold transition-colors duration-150"
-            >
-              <Plus size={11} />
-              Start this idea&apos;s first draft
-            </button>
           </div>
         )}
       </div>
@@ -574,8 +522,8 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
             ) : (
               <>
                 <p className="px-1 pb-2 text-[11px] text-text-faint leading-relaxed">
-                  Expand an idea to see the drafts inside it. Right-click or use ⋯ to rename,
-                  add a draft, or delete.
+                  Open an idea to work inside it — its drafts and pieces appear in the panel
+                  beside this one. Right-click or use ⋯ to rename, add, or delete.
                 </p>
                 <div className="space-y-1 mb-4">
                   {visibleRoots.map((idea) => renderIdeaRow(idea, 0))}

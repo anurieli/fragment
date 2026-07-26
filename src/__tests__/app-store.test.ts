@@ -24,6 +24,14 @@ describe("app-store", () => {
     expect(useAppStore.getState().sidebarOpen).toBe(true);
   });
 
+  it("toggleIdeaPanel flips the idea workspace column, setIdeaPanelOpen sets it", () => {
+    useAppStore.setState({ ideaPanelOpen: true });
+    useAppStore.getState().toggleIdeaPanel();
+    expect(useAppStore.getState().ideaPanelOpen).toBe(false);
+    useAppStore.getState().setIdeaPanelOpen(true);
+    expect(useAppStore.getState().ideaPanelOpen).toBe(true);
+  });
+
   it("toggleHelperBar flips the boolean", () => {
     expect(useAppStore.getState().helperBarOpen).toBe(true);
     useAppStore.getState().toggleHelperBar();
