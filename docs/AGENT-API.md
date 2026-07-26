@@ -2,6 +2,8 @@
 
 Fragment is the content store your agents write into. An agent (Claude Code, Codex, Hermes, or anything that can write a file) drafts content pieces — LinkedIn posts, tweet threads, Substack essays — and hands them to Fragment, where they land in your **inbox** grouped under the **Idea** they belong to. You review, refine, and publish. This document is the stable public interface for that handoff.
 
+Claude Code users: the repo ships an agent skill for this workflow at `.claude/skills/fragment-push/`. Point an agent at it (or copy it into your own skills directory) and it knows the handoff discipline described below.
+
 **Contract version: `fragment: 1`.** Every handoff declares this version. Fields are only ever added within a version; breaking changes get a new version number that Fragment supports side by side. Source of truth: `src/lib/content-engine/` (types + zod schemas).
 
 ## The data model in 30 seconds
