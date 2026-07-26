@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Inbox triage: a Pieces inbox you can actually clear (ARI-180)
+
+**Commit**: `d68e77e` on `main`
+
+**Summary**: An inbox that can't reach zero is a backlog wearing an inbox costume. Three defects, one shape. (1) **A long-form piece had no way out of the short-form feed.** An agent pushing a Substack draft put a 900-word essay in a feed of tweets, and nothing offered to make it a draft you write in the editor. New `convertPieceToDraft` swaps a piece's *content home* from `body` to `noteId` in place, keeping its id, origin, `agentMeta`, priority and resources — because the exactly-one-content-home rule is what separates the two spaces, the swap alone drops it from `shortformOnly` (gone from the feed) and adds it to `draftsForIdea` (listed under Drafts). No copy, no duplicate, nothing orphaned. `revertPieceToShortform` is the undo half; the caller must revert before deleting the note, since `deleteNote` tombstones every piece linking it. (2) **The inbox had no triage.** Every inbox card now carries a row of one-click exits: **Work on it** (→ in-progress), **Ready to ship** (→ ready), **Dismiss** (soft-delete with Undo), plus **Make it a draft** as the primary for `essay`/`substack`/`script`, gated on the new contract-level `isLongformFormat`. The row exists only while status is `inbox`. The Pieces space opens on the Inbox filter when there's an inbox to clear (one-shot per idea, so it never fights a filter you picked), and the idea workspace lists untriaged pieces under a gold "Inbox N · needs a decision" heading above the rest. (3) **Too many ideas made the sidebar a wall.** Rows are a single line with `N drafts · M pieces` moved into the tooltip, sub-ideas start collapsed (auto-expanding when a child is the open idea or a search is active), and a gold badge on the right counts pieces waiting in that idea's inbox.
+
+**Verification**: 8 new tests (content-home swap and its refusals, byte-exact revert, long-form format classification); 506 passing with the same 22 pre-existing `api-*` failures (ARI-132); `tsc --noEmit` and `npm run build` clean. Driven end to end in a browser against the real agent inbox: pushed a `substack` and a `tweet` piece through `~/.fragment/inbox`, watched them import, confirmed the sidebar badge read 2 and the feed opened on Inbox. "Make it a draft" opened the editor with the essay's text, moved the piece from Pieces to Drafts, and Undo put it back with no stray note. Work on it moved inbox 2→1 and in-progress 0→1; Dismiss emptied the inbox to the "Nothing waiting" state; Undo restored it. Deployed to the Olympus service.
+
+**Files**: `src/components/shortform/piece-triage.tsx` (new), `src/stores/content-store.ts`, `src/lib/content-engine/contract.ts`, `src/lib/content-engine/index.ts`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/shortform-view.tsx`, `src/components/idea/idea-panel.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `src/__tests__/content-store.test.ts`, `src/__tests__/content-engine-contract.test.ts`
+
 ## 2026-07-26 - Pieces read as formatted markdown, and a single piece is reachable again (ARI-174)
 
 **Commit**: `72a20e4` on `main`
