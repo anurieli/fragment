@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Fix: the Ideas sidebar was a container you could create but not use (ARI-174)
+
+**Commit**: `34b3832` on `main`
+
+**Summary**: Three defects made the shipped Ideas section dead weight. (1) **You couldn't write in an idea.** Selecting an idea with no long-form note set the active note to `null`, so the editor fell through to `NoteCreationFlow`, which created a *standalone* note and never linked it — the idea stayed empty forever. Notes created while an idea is open now link to it as a long-form piece (`linkNoteToIdea`, noteId content home), from blank/paste/import and from streamed generation alike; the creation flow also renders the Write | Pieces toggle, so a draftless idea can still reach its pieces. (2) **You couldn't delete or rename one.** `deleteIdea`/`updateIdea` existed in the store with zero UI, and every idea was born "Untitled idea" permanently. Rows now rename inline (double-click or menu) and new ideas open straight into rename; `deleteIdeaCascade` tombstones the idea, its sub-ideas, and their pieces, returning the exact ids so the Undo toast restores only those. Notes survive a delete — dropping the linking piece returns a draft to the Notes list. (3) **The notes inside an idea were invisible.** They're filtered out of the standalone Notes list and nothing listed them under the idea, so only whichever draft `Array.find` hit first was ever reachable. Expanding an idea now lists every draft by title (each with its own delete) above its sub-ideas, and hydration reopens the idea around a restored draft. Also excluded long-form pieces from the pieces feed: a card textarea writing `body` to a piece that already has a `noteId` would throw `ContractError`. Idea-row counts are now `N drafts · M pieces` with pieces counted short-form only.
+
+**Verification**: 12 new tests (cascade delete/restore incl. not resurrecting already-deleted pieces, `linkNoteToIdea` idempotence, `shortformOnly`/`draftsForIdea` selectors); affected suites 124 passing, full suite 495 passing with only the 22 pre-existing `api-*` baseline failures (ARI-132); `tsc --noEmit` and `npm run build` clean. Driven end to end in a real browser: create → name → blank draft → write → reload → the draft and its idea both come back; second draft via the menu; delete idea → both drafts land in Notes → Undo restores; sub-idea nesting and rename.
+
+**Files**: `src/stores/content-store.ts`, `src/stores/content-selectors.ts`, `src/components/sidebar/sidebar.tsx`, `src/components/editor/note-creation-flow.tsx`, `src/components/editor/editor.tsx`, `src/components/shortform/shortform-view.tsx`, `src/components/shortform/space-toggle.tsx`, `src/hooks/use-persistence.ts`, `src/hooks/use-stream-generation.ts`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `src/__tests__/content-store.test.ts`, `src/__tests__/content-selectors.test.ts`
+
 ## 2026-07-26 - Fix: agent-created ideas never imported, and one bad file poisoned the whole inbox batch
 
 **Commit**: on `fix/import-idea-json` (PR #5)
