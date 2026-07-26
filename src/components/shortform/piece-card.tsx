@@ -23,6 +23,7 @@ import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
 import { PieceRefineMenu } from "./piece-refine-menu";
+import { PieceTriageBar } from "./piece-triage";
 
 /** Clip height for a rendered piece before "Show more" appears (~16 lines). */
 const COLLAPSED_BODY_PX = 340;
@@ -503,6 +504,11 @@ export function PieceCard({
         >
           {slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
         </div>
+      )}
+
+      {/* Triage — only while the piece is still sitting in the inbox. */}
+      {piece.status === "inbox" && !flowGenerating && (
+        <PieceTriageBar piece={piece} onDismiss={onDelete} />
       )}
 
       {/* Footer */}

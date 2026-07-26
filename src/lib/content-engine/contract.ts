@@ -17,6 +17,18 @@ export const CONTENT_FORMATS = [
 ] as const;
 export type ContentFormat = (typeof CONTENT_FORMATS)[number];
 
+// Formats whose natural home is the long-form editor rather than a feed card.
+// This is about *shape*, not storage: an agent can push a substack draft as a
+// short-form piece (body), and it will land in the inbox like anything else —
+// but the app should offer to move it into a Note, because nobody edits an
+// essay in a card between two tweets. See convertPieceToDraft in
+// src/stores/content-store.ts.
+export const LONGFORM_FORMATS = ["essay", "substack", "script"] as const;
+
+export function isLongformFormat(format: ContentFormat): boolean {
+  return (LONGFORM_FORMATS as readonly ContentFormat[]).includes(format);
+}
+
 export const PIECE_STATUSES = [
   "inbox",
   "in-progress",

@@ -109,6 +109,20 @@ interface ContentState {
    * short-form pieces keep it inline (body). Returns the existing piece id if
    * the note is already linked, so repeat calls are harmless. */
   linkNoteToIdea: (ideaId: string, noteId: string, title?: string) => string;
+  /** Move a short-form piece's text into a Note and make that Note its content
+   * home. The piece keeps its id, origin, agentMeta, priority and resources —
+   * only where its text lives changes — so a substack draft an agent dropped
+   * in the inbox becomes a real draft you write in the editor without losing
+   * its provenance. Side effects that fall out of the swap: `shortformOnly`
+   * stops returning it (gone from the feed) and `draftsForIdea` starts
+   * (listed under Drafts). Seeding the Note's content is the caller's job.
+   * Returns the body it replaced, so an undo can put it back; null if the
+   * piece is missing or already long-form. */
+  convertPieceToDraft: (id: string, noteId: string) => string | null;
+  /** The undo half of convertPieceToDraft: hand back the body it returned.
+   * Call this BEFORE deleting the Note — deleteNote tombstones every piece
+   * linking it (detachPieceNote), which would take this piece with it. */
+  revertPieceToShortform: (id: string, body: string, status?: PieceStatus) => void;
   updatePiece: (id: string, partial: Partial<Omit<ContentPiece, "id" | "createdAt">>) => void;
   reorderPieces: (updates: { id: string; order: number }[]) => void;
   setPieceStatus: (id: string, status: PieceStatus, publish?: PublishRecord) => void;
@@ -359,6 +373,45 @@ export const useContentStore = create<ContentState>((set, get) => ({
       noteId,
       seen: true,
     });
+  },
+
+  convertPieceToDraft: (id, noteId) => {
+    if (!get().hydrated) return null;
+    const piece = get().pieces[id];
+    if (!piece || piece.body === undefined) return null;
+    const previousBody = piece.body;
+    const updated: ContentPiece = {
+      ...piece,
+      noteId,
+      body: undefined,
+      // Converting IS the act of picking it up, so it leaves the inbox. A
+      // piece already further along keeps whatever stage it reached.
+      status: piece.status === "inbox" ? "in-progress" : piece.status,
+      seen: true,
+      updatedAt: Date.now(),
+    };
+    pieceContentHome(updated);
+    assertPublishGuard(updated);
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
+    return previousBody;
+  },
+
+  revertPieceToShortform: (id, body, status) => {
+    if (!get().hydrated) return;
+    const piece = get().pieces[id];
+    if (!piece) return;
+    const updated: ContentPiece = {
+      ...piece,
+      noteId: undefined,
+      body,
+      status: status ?? piece.status,
+      updatedAt: Date.now(),
+    };
+    pieceContentHome(updated);
+    assertPublishGuard(updated);
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
   },
 
   updatePiece: (id, partial) => {

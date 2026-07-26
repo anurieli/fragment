@@ -58,6 +58,7 @@ const FEATURES = [
       { name: "What an Idea Is", desc: "A folder for one thing you're writing about. It holds long-form drafts (notes) and short-form pieces derived from them." },
       { name: "Create & Name", desc: "The bulb button next to New note creates one. Double-click an idea to rename it — a name is how you find it later." },
       { name: "Idea Workspace", desc: "Opening an idea adds a second column beside the sidebar listing its drafts and pieces, with the editor to the right. Collapse it from its header; reopen it from the toolbar button." },
+      { name: "Scanning the List", desc: "Sidebar rows are one line each and sub-ideas start collapsed — hover a row for its draft/piece counts, and watch for the gold number, which counts pieces waiting in that idea's inbox." },
       { name: "Drafts Inside", desc: "Click a draft in the workspace to write in it. The + beside Drafts adds another; any note written while an idea is open belongs to that idea automatically." },
       { name: "Sub-ideas", desc: "⋯ → New sub-idea nests one level deep in the sidebar. A parent's Pieces feed and workspace roll up its children's pieces." },
       { name: "Delete", desc: "⋯ → Delete idea removes the idea, its sub-ideas, and its pieces, with an Undo toast. Drafts survive as standalone notes." },
@@ -68,6 +69,8 @@ const FEATURES = [
     items: [
       { name: "Pieces Space", desc: "Every idea gets a short-form feed alongside its long-form draft. Toggle with Write | Pieces (⌘1 / ⌘2)." },
       { name: "Read vs Edit", desc: "A piece reads as formatted markdown and switches to raw markdown the moment you click in, so what you publish stays byte-exact. Long pieces clip with Show more." },
+      { name: "Clearing the Inbox", desc: "Every inbox piece shows a triage row: Work on it (→ In progress), Ready to ship (→ the publish queue), or Dismiss (removable, with Undo). The feed opens on Inbox whenever there's one to clear." },
+      { name: "Make It a Draft", desc: "An essay, Substack, or script piece gets a fourth triage action: its text moves into a note in this idea and opens in the editor. Same piece, new home — it leaves the feed and appears under Drafts." },
       { name: "Roving Focus", desc: "J/K or the arrow keys move focus between piece cards. Enter opens the textarea, Esc exits back to roving." },
       { name: "Status & Priority", desc: "With a card focused: S cycles status (inbox → in progress → ready), P cycles priority." },
       { name: "Copy & Delete", desc: "C copies a piece's exact text. Backspace deletes it, with an Undo toast." },

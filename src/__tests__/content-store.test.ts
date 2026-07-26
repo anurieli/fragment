@@ -240,6 +240,63 @@ describe("content-store — pieces", () => {
     expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(0);
   });
 
+  it("convertPieceToDraft swaps the content home and pulls the piece out of the inbox", () => {
+    const ideaId = makeIdea();
+    const pieceId = useContentStore.getState().createPiece({
+      ideaId,
+      format: "substack",
+      origin: "agent",
+      body: "# An essay\n\nThat an agent dropped in.",
+      agentMeta: { agent: "penny", pushedAt: 1 },
+    });
+
+    const previousBody = useContentStore.getState().convertPieceToDraft(pieceId, "note-9");
+    const piece = useContentStore.getState().pieces[pieceId];
+
+    expect(previousBody).toBe("# An essay\n\nThat an agent dropped in.");
+    expect(piece.noteId).toBe("note-9");
+    expect(piece.body).toBeUndefined();
+    expect(piece.status).toBe("in-progress");
+    expect(piece.seen).toBe(true);
+    // Provenance survives the move — this is the same piece, rehoused.
+    expect(piece.agentMeta?.agent).toBe("penny");
+    expect(piece.id).toBe(pieceId);
+  });
+
+  it("convertPieceToDraft leaves a piece that's already further along at its stage", () => {
+    const ideaId = makeIdea();
+    const pieceId = useContentStore.getState().createPiece({
+      ideaId, format: "essay", origin: "user", body: "text", status: "ready",
+    });
+
+    useContentStore.getState().convertPieceToDraft(pieceId, "note-1");
+    expect(useContentStore.getState().pieces[pieceId].status).toBe("ready");
+  });
+
+  it("convertPieceToDraft refuses a piece that already lives in a note", () => {
+    const ideaId = makeIdea();
+    const pieceId = useContentStore.getState().linkNoteToIdea(ideaId, "note-1");
+
+    expect(useContentStore.getState().convertPieceToDraft(pieceId, "note-2")).toBeNull();
+    expect(useContentStore.getState().pieces[pieceId].noteId).toBe("note-1");
+  });
+
+  it("revertPieceToShortform puts the body back, exactly, and clears the note link", () => {
+    const ideaId = makeIdea();
+    const body = "Line one.   \n\n\nLine two.  ";
+    const pieceId = useContentStore.getState().createPiece({
+      ideaId, format: "substack", origin: "agent", body,
+    });
+
+    const previousBody = useContentStore.getState().convertPieceToDraft(pieceId, "note-9");
+    useContentStore.getState().revertPieceToShortform(pieceId, previousBody as string, "inbox");
+    const piece = useContentStore.getState().pieces[pieceId];
+
+    expect(piece.body).toBe(body);
+    expect(piece.noteId).toBeUndefined();
+    expect(piece.status).toBe("inbox");
+  });
+
   it("createPiece rejects neither noteId nor body", () => {
     const ideaId = makeIdea();
     expect(() =>

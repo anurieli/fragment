@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ContentPiece } from "@/lib/content-engine";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
@@ -80,6 +80,17 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     setFocusedIndex(-1);
     setMode("roving");
   }, []);
+
+  // Open on the Inbox when there's an inbox to clear. The point of an inbox
+  // is to reach zero, and you can't clear what you aren't looking at — "All"
+  // buries the three new agent drafts among forty triaged ones. One-shot per
+  // idea, so it never fights a filter the user picked afterwards.
+  const filterInitialisedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (filterInitialisedFor.current === ideaId) return;
+    filterInitialisedFor.current = ideaId;
+    if (counts.inbox > 0) setFilter("inbox");
+  }, [ideaId, counts.inbox, setFilter]);
 
   // Keep roving focus in range as the list changes (delete, filter, sort).
   useEffect(() => {

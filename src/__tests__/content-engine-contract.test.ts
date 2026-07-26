@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  CONTENT_FORMATS,
   ContractError,
   assertIdeaParentAllowed,
   contentPieceSchema,
+  isLongformFormat,
   parsePieceHandoffJson,
   pieceContentHome,
 } from "@/lib/content-engine";
@@ -15,6 +17,26 @@ const validJson = {
   format: "linkedin",
   body: "Draft body.",
 };
+
+describe("content-engine — long-form formats", () => {
+  it("counts essay, substack, and script as long-form", () => {
+    expect(isLongformFormat("essay")).toBe(true);
+    expect(isLongformFormat("substack")).toBe(true);
+    expect(isLongformFormat("script")).toBe(true);
+  });
+
+  it("leaves the feed formats short-form", () => {
+    expect(isLongformFormat("tweet")).toBe(false);
+    expect(isLongformFormat("linkedin")).toBe(false);
+    expect(isLongformFormat("other")).toBe(false);
+  });
+
+  it("classifies every format in the contract, one way or the other", () => {
+    for (const format of CONTENT_FORMATS) {
+      expect(typeof isLongformFormat(format)).toBe("boolean");
+    }
+  });
+});
 
 describe("content-engine — JSON handoff schema", () => {
   it("parses a minimal body and applies defaults", () => {

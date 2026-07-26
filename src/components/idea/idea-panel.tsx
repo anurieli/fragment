@@ -83,6 +83,17 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
       ),
     [ideaId, ideas, allPieces],
   );
+  // Untriaged pieces are the ones that owe you a decision, so they list
+  // first and separately — the panel should say "three waiting", not bury
+  // them among everything you already dealt with.
+  const inboxPieces = useMemo(
+    () => shortPieces.filter((p) => p.status === "inbox"),
+    [shortPieces],
+  );
+  const triagedPieces = useMemo(
+    () => shortPieces.filter((p) => p.status !== "inbox"),
+    [shortPieces],
+  );
 
   if (!idea) return null;
 
@@ -262,35 +273,53 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
               Nothing yet. Snip from a draft, or let an agent drop one in.
             </p>
           ) : (
-            <div className="space-y-0.5">
-              {shortPieces.slice(0, 12).map((piece) => (
-                <div
-                  key={piece.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openPiece(piece.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openPiece(piece.id); }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer hover:bg-surface-2 transition-colors duration-150"
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />
-                  <span className="flex-1 min-w-0 truncate text-[12px] text-text-muted">
-                    {pieceLabel(piece)}
-                  </span>
-                  {!piece.seen && piece.origin === "agent" && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"
-                      style={{ animation: "pulse-gold 2s ease-in-out infinite" }}
+            <div className="space-y-3">
+              {inboxPieces.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setIdeaSpace(ideaId, "pieces")}
+                    title="Open the feed to triage these"
+                    className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider
+                      text-gold font-[family-name:var(--font-mono)] hover:opacity-80 transition-opacity duration-150"
+                  >
+                    Inbox {inboxPieces.length}
+                    <span className="normal-case tracking-normal text-text-faint">
+                      · needs a decision
+                    </span>
+                  </button>
+                  <div className="space-y-0.5">
+                    {inboxPieces.slice(0, 8).map((piece) => (
+                      <PieceRow key={piece.id} piece={piece} onOpen={() => openPiece(piece.id)} />
+                    ))}
+                  </div>
+                  {inboxPieces.length > 8 && (
+                    <MoreInFeed
+                      count={inboxPieces.length - 8}
+                      onClick={() => setIdeaSpace(ideaId, "pieces")}
                     />
                   )}
                 </div>
-              ))}
-              {shortPieces.length > 12 && (
-                <button
-                  onClick={() => setIdeaSpace(ideaId, "pieces")}
-                  className="w-full px-3 py-2 text-left text-[11px] text-text-faint hover:text-gold transition-colors duration-150"
-                >
-                  {shortPieces.length - 12} more in the feed →
-                </button>
+              )}
+
+              {triagedPieces.length > 0 && (
+                <div>
+                  {inboxPieces.length > 0 && (
+                    <div className="mb-1 text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)]">
+                      Working
+                    </div>
+                  )}
+                  <div className="space-y-0.5">
+                    {triagedPieces.slice(0, 8).map((piece) => (
+                      <PieceRow key={piece.id} piece={piece} onOpen={() => openPiece(piece.id)} />
+                    ))}
+                  </div>
+                  {triagedPieces.length > 8 && (
+                    <MoreInFeed
+                      count={triagedPieces.length - 8}
+                      onClick={() => setIdeaSpace(ideaId, "pieces")}
+                    />
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -332,6 +361,43 @@ export function IdeaPanelToggle() {
       className="shrink-0 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
     >
       <PanelLeftOpen size={16} />
+    </button>
+  );
+}
+
+/** One piece as a table-of-contents row: status dot, plain-text label, and the
+ * unseen pulse for anything an agent pushed that you haven't looked at yet. */
+function PieceRow({ piece, onOpen }: { piece: ContentPiece; onOpen: () => void }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
+      title={pieceLabel(piece)}
+      className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer hover:bg-surface-2 transition-colors duration-150"
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />
+      <span className="flex-1 min-w-0 truncate text-[12px] text-text-muted">
+        {pieceLabel(piece)}
+      </span>
+      {!piece.seen && piece.origin === "agent" && (
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"
+          style={{ animation: "pulse-gold 2s ease-in-out infinite" }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MoreInFeed({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full px-3 py-2 text-left text-[11px] text-text-faint hover:text-gold transition-colors duration-150"
+    >
+      {count} more in the feed →
     </button>
   );
 }

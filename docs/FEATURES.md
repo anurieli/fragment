@@ -770,13 +770,26 @@ Every idea gets a second writing space alongside its long-form note: **Write** (
 
 The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form notes with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Pieces** lists the short-form feed (rolled up through child ideas, newest first, capped at 12 with a "N more" link); clicking any of them opens the Pieces space. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace — `⌘\` brings the sidebar back.
 
-**Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Rows expand to show sub-ideas, and read `N drafts · M pieces` where the piece count is short-form only — drafts are listed by name in the workspace instead of counted twice.
+**Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Rows are a single line each and sub-ideas start collapsed, so a long list stays scannable; hovering a row shows `N drafts · M pieces` (short-form only — drafts are listed by name in the workspace instead of counted twice). A gold number on the right of a row counts pieces waiting in that idea's inbox. Sub-ideas expand automatically when one of them is the open idea, or while a search is active.
 
 Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and pieces with a single Undo toast; the underlying notes are never deleted, they just return to the standalone **Notes** list below.
 
 **How a note ends up inside an idea:** any note created while an idea is open belongs to that idea — blank, pasted, imported, or AI-generated. The link is itself a piece (`format: essay`, `status: in-progress`) whose content home is the note (`noteId`) rather than inline text. That's also why an idea's drafts never appear as cards in its Pieces feed: long-form text is edited in the editor, short-form text in a card. Notes belonging to an idea are filtered out of the standalone Notes list, since they're reachable under their idea.
 
 **Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default — see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
+
+**Clearing the inbox.** An inbox is only worth having if it can reach zero, so the Pieces space opens on the **Inbox** filter whenever that idea has anything untriaged, and every inbox card carries a triage row of one-click exits:
+
+| Action | What it does |
+|---|---|
+| **Work on it** | Status → `in-progress`. You're keeping it. |
+| **Ready to ship** | Status → `ready`, the publish queue. Good as it stands. |
+| **Dismiss** | Soft-deletes it, with an Undo toast. Same operation as `Backspace` on a focused card. |
+| **Make it a draft** | Long-form formats only (`essay`, `substack`, `script`). Moves the piece's text into a new note in this idea and opens the editor. |
+
+**Make it a draft** is the answer to an agent dropping a 900-word Substack piece into a feed of tweets: the piece keeps its id, origin, `agentMeta`, priority and resources, and only its *content home* changes from `body` to `noteId` (`convertPieceToDraft` in `content-store.ts`). Because the exactly-one-content-home rule is what separates the two spaces, the swap alone removes it from the Pieces feed and lists it under **Drafts** — no copy, no duplicate, nothing orphaned. Undo reverts the body byte-for-byte and deletes the note it created (in that order: deleting a note tombstones every piece linking it).
+
+The triage row only exists while a piece's status is `inbox`; once triaged, the card goes back to being just the piece. The idea workspace mirrors this, listing untriaged pieces under a gold **Inbox N · needs a decision** heading above the rest.
 
 **Reading vs editing a piece:** a card shows its body as *rendered* markdown — headings, bold, lists, links, blockquotes, with single line breaks preserved as line breaks (X and LinkedIn post them verbatim). Clicking in swaps to the raw markdown in a plain textarea, so what you edit and publish is byte-exact; the stored string is never rewritten by a rendering pass, and the char count always reflects the raw text. Anything taller than ~340px is clipped with a **Show more** so a busy inbox stays scannable.
 
@@ -816,10 +829,11 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 2. **Push a batch with the fragment-mcp CLI.** Build it once (`cd packages/fragment-mcp && npm install && npm run build`), then write a contract-format `.md` file (see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact frontmatter) and run `node dist/bin.js push <file.md>`. It should print `queued 1 piece(s); open Fragment to import.` If you point `FRAGMENT_INBOX_DIR` at the same directory the running app uses (default `~/.fragment/inbox`), the app picks the file up within ~10 seconds.
 3. **Watch the inbox badge appear.** Open the idea the piece landed under (or the new root idea it created, if you used `idea_title`) — its sidebar row and the Pieces tab of the Write | Pieces toggle should both show a pulsing gold dot.
 4. **Triage with the keyboard.** Switch to the Pieces space, use `J`/`K` to rove focus onto the new card (the dot should clear once you open it), `S` to cycle its status, `P` to cycle priority, `1`-`4` to jump filters.
-5. **Check byte-exact copy.** Give a piece a body with intentional double spaces, a trailing blank line, and mixed indentation. Use the Share menu's "Copy for X" (or press `C` on a focused card), paste into a plain text editor, and diff it character-for-character against the source — nothing should be trimmed, collapsed, or re-wrapped.
-6. **Substack pending → verified.** Set a Substack publication URL in Settings → Profile, click "Publish to Substack" on a piece — the piece should show an "awaiting confirmation" badge. (Full end-to-end verification needs a real or mock RSS feed with a matching title at `<publicationUrl>/feed` — confirm the badge clears and status flips to `published` once that title appears.)
-7. **Nested idea roll-up.** Create a child idea under a root idea (via `create_idea` with `parentId`, or the sidebar), push pieces into both, then open the parent idea's Pieces space — pieces from both should appear, with the child's pieces under a section header naming it.
-8. **Resources inheritance.** Attach a resource to a parent idea's Resources rail, then open a child idea (or one of its pieces) — the resource should appear there tagged `from <parent idea>`, with no way to remove it from the child's view.
+5. **Clear the inbox.** With several pieces in `inbox`, open the Pieces space — it should land on the Inbox filter. Send one to In progress, one to Ready, dismiss one (then Undo it), and on a `substack`-format piece hit **Make it a draft**: the editor should open with its text, the piece should leave the feed and appear under Drafts in the workspace, and the Undo toast should put it back exactly as it was.
+6. **Check byte-exact copy.** Give a piece a body with intentional double spaces, a trailing blank line, and mixed indentation. Use the Share menu's "Copy for X" (or press `C` on a focused card), paste into a plain text editor, and diff it character-for-character against the source — nothing should be trimmed, collapsed, or re-wrapped.
+7. **Substack pending → verified.** Set a Substack publication URL in Settings → Profile, click "Publish to Substack" on a piece — the piece should show an "awaiting confirmation" badge. (Full end-to-end verification needs a real or mock RSS feed with a matching title at `<publicationUrl>/feed` — confirm the badge clears and status flips to `published` once that title appears.)
+8. **Nested idea roll-up.** Create a child idea under a root idea (via `create_idea` with `parentId`, or the sidebar), push pieces into both, then open the parent idea's Pieces space — pieces from both should appear, with the child's pieces under a section header naming it.
+9. **Resources inheritance.** Attach a resource to a parent idea's Resources rail, then open a child idea (or one of its pieces) — the resource should appear there tagged `from <parent idea>`, with no way to remove it from the child's view.
 
 ### QA checklist
 - [ ] New idea opens directly in rename; Enter commits, Esc cancels, double-click renames later
@@ -840,6 +854,14 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 - [ ] A piece with markdown renders formatted while reading and shows raw markdown once clicked into
 - [ ] Single newlines survive as line breaks in the rendered view; char count still counts the raw text
 - [ ] A piece longer than the fold clips with Show more / Show less
+- [ ] The Pieces space opens on the Inbox filter when the idea has untriaged pieces, on All when it doesn't
+- [ ] Every inbox card shows the triage row; it disappears once the piece is triaged
+- [ ] Work on it / Ready to ship move the piece to that status and out of the Inbox filter
+- [ ] Dismiss removes the piece with a working Undo
+- [ ] Make it a draft appears only for essay / substack / script pieces
+- [ ] Make it a draft opens the editor with the piece's text, lists it under Drafts, and removes it from the feed
+- [ ] Undoing Make it a draft restores the exact body to the feed and leaves no stray note behind
+- [ ] Sidebar idea rows are one line, sub-ideas collapsed, and the gold badge matches the idea's inbox count
 - [ ] Clicking a piece in the idea workspace focuses and scrolls to that exact card (widening the filter to All if it was hidden)
 - [ ] `J`/`K`/arrows rove focus without wrapping past the first/last card
 - [ ] `S` cycles status inbox → in-progress → ready and never jumps to published

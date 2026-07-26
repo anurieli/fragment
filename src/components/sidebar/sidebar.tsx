@@ -121,7 +121,10 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
   const isOnline = useOnlineStatus();
   const [searchQuery, setSearchQuery] = useState("");
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Sub-ideas start collapsed. The sidebar is a list of ideas to move
+  // between; what's *inside* one is the idea workspace panel's job, so the
+  // default here is the shortest list that still shows every idea you have.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -245,11 +248,7 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     setActiveIdea(ideaId);
     setActiveNote(noteId);
     setShowCreationFlow(true);
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(ideaId);
-      return next;
-    });
+    setExpanded((prev) => new Set(prev).add(ideaId));
   }
 
   function handleDeleteIdea(idea: Idea) {
@@ -278,8 +277,8 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     setRenamingId(null);
   }
 
-  function toggleCollapsed(ideaId: string) {
-    setCollapsed((prev) => {
+  function toggleExpanded(ideaId: string) {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(ideaId)) next.delete(ideaId);
       else next.add(ideaId);
@@ -293,9 +292,15 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     const kids = depth === 0 ? childrenFor(idea) : [];
     const drafts = draftsForIdea(idea.id, allPieces);
     const hasChildren = kids.length > 0;
-    const isCollapsed = collapsed.has(idea.id);
+    // Auto-expanded when a child is the open idea, or when a search is on —
+    // hiding the row you just matched would be a bug, not tidiness.
+    const isExpanded =
+      expanded.has(idea.id) ||
+      searchQuery.trim() !== "" ||
+      kids.some((k) => k.id === activeIdeaId);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
+    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}`;
     const hasUnseenAgent = shortPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
@@ -311,19 +316,20 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectIdea(idea.id); }}
           onDoubleClick={() => startRename(idea.id, idea.title)}
           onContextMenu={(e) => { e.preventDefault(); setOpenMenuId(idea.id); }}
-          className={`group relative flex flex-col w-full text-left px-4 py-3 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
+          title={summaryLine}
+          className={`group relative flex flex-col w-full text-left px-3 py-2 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
             ${isActive ? "bg-surface-3 border border-border-strong" : "hover:bg-surface-2"}`}
         >
           {isActive && (
-            <div className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-gold" />
+            <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gold" />
           )}
           <div className="flex items-center gap-2">
             <button
-              onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleCollapsed(idea.id); }}
-              title={hasChildren ? "Show sub-ideas" : undefined}
+              onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpanded(idea.id); }}
+              title={hasChildren ? `${kids.length} sub-${kids.length === 1 ? "idea" : "ideas"}` : undefined}
               className={`shrink-0 p-0.5 rounded text-text-faint ${hasChildren ? "hover:text-text-secondary" : "opacity-0 pointer-events-none"}`}
             >
-              {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+              {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {isPinned && <Pin size={10} className="shrink-0 text-gold" fill="currentColor" />}
             {isRenaming ? (
@@ -344,6 +350,14 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
             ) : (
               <span className={`flex-1 min-w-0 truncate text-[13px] font-medium ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
                 {idea.title || "Untitled idea"}
+              </span>
+            )}
+            {counts.inbox > 0 && (
+              <span
+                title={`${counts.inbox} piece${counts.inbox === 1 ? "" : "s"} waiting in this idea's inbox`}
+                className="shrink-0 px-1.5 rounded-full text-[10px] font-[family-name:var(--font-mono)] text-gold bg-gold/10 border border-gold/20"
+              >
+                {counts.inbox}
               </span>
             )}
             {hasUnseenAgent && (
@@ -382,7 +396,7 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
                       onClick={() => {
                         const childId = createIdea({ title: "Untitled idea", parentId: idea.id });
                         if (childId) {
-                          setCollapsed((prev) => { const n = new Set(prev); n.delete(idea.id); return n; });
+                          setExpanded((prev) => new Set(prev).add(idea.id));
                           handleSelectIdea(childId);
                           startRename(childId, "Untitled idea");
                         }
@@ -405,20 +419,15 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-1 pl-0">
-            <span className="text-[11px] text-text-muted truncate">
-              {drafts.length} {drafts.length === 1 ? "draft" : "drafts"}
-              {" · "}
-              {total} {total === 1 ? "piece" : "pieces"}
-              {counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}
-            </span>
-          </div>
+          {/* The counts live in the row's tooltip, not on a second line: with
+              a dozen ideas the list has to stay scannable, and what's inside
+              an idea is spelled out in the workspace panel anyway. */}
         </div>
 
         {/* Sub-ideas only. What's *inside* an idea — its drafts and pieces —
             lives in the idea workspace panel that opens beside this sidebar
             when the idea is selected (see components/idea/idea-panel.tsx). */}
-        {hasChildren && !isCollapsed && (
+        {hasChildren && isExpanded && (
           <div className="ml-4 pl-3 border-l border-border space-y-1 mt-1">
             {kids.map((child) => renderIdeaRow(child, 1))}
           </div>
