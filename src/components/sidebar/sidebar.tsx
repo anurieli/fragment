@@ -356,7 +356,11 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
               <button
                 onClick={(e) => { e.stopPropagation(); setOpenMenuId(menuOpen ? null : idea.id); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setOpenMenuId(idea.id); }}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
+                title="Rename, add a draft, delete…"
+                // Always visible, unlike the hover-revealed actions elsewhere
+                // in this sidebar: this menu is the only route to renaming and
+                // deleting an idea, so hiding it hides the feature.
+                className="p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
               >
                 <MoreHorizontal size={12} />
               </button>
