@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - fragment-push agent skill shipped in the repo
+
+**Commit**: 8228dc7 "feat: ship fragment-push agent skill in the open source repo" (PR #2)
+
+**Summary**: The repo now ships a ready-made Claude Code skill at `.claude/skills/fragment-push/SKILL.md` teaching agents the Press handoff discipline: list ideas before creating, one piece per `add_piece`, byte-exact bodies, tweet threads via `---` separators, statuses stay with the user except `published`. Includes remote-agent setup (run the MCP over SSH when the Fragment app lives on another machine). `.gitignore` gains a targeted carve-out for exactly this path; all other `.claude/` content stays local. `docs/AGENT-API.md` points to the skill.
+
+**Files**: `.claude/skills/fragment-push/SKILL.md`, `.gitignore`, `docs/AGENT-API.md`, `CHANGELOG.md`
+
 ## 2026-07-25 - Press (the Content Engine) + Pass (review sharing): epic ARI-148 built end to end
 
 **Summary**: Fragment's fourth and fifth features, built in one day across 13 issues on `feat/content-engine` (PR #1). **Press**: ideas contain multi-format content pieces; agents push drafts through `fragment-mcp` (new MIT package: 6 MCP tools + CLI, file drop-folder transport, esbuild-bundled) into a security-gated local ingress (`/api/v1/agent-inbox`, 404 unless `FRAGMENT_LOCAL_INGRESS=true` and not hosted; bearer token beyond localhost) that imports into Dexie v17 (`ideas`, `contentPieces`, `resources` tables) with last-write-wins rules that never clobber newer local edits. The UI adds an idea-aware sidebar (nesting max 2, pinning, unread dots), a Write | Pieces space toggle, and a short-form feed of plain auto-growing textareas (byte-exact whitespace) with filter chips, priority, age/staleness tokens, scheduling badges, roving keyboard triage, and per-piece Share menus. Publishing: dual-flavor clipboard per platform, X Web Intents, Substack copy + auto-open + RSS go-live verification with a 24h nudge, one-click Kit broadcasts (draft/schedule via v4 API, BYO free-plan key), and LinkedIn via Composio (BYO key, managed OAuth, proxied server-side on web builds). Resources attach at every level and inherit downward at read time, with roll-up views. Piece AI: Refine on textarea selections with platform char-limit hints, Snip both directions, Flow drafting via Cmd+Enter. **Pass**: send any draft for review as a self-contained offline HTML file; the reviewer highlights, comments, and autosaves to their own browser, then sends back a review file the author imports; review history persists with the note (Dexie v18). Docs: `docs/AGENT-API.md` finalized as the stable `fragment: 1` public interface, FEATURES.md QA sections 19 and 20, PRD data-model appendix, help-overlay coverage.
