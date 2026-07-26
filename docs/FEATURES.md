@@ -778,7 +778,9 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 
 **Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default — see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
 
-**Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment you focus its card to edit it.
+**Reading vs editing a piece:** a card shows its body as *rendered* markdown — headings, bold, lists, links, blockquotes, with single line breaks preserved as line breaks (X and LinkedIn post them verbatim). Clicking in swaps to the raw markdown in a plain textarea, so what you edit and publish is byte-exact; the stored string is never rewritten by a rendering pass, and the char count always reflects the raw text. Anything taller than ~340px is clipped with a **Show more** so a busy inbox stays scannable.
+
+**Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment it takes focus (click, `J`/`K`, or a jump from the idea workspace), since a focused card is readable without editing it.
 
 **Triage keyboard shortcuts** (active while a piece card has roving focus, not while editing its text):
 
@@ -834,7 +836,11 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 - [ ] `⌘1` / `⌘2` switch spaces
 - [ ] Agent-pushed piece lands in `inbox` status regardless of what the file requested
 - [ ] Unseen dot shows on the piece card, the Pieces tab, and the sidebar idea row (agent-origin only for the sidebar)
-- [ ] Unseen dot clears when the card is focused for editing
+- [ ] Unseen dot clears when the card takes focus, without entering edit mode
+- [ ] A piece with markdown renders formatted while reading and shows raw markdown once clicked into
+- [ ] Single newlines survive as line breaks in the rendered view; char count still counts the raw text
+- [ ] A piece longer than the fold clips with Show more / Show less
+- [ ] Clicking a piece in the idea workspace focuses and scrolls to that exact card (widening the filter to All if it was hidden)
 - [ ] `J`/`K`/arrows rove focus without wrapping past the first/last card
 - [ ] `S` cycles status inbox → in-progress → ready and never jumps to published
 - [ ] `P` cycles priority

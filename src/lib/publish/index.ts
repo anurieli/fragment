@@ -1,7 +1,7 @@
 export { PUBLISH_PLATFORMS } from "./platform";
 export type { PublishPlatform } from "./platform";
 
-export { markdownToCleanHtml, markdownToPlainText } from "./markdown";
+export { markdownToCleanHtml, markdownToPlainText, markdownToPreviewHtml } from "./markdown";
 
 export { buildClipboardPayload, copyForPlatform } from "./clipboard";
 export type { ClipboardPayload } from "./clipboard";

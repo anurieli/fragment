@@ -48,6 +48,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   const rejectPiece = useContentStore((s) => s.rejectPiece);
   const undeletePiece = useContentStore((s) => s.undeletePiece);
   const showToast = useToastStore((s) => s.showToast);
+  const revealPieceId = useAppStore((s) => s.revealPieceId);
+  const clearRevealPiece = useAppStore((s) => s.clearRevealPiece);
 
   const [filter, setFilterRaw] = useState<PieceFilter>("all");
   const [sort, setSort] = useState<PieceSortMode>(defaultSortForFilter("all"));
@@ -96,6 +98,35 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
       setPendingFocusId(null);
     }
   }, [pendingFocusId, visible]);
+
+  // Keep the focused card on screen. Roving with J/K past the fold, or
+  // arriving from the idea panel, should never leave you looking at the
+  // wrong piece.
+  useEffect(() => {
+    const id = focusedIndex >= 0 ? visible[focusedIndex]?.id : undefined;
+    if (!id) return;
+    document
+      .querySelector(`[data-piece-card][data-piece-id="${id}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusedIndex, visible]);
+
+  // A click in the idea workspace names a piece; land on it here. If the
+  // current filter hides it, widen to All first and resolve on the next pass.
+  useEffect(() => {
+    if (!revealPieceId) return;
+    const idx = visible.findIndex((p) => p.id === revealPieceId);
+    if (idx === -1) {
+      if (filter !== "all") setFilter("all");
+      else clearRevealPiece();
+      return;
+    }
+    setFocusedIndex(idx);
+    setMode("roving");
+    clearRevealPiece();
+    document
+      .querySelector(`[data-piece-card][data-piece-id="${revealPieceId}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [revealPieceId, visible, filter, setFilter, clearRevealPiece]);
 
   const handleNewPiece = useCallback(() => {
     const id = createPiece({ ideaId, format: "other", origin: "user", body: "" });

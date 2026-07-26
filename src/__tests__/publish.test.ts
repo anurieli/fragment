@@ -7,6 +7,7 @@ import {
   countTweetThread,
   escapeLinkedInReserved,
   markdownToCleanHtml,
+  markdownToPreviewHtml,
   markdownToPlainText,
   TWEET_CHAR_LIMIT,
 } from "@/lib/publish";
@@ -87,6 +88,26 @@ describe("publish — markdownToCleanHtml", () => {
 
   it("does not pass raw HTML through (html: false)", () => {
     const html = markdownToCleanHtml('<script>alert("x")</script>\n\nSafe paragraph.');
+    expect(html).not.toContain("<script>");
+  });
+});
+
+describe("publish — markdownToPreviewHtml", () => {
+  it("keeps single newlines as line breaks, unlike the clipboard flavor", () => {
+    const fixture = "First line\nSecond line";
+    expect(markdownToPreviewHtml(fixture)).toContain("<br>");
+    expect(markdownToCleanHtml(fixture)).not.toContain("<br>");
+  });
+
+  it("renders emphasis, headings, and lists", () => {
+    const html = markdownToPreviewHtml("## Title\n\nSome **bold** text\n\n- one\n- two");
+    expect(html).toContain("<h2>Title</h2>");
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<li>one</li>");
+  });
+
+  it("escapes raw HTML rather than injecting it", () => {
+    const html = markdownToPreviewHtml('<script>alert("x")</script>\n\nSafe.');
     expect(html).not.toContain("<script>");
   });
 });

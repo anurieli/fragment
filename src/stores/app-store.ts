@@ -48,6 +48,9 @@ interface AppState {
   /** The idea workspace column between the sidebar and the editor. Only ever
    * rendered when an idea is open; this is the user's collapse preference. */
   ideaPanelOpen: boolean;
+  /** One-shot "jump to this piece" request from the idea workspace to the
+   * pieces feed: the feed focuses it, scrolls it into view, and clears this. */
+  revealPieceId: string | null;
   liveEditorNoteId: string | null;
   liveEditorContent: string | null;
   isDraggingToHelper: boolean;
@@ -93,6 +96,8 @@ interface AppState {
   toggleIdeaSpace: (ideaId: string) => void;
   setIdeaPanelOpen: (v: boolean) => void;
   toggleIdeaPanel: () => void;
+  revealPiece: (id: string) => void;
+  clearRevealPiece: () => void;
   setShowCreationFlow: (v: boolean) => void;
   setGeneratingNote: (id: string | null) => void;
   setStreamingContent: (content: string | null) => void;
@@ -121,6 +126,7 @@ export const useAppStore = create<AppState>((set) => ({
   activeIdeaId: null,
   ideaSpaces: {},
   ideaPanelOpen: true,
+  revealPieceId: null,
   liveEditorNoteId: null,
   liveEditorContent: null,
   isDraggingToHelper: false,
@@ -193,6 +199,8 @@ export const useAppStore = create<AppState>((set) => ({
   })),
   setIdeaPanelOpen: (v) => set({ ideaPanelOpen: v }),
   toggleIdeaPanel: () => set((s) => ({ ideaPanelOpen: !s.ideaPanelOpen })),
+  revealPiece: (id) => set({ revealPieceId: id }),
+  clearRevealPiece: () => set({ revealPieceId: null }),
   setShowCreationFlow: (v) => set({ showCreationFlow: v }),
   setGeneratingNote: (id) => set({ generatingNoteId: id }),
   setStreamingContent: (content) => set({ streamingContent: content }),

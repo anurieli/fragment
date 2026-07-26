@@ -297,6 +297,28 @@
   font-style: italic;
 }
 
+.prose-preview a {
+  color: var(--color-gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-preview hr {
+  border: none;
+  border-top: 1px solid var(--color-border-strong);
+  margin: 1em 0;
+}
+
+.prose-preview h4,
+.prose-preview h5,
+.prose-preview h6 {
+  font-family: var(--font-display);
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.4em 0 0.2em;
+  color: var(--color-text-primary);
+}
+
 /* ProseMirror drop cursor */
 .ProseMirror-dropcursor {
   color: var(--color-gold) !important;
@@ -470,4 +492,15 @@
 .shortform-piece-textarea {
   field-sizing: content;
   min-height: 1.5em;
+}
+
+/* A piece rendered for reading (the raw markdown is one click away). Trims
+   the leading/trailing block margins so a card's text starts flush with the
+   meta row above it, the way the textarea does. */
+.shortform-piece-rendered > :first-child {
+  margin-top: 0;
+}
+
+.shortform-piece-rendered > :last-child {
+  margin-bottom: 0;
 }

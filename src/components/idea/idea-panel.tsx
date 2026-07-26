@@ -14,6 +14,7 @@ import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
 import { draftsForIdea, hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
 import { useToastStore } from "@/hooks/use-toast";
+import { markdownToPlainText } from "@/lib/publish";
 import { formatDate, wordCount } from "@/lib/utils";
 import type { ContentPiece, PieceStatus } from "@/lib/content-engine";
 
@@ -28,10 +29,11 @@ const STATUS_DOT: Record<PieceStatus, string> = {
   published: "bg-green",
 };
 
-/** First non-empty line of a piece, for a one-line row label. */
+/** First non-empty line of a piece, as a plain-text row label — markdown
+ * syntax stripped so a `## heading` reads as a title, not as hashes. */
 function pieceLabel(piece: ContentPiece): string {
   if (piece.title?.trim()) return piece.title.trim();
-  const firstLine = (piece.body ?? "")
+  const firstLine = markdownToPlainText(piece.body ?? "")
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.length > 0);
@@ -64,6 +66,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const space = useAppStore((s) => s.ideaSpaces[ideaId] ?? "write");
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
   const setIdeaPanelOpen = useAppStore((s) => s.setIdeaPanelOpen);
+  const revealPiece = useAppStore((s) => s.revealPiece);
   const showToast = useToastStore((s) => s.showToast);
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -112,10 +115,17 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     }
   }
 
+  /** Open the pieces feed with this exact piece selected and scrolled to —
+   * the panel is a table of contents, so a click has to land somewhere. */
+  function openPiece(pieceId: string) {
+    setIdeaSpace(ideaId, "pieces");
+    revealPiece(pieceId);
+  }
+
   function handleNewPiece() {
     const id = createPiece({ ideaId, format: "other", origin: "user", body: "" });
     if (!id) return;
-    setIdeaSpace(ideaId, "pieces");
+    openPiece(id);
     showToast("Piece added — edit it in the feed");
   }
 
@@ -258,8 +268,8 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   key={piece.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setIdeaSpace(ideaId, "pieces")}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setIdeaSpace(ideaId, "pieces"); }}
+                  onClick={() => openPiece(piece.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openPiece(piece.id); }}
                   className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer hover:bg-surface-2 transition-colors duration-150"
                 >
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag, MoreHorizontal, ChevronDown } from "lucide-react";
 import type { ContentFormat, ContentPiece, Priority } from "@/lib/content-engine";
-import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, publishPendingState } from "@/lib/publish";
+import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml, publishPendingState } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
@@ -23,6 +23,9 @@ import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
 import { PieceRefineMenu } from "./piece-refine-menu";
+
+/** Clip height for a rendered piece before "Show more" appears (~16 lines). */
+const COLLAPSED_BODY_PX = 340;
 
 const FORMAT_LABELS: Record<ContentFormat, string> = {
   tweet: "X",
@@ -144,6 +147,16 @@ export function PieceCard({
   const [flowGenerating, setFlowGenerating] = useState(false);
   const [streamedBody, setStreamedBody] = useState<string | null>(null);
 
+  // The one string this card is about, from whichever source is live.
+  const body = flowGenerating ? streamedBody ?? "" : piece.body ?? "";
+  // Flow streams into the textarea, so a generating card counts as editing
+  // even if the user never clicked in.
+  const isEditing = editing || flowGenerating;
+
+  const renderedRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
   const resize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -153,7 +166,20 @@ export function PieceCard({
 
   useEffect(() => {
     resize();
-  }, [piece.body, streamedBody, resize]);
+  }, [piece.body, streamedBody, isEditing, resize]);
+
+  // A feed of full-length pieces is unreadable, so anything taller than
+  // COLLAPSED_BODY_PX is clipped with a "Show more". Measured rather than
+  // guessed from character count — rendered markdown height doesn't track
+  // length closely enough (a list of one-word items is tall and short).
+  useEffect(() => {
+    const el = renderedRef.current;
+    if (!el) {
+      setOverflows(false);
+      return;
+    }
+    setOverflows(el.scrollHeight > COLLAPSED_BODY_PX + 24);
+  }, [body, isEditing, expanded]);
 
   useEffect(() => {
     // Only drive focus programmatically (and jump the cursor to the end)
@@ -169,10 +195,17 @@ export function PieceCard({
     }
   }, [focused, editing]);
 
-  const handleTextareaFocus = useCallback(() => {
+  const enterEditing = useCallback(() => {
     if (!piece.seen) markPieceSeen(piece.id);
     onEnterEdit();
   }, [piece.seen, piece.id, markPieceSeen, onEnterEdit]);
+
+  // Focus is reading, not just a prelude to editing: now that a card shows
+  // its formatted text, landing on one (click, J/K, or a jump from the idea
+  // panel) is enough to clear its unseen dot.
+  useEffect(() => {
+    if (focused && !piece.seen) markPieceSeen(piece.id);
+  }, [focused, piece.seen, piece.id, markPieceSeen]);
 
   const handleBodyChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -401,32 +434,75 @@ export function PieceCard({
         </span>
       </div>
 
-      {/* Body — plain, auto-growing textarea. Not Tiptap: short-form content is
-          byte-exact, no markdown rendering. During Flow generation the value
+      {/* Body — two views of the same byte-exact string. Reading shows it
+          rendered (headings, bold, lists, links); clicking in swaps to the
+          raw markdown in a plain auto-growing textarea, so what you edit is
+          exactly what gets published. Never Tiptap: the stored text is never
+          rewritten by a rendering pass. During Flow generation the value
           follows streamedBody (local state) instead of the store, matching
           the long-form editor's streamingContent pattern — see
           handleFlowGenerate. */}
-      <textarea
-        ref={textareaRef}
-        data-piece-textarea
-        tabIndex={-1}
-        value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
-        onChange={handleBodyChange}
-        onFocus={handleTextareaFocus}
-        onBlur={onExitEdit}
-        onKeyDown={handleTextareaKeyDown}
-        readOnly={flowGenerating}
-        placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
-        className="shortform-piece-textarea w-full resize-none bg-transparent outline-none text-[14px] leading-relaxed text-text-primary placeholder:text-text-faint font-[family-name:var(--font-body)]"
-        rows={1}
-      />
-      {inlineEditEnabled && !flowGenerating && (
-        <PieceRefineMenu
-          textareaRef={textareaRef}
-          containerRef={cardRef}
-          onEdit={handleRefineEdit}
-          onSnip={handleRefineSnip}
-        />
+      {isEditing ? (
+        <>
+          <textarea
+            ref={textareaRef}
+            data-piece-textarea
+            tabIndex={-1}
+            value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
+            onChange={handleBodyChange}
+            onFocus={enterEditing}
+            onBlur={onExitEdit}
+            onKeyDown={handleTextareaKeyDown}
+            readOnly={flowGenerating}
+            placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
+            className="shortform-piece-textarea w-full resize-none bg-transparent outline-none text-[14px] leading-relaxed text-text-primary placeholder:text-text-faint font-[family-name:var(--font-body)]"
+            rows={1}
+          />
+          {inlineEditEnabled && !flowGenerating && (
+            <PieceRefineMenu
+              textareaRef={textareaRef}
+              containerRef={cardRef}
+              onEdit={handleRefineEdit}
+              onSnip={handleRefineSnip}
+            />
+          )}
+        </>
+      ) : body.trim() ? (
+        <>
+          <div className="relative">
+            <div
+              ref={renderedRef}
+              onClick={enterEditing}
+              title="Click to edit the raw markdown"
+              style={{ maxHeight: expanded ? undefined : COLLAPSED_BODY_PX }}
+              className={`prose-preview shortform-piece-rendered text-[14px] leading-relaxed text-text-primary font-[family-name:var(--font-body)] cursor-text ${
+                expanded ? "" : "overflow-hidden"
+              }`}
+              // Safe: markdownToPreviewHtml runs markdown-it with html:false,
+              // so any raw HTML in an agent-pushed body is escaped, not
+              // injected.
+              dangerouslySetInnerHTML={{ __html: markdownToPreviewHtml(body) }}
+            />
+            {overflows && !expanded && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
+            )}
+          </div>
+          {overflows && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+              className="mt-1 text-[11px] text-text-faint hover:text-gold transition-colors duration-150"
+            >
+              {expanded ? "Show less" : "Show more"}
+            </button>
+          )}
+        </>
+      ) : (
+        <div
+          onClick={enterEditing}
+          className="text-[14px] leading-relaxed text-text-faint font-[family-name:var(--font-body)] cursor-text"
+        >
+          {slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
+        </div>
       )}
 
       {/* Footer */}

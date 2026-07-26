@@ -67,6 +67,7 @@ const FEATURES = [
     category: "Press",
     items: [
       { name: "Pieces Space", desc: "Every idea gets a short-form feed alongside its long-form draft. Toggle with Write | Pieces (⌘1 / ⌘2)." },
+      { name: "Read vs Edit", desc: "A piece reads as formatted markdown and switches to raw markdown the moment you click in, so what you publish stays byte-exact. Long pieces clip with Show more." },
       { name: "Roving Focus", desc: "J/K or the arrow keys move focus between piece cards. Enter opens the textarea, Esc exits back to roving." },
       { name: "Status & Priority", desc: "With a card focused: S cycles status (inbox → in progress → ready), P cycles priority." },
       { name: "Copy & Delete", desc: "C copies a piece's exact text. Backspace deletes it, with an Undo toast." },

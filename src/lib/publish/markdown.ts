@@ -28,6 +28,28 @@ export function markdownToCleanHtml(markdown: string): string {
   return markdownRenderer.render(markdown).trim();
 }
 
+// Same engine, one difference: `breaks: true`. For the on-screen preview of a
+// short-form piece, a single newline is a line the author put there on
+// purpose — X and LinkedIn post it verbatim — so it has to survive as a <br>
+// instead of collapsing into a space. The clipboard flavors keep breaks:false
+// because pasting into Substack's editor wants real paragraphs.
+const previewRenderer = new MarkdownIt({
+  html: false,
+  linkify: false,
+  typographer: false,
+  breaks: true,
+});
+
+/**
+ * Markdown → HTML for displaying a piece as formatted text (never for
+ * publishing). Safe to inject: `html: false` escapes any raw HTML in the
+ * source rather than passing it through, so an agent-pushed body can't smuggle
+ * markup into the page.
+ */
+export function markdownToPreviewHtml(markdown: string): string {
+  return previewRenderer.render(markdown).trim();
+}
+
 // Order matters: strip the widest-reaching syntax first (bold+italic before
 // bold before italic) so a run like `***x***` doesn't leave stray asterisks
 // behind after only the narrower pattern matches.
