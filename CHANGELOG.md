@@ -2,6 +2,15 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-26 - Fix: agent-created ideas never imported, and one bad file poisoned the whole inbox batch
+
+**Commit**: on `fix/import-idea-json` (PR #5)
+
+**Summary**: Two bugs found live, together making MCP-pushed content invisible. (1) fragment-mcp's `create_idea` writes an `idea.json` manifest that nothing ever ingested, so every piece referencing an agent-created `idea_id` failed idea resolution with "idea does not exist". (2) That failure threw out of the import loop, so one such file killed the entire poll batch, every 10 seconds, silently, including unrelated healthy files. Fixes: the contract gains `ideaFileSchema`; the GET route (and the Tauri fs reader) now return `idea.json` manifests, ingested idempotently by id before piece files each poll (never acked/moved since fragment-mcp still reads them); idea resolution inside `importHandoffFiles` is isolated per file, so a poison file becomes an `import-error` skip that stays in the inbox and retries while the rest of the batch imports. Unknown `parentId` in a manifest degrades to root rather than dangling.
+
+**Verification**: 7 new tests (manifest ingestion, overwrite protection, malformed-manifest tolerance, parent handling, poison isolation, same-batch id resolution); full suite 482 passing with only the 22 pre-existing `api-*` baseline failures; `tsc --noEmit` clean; verified against the real 9-file inbox that triggered the bug: 6 ideas + 9 pieces + 1 resource import cleanly with zero skips.
+
+**Files**: `src/lib/content-engine/contract.ts`, `src/lib/content-engine/index.ts`, `src/lib/agent-inbox/import.ts`, `src/lib/agent-inbox/server-fs.ts`, `src/lib/agent-inbox/tauri-inbox.ts`, `src/app/api/v1/agent-inbox/route.ts`, `src/hooks/use-agent-inbox.ts`, `src/__tests__/agent-inbox.test.ts`, `docs/AGENT-API.md`
 ## 2026-07-26 - Delivery preflight: agents stop reporting success for pushes the app can never import
 
 **Commit**: on `feat/mcp-delivery-preflight` (PR #4)

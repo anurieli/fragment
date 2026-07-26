@@ -13,6 +13,7 @@ import {
   buildIdeaFromHandoff,
   buildResources,
   handoffToPiece,
+  ideaFileSchema,
   matchIdea,
   parsePieceFile,
   resolvePieceUpsert,
@@ -40,7 +41,7 @@ export interface ImportHandoffContext {
 
 export interface ImportSkip {
   relPath: string;
-  reason: "parse-error" | "local-newer" | "unchanged" | "local-deleted";
+  reason: "parse-error" | "import-error" | "local-newer" | "unchanged" | "local-deleted";
   detail?: string;
 }
 
@@ -107,15 +108,29 @@ export function importHandoffFiles(
     }
 
     // Idea resolution ------------------------------------------------------
+    // Isolated per file: a piece referencing an ideaId the store doesn't know
+    // (e.g. its idea.json hasn't been ingested yet) throws here, and that must
+    // cost only THIS file — it stays in the inbox un-acked and retries next
+    // poll, while the rest of the batch imports. Before this guard, one such
+    // file poisoned the entire batch on every poll, silently, forever.
     let ideaId: string;
-    const matched = matchIdea(handoff, workingIdeas);
-    if (matched) {
-      ideaId = matched.id;
-    } else {
-      const newIdea = buildIdeaFromHandoff(handoff, { now: ctx.now, generateId: ctx.generateId });
-      ideasToCreate.push(newIdea);
-      workingIdeas.push(newIdea);
-      ideaId = newIdea.id;
+    try {
+      const matched = matchIdea(handoff, workingIdeas);
+      if (matched) {
+        ideaId = matched.id;
+      } else {
+        const newIdea = buildIdeaFromHandoff(handoff, { now: ctx.now, generateId: ctx.generateId });
+        ideasToCreate.push(newIdea);
+        workingIdeas.push(newIdea);
+        ideaId = newIdea.id;
+      }
+    } catch (error) {
+      skips.push({
+        relPath: file.relPath,
+        reason: "import-error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      continue;
     }
 
     // Piece resolution -------------------------------------------------------
@@ -162,6 +177,96 @@ export function importHandoffFiles(
   }
 
   return { ideasToCreate, piecesToUpsert, resourcesToCreate, acks, skips };
+}
+
+// ---------------------------------------------------------------------------
+// idea.json import — fragment-mcp's `create_idea` writes an idea manifest at
+// `<inboxDir>/<ideaId>/idea.json`; pieces pushed via `add_piece` then
+// reference that id. The app has to ingest these manifests or every such
+// piece hits "idea does not exist" forever. Like resources.jsonl, manifests
+// are read in full every poll and never acked/moved — fragment-mcp itself
+// still needs them on disk for list_ideas/get_piece — so ingestion is
+// idempotent by idea id instead of ack-based.
+// ---------------------------------------------------------------------------
+
+export interface AgentIdeaFile {
+  /** The idea directory this manifest lives under. */
+  ideaId: string;
+  /** Path relative to the inbox directory (diagnostic only — never acked). */
+  relPath: string;
+  content: string;
+}
+
+export interface ImportIdeaFilesContext {
+  /** Ids of ideas already in the store — a manifest whose id is already
+   * known is skipped, never overwritten (local edits always win over the
+   * static manifest). */
+  existingIdeaIds: ReadonlySet<string>;
+  now: number;
+}
+
+export interface ImportIdeaFilesResult {
+  ideasToCreate: Idea[];
+  skips: ImportSkip[];
+}
+
+/**
+ * Import a batch of `idea.json` manifests. Per file: parse as JSON, validate
+ * with the contract's `ideaFileSchema`, skip ids already known (store or
+ * earlier in this batch). Run this BEFORE `importHandoffFiles` and feed the
+ * returned ideas into its ctx so same-batch pieces referencing the id
+ * resolve. A malformed manifest is skipped, not fatal to the batch.
+ */
+export function importIdeaFiles(
+  files: readonly AgentIdeaFile[],
+  ctx: ImportIdeaFilesContext,
+): ImportIdeaFilesResult {
+  const ideasToCreate: Idea[] = [];
+  const skips: ImportSkip[] = [];
+  const seenIds = new Set(ctx.existingIdeaIds);
+
+  for (const file of files) {
+    let json: unknown;
+    try {
+      json = JSON.parse(file.content);
+    } catch (error) {
+      skips.push({
+        relPath: file.relPath,
+        reason: "parse-error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+
+    const parsed = ideaFileSchema.safeParse(json);
+    if (!parsed.success) {
+      skips.push({ relPath: file.relPath, reason: "parse-error", detail: parsed.error.message });
+      continue;
+    }
+
+    const manifest = parsed.data;
+    if (seenIds.has(manifest.id)) {
+      skips.push({ relPath: file.relPath, reason: "unchanged" });
+      continue;
+    }
+    seenIds.add(manifest.id);
+
+    ideasToCreate.push({
+      id: manifest.id,
+      title: manifest.title.trim(),
+      summary: manifest.summary,
+      // A parent the store doesn't know is dropped to root rather than
+      // creating a dangling reference; the manifest's parent may simply not
+      // have been ingested yet, and re-parenting is a user action anyway.
+      parentId: manifest.parentId && seenIds.has(manifest.parentId) ? manifest.parentId : null,
+      priority: manifest.priority ?? 0,
+      origin: manifest.origin ?? "agent",
+      createdAt: manifest.createdAt ?? ctx.now,
+      updatedAt: manifest.updatedAt ?? ctx.now,
+    });
+  }
+
+  return { ideasToCreate, skips };
 }
 
 // ---------------------------------------------------------------------------

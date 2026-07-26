@@ -12,6 +12,7 @@ export {
   timestampSchema,
   resourceInputSchema,
   resourceLineSchema,
+  ideaFileSchema,
   pieceHandoffJsonSchema,
   pieceHandoffFrontmatterSchema,
   parsePieceHandoffJson,
@@ -34,6 +35,7 @@ export type {
   Resource,
   ResourceInput,
   ResourceLine,
+  IdeaFile,
   PieceHandoff,
 } from "./contract";
 
