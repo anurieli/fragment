@@ -150,8 +150,16 @@ export interface AckResult {
 }
 
 /**
- * Move an already-imported handoff file into `.imported/`, preserving its
- * filename and uniquifying on collision (`name.md` -> `name-2.md`, etc).
+ * Move an already-imported handoff file into `.imported/`, mirroring its
+ * position under the inbox root (`<ideaId>/x.md` -> `.imported/<ideaId>/x.md`)
+ * and uniquifying on collision (`name.md` -> `name-2.md`, etc).
+ *
+ * The mirrored subdirectory is load-bearing, not tidiness: fragment-mcp's
+ * reader reconstructs an idea's pieces by scanning `<ideaId>/` and
+ * `.imported/<ideaId>/`. Flattening every file into `.imported/` made every
+ * imported piece invisible to `list_ideas` and `get_piece`, so agents saw an
+ * empty library and re-pushed work that was already there.
+ *
  * `relPath` MUST already have been validated with `resolveInboxRelPath` —
  * this function re-validates defensively but the caller owns rejecting bad
  * input with a proper error before calling.
@@ -163,7 +171,13 @@ export async function ackImportedFile(inboxDir: string, relPath: string): Promis
   }
 
   const resolvedRoot = path.resolve(inboxDir);
-  const importedDir = path.join(resolvedRoot, IMPORTED_DIR_NAME);
+  // Mirror the source's own subdirectory so `<ideaId>/x.md` archives to
+  // `.imported/<ideaId>/x.md` rather than collapsing into the archive root.
+  const relDir = path.dirname(path.relative(resolvedRoot, sourcePath));
+  const importedDir =
+    relDir === "." || relDir === ""
+      ? path.join(resolvedRoot, IMPORTED_DIR_NAME)
+      : path.join(resolvedRoot, IMPORTED_DIR_NAME, relDir);
 
   try {
     await mkdir(importedDir, { recursive: true });

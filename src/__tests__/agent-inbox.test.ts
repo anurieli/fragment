@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { gateAgentInbox, parseAllowedHosts } from "@/lib/agent-inbox/gate";
 import { resolveInboxRelPath } from "@/lib/agent-inbox/paths";
+import { ackImportedFile } from "@/lib/agent-inbox/server-fs";
 import { importHandoffFiles, importIdeaFiles, type AgentIdeaFile, type AgentInboxFile } from "@/lib/agent-inbox/import";
 import { serializePieceFile } from "@/lib/content-engine";
 import type { ContentPiece, Idea, PieceHandoff } from "@/lib/content-engine";
@@ -494,5 +498,82 @@ describe("importHandoffFiles poison isolation", () => {
 
     expect(result.skips).toEqual([]);
     expect(result.piecesToUpsert[0]?.ideaId).toBe("idea_agent1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Archive layout
+//
+// fragment-mcp reconstructs an idea's pieces from `<ideaId>/` plus
+// `.imported/<ideaId>/`. If the ack flattens everything into `.imported/`,
+// every imported piece disappears from `list_ideas` and `get_piece` — agents
+// then read an empty library and re-push work that already landed. These
+// tests pin the mirrored layout so that regression can't come back quietly.
+// ---------------------------------------------------------------------------
+
+describe("ackImportedFile", () => {
+  let inboxDir: string;
+
+  beforeEach(async () => {
+    inboxDir = await mkdtemp(path.join(tmpdir(), "fragment-inbox-"));
+  });
+
+  afterEach(async () => {
+    await rm(inboxDir, { recursive: true, force: true });
+  });
+
+  async function seed(relPath: string, body = "handoff"): Promise<void> {
+    const full = path.join(inboxDir, relPath);
+    await mkdir(path.dirname(full), { recursive: true });
+    await writeFile(full, body, "utf8");
+  }
+
+  it("mirrors the idea subdirectory into .imported/", async () => {
+    await seed("idea_abc/pc_one.md");
+
+    const result = await ackImportedFile(inboxDir, "idea_abc/pc_one.md");
+
+    expect(result.ok).toBe(true);
+    expect(result.movedTo).toBe(".imported/idea_abc/pc_one.md");
+    expect(await readFile(path.join(inboxDir, ".imported/idea_abc/pc_one.md"), "utf8")).toBe("handoff");
+  });
+
+  it("keeps same-named pieces from different ideas apart", async () => {
+    await seed("idea_abc/piece.md", "from abc");
+    await seed("idea_xyz/piece.md", "from xyz");
+
+    await ackImportedFile(inboxDir, "idea_abc/piece.md");
+    await ackImportedFile(inboxDir, "idea_xyz/piece.md");
+
+    // Flattening would have collided these into piece.md and piece-2.md,
+    // detaching one of them from its idea.
+    expect(await readFile(path.join(inboxDir, ".imported/idea_abc/piece.md"), "utf8")).toBe("from abc");
+    expect(await readFile(path.join(inboxDir, ".imported/idea_xyz/piece.md"), "utf8")).toBe("from xyz");
+  });
+
+  it("still uniquifies a genuine collision inside one idea", async () => {
+    await seed("idea_abc/pc_one.md", "first");
+    await ackImportedFile(inboxDir, "idea_abc/pc_one.md");
+    await seed("idea_abc/pc_one.md", "second");
+
+    const result = await ackImportedFile(inboxDir, "idea_abc/pc_one.md");
+
+    expect(result.movedTo).toBe(".imported/idea_abc/pc_one-2.md");
+    expect(await readFile(path.join(inboxDir, ".imported/idea_abc/pc_one.md"), "utf8")).toBe("first");
+    expect(await readFile(path.join(inboxDir, ".imported/idea_abc/pc_one-2.md"), "utf8")).toBe("second");
+  });
+
+  it("handles a file sitting at the inbox root", async () => {
+    await seed("loose.md");
+
+    const result = await ackImportedFile(inboxDir, "loose.md");
+
+    expect(result.movedTo).toBe(".imported/loose.md");
+  });
+
+  it("refuses to escape the inbox", async () => {
+    const result = await ackImportedFile(inboxDir, "../outside.md");
+
+    expect(result).toEqual({ relPath: "../outside.md", ok: false, error: "invalid path" });
   });
 });

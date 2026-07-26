@@ -166,17 +166,22 @@ export async function readTauriResourceFiles(): Promise<AgentResourceFile[]> {
   return files;
 }
 
-/** Move acked handoff files into `.fragment/inbox/.imported/`, uniquifying on collision. */
+/**
+ * Move acked handoff files into `.fragment/inbox/.imported/`, mirroring each
+ * file's subdirectory (`<ideaId>/x.md` -> `.imported/<ideaId>/x.md`) and
+ * uniquifying on collision. The subdirectory matters: fragment-mcp reads an
+ * idea's pieces from `.imported/<ideaId>/`, so a flat archive hides them.
+ */
 export async function ackTauriImportedFiles(relPaths: readonly string[]): Promise<void> {
   if (relPaths.length === 0) return;
   const fs = await getTauriFs();
   if (!fs) return;
 
-  const importedDir = `${INBOX_REL_DIR}/${IMPORTED_DIR_NAME}`;
+  const importedRoot = `${INBOX_REL_DIR}/${IMPORTED_DIR_NAME}`;
   try {
-    const dirExists = await fs.exists(importedDir, { baseDir: fs.BaseDirectory.Home });
+    const dirExists = await fs.exists(importedRoot, { baseDir: fs.BaseDirectory.Home });
     if (!dirExists) {
-      await fs.mkdir(importedDir, { baseDir: fs.BaseDirectory.Home, recursive: true });
+      await fs.mkdir(importedRoot, { baseDir: fs.BaseDirectory.Home, recursive: true });
     }
   } catch {
     return; // can't create the archive dir — leave files in place, retry next poll
@@ -189,13 +194,22 @@ export async function ackTauriImportedFiles(relPaths: readonly string[]): Promis
     if (relPath.split("/").some((segment) => segment === "..")) continue;
 
     const fromPath = `${INBOX_REL_DIR}/${relPath}`;
-    const fileName = relPath.split("/").pop() ?? relPath;
+    const segments = relPath.split("/");
+    const fileName = segments.pop() ?? relPath;
+    const relDir = segments.join("/");
+    const importedDir = relDir ? `${importedRoot}/${relDir}` : importedRoot;
     const dot = fileName.lastIndexOf(".");
     const base = dot >= 0 ? fileName.slice(0, dot) : fileName;
     const ext = dot >= 0 ? fileName.slice(dot) : "";
 
     let toPath = `${importedDir}/${fileName}`;
     try {
+      if (relDir) {
+        const subExists = await fs.exists(importedDir, { baseDir: fs.BaseDirectory.Home });
+        if (!subExists) {
+          await fs.mkdir(importedDir, { baseDir: fs.BaseDirectory.Home, recursive: true });
+        }
+      }
       let suffix = 2;
       while (await fs.exists(toPath, { baseDir: fs.BaseDirectory.Home })) {
         toPath = `${importedDir}/${base}-${suffix}${ext}`;
