@@ -2,7 +2,7 @@ import os from "node:os";
 import { NextRequest, NextResponse } from "next/server";
 
 import { isHosted } from "@/lib/edition";
-import { gateAgentInbox } from "@/lib/agent-inbox/gate";
+import { gateAgentInbox, parseAllowedHosts } from "@/lib/agent-inbox/gate";
 import { getInboxDir, resolveInboxRelPath } from "@/lib/agent-inbox/paths";
 import { ackImportedFile, appendStatusEvents, type StatusEvent } from "@/lib/agent-inbox/server-fs";
 
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       isHosted: isHosted(),
       localIngressEnabled: process.env.FRAGMENT_LOCAL_INGRESS === "true",
       ingressToken: process.env.FRAGMENT_INGRESS_TOKEN,
+      allowedHosts: parseAllowedHosts(process.env.FRAGMENT_INGRESS_ALLOWED_HOSTS),
     },
     req.headers.get("host"),
     req.headers.get("authorization"),

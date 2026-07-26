@@ -28,6 +28,29 @@ export interface AgentInboxGateEnv {
   localIngressEnabled: boolean;
   /** `process.env.FRAGMENT_INGRESS_TOKEN`, if configured. */
   ingressToken: string | undefined;
+  /**
+   * Hostnames (no port) the operator trusts like localhost, from
+   * `parseAllowedHosts(process.env.FRAGMENT_INGRESS_ALLOWED_HOSTS)`. For
+   * self-hosters who reach their own instance through a reverse proxy or
+   * private-network name (a tailnet/VPN hostname, a LAN name): the browser's
+   * requests then carry that Host, not localhost, and the app's own inbox
+   * polling can't attach a bearer token. Only list hosts that are private to
+   * you — a Host header is caller-controlled, so this is trust in the
+   * network path, not authentication.
+   */
+  allowedHosts?: readonly string[];
+}
+
+/**
+ * Parse the comma-separated FRAGMENT_INGRESS_ALLOWED_HOSTS value into
+ * normalized hostnames (lowercased, ports stripped). Unset/empty → [].
+ */
+export function parseAllowedHosts(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((h) => normalizeHostname(h))
+    .filter((h) => h.length > 0);
 }
 
 export interface AgentInboxGateResult {
@@ -60,6 +83,7 @@ function isLocalHost(host: string | null | undefined): boolean {
  *   - hosted build                          → closed, always
  *   - FRAGMENT_LOCAL_INGRESS unset/not "true" → closed, always
  *   - request Host is localhost/127.0.0.1/::1 → open, no token required
+ *   - request Host is in allowedHosts       → open, no token required
  *   - any other Host                        → open only with an exact
  *                                              `Authorization: Bearer <token>`
  *                                              match against ingressToken;
@@ -73,6 +97,7 @@ export function gateAgentInbox(
   if (env.isHosted) return { allowed: false };
   if (!env.localIngressEnabled) return { allowed: false };
   if (isLocalHost(host)) return { allowed: true };
+  if (env.allowedHosts?.includes(normalizeHostname(host))) return { allowed: true };
   if (!env.ingressToken) return { allowed: false };
   return { allowed: authHeader === `Bearer ${env.ingressToken}` };
 }
