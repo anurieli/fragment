@@ -492,6 +492,100 @@
 .shortform-piece-textarea {
   field-sizing: content;
   min-height: 1.5em;
+  /* Shared metrics: the live-markdown mirror and the textarea it sits behind
+     must wrap at the same character, or the caret drifts. Anything here
+     applies to both (see live-markdown-textarea.tsx). */
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.7;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 4;
+  padding: 0;
+  border: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+/* The textarea on top: its own glyphs are invisible, so what you read is the
+   highlighted mirror behind it. Caret and selection still come from here. */
+.shortform-piece-input {
+  color: transparent;
+  caret-color: var(--color-gold);
+  -webkit-text-fill-color: transparent;
+}
+
+.shortform-piece-input::placeholder {
+  color: var(--color-text-faint);
+  -webkit-text-fill-color: var(--color-text-faint);
+}
+
+/* Semi-transparent so the mirror's text reads through the selection. */
+.shortform-piece-input::selection {
+  background: var(--color-gold-muted);
+}
+
+.shortform-piece-mirror {
+  /* Grows with its own content; the grid cell it shares with the textarea
+     takes the taller of the two, so nothing is ever cut off. */
+  height: max-content;
+}
+
+/* Live markdown highlighting. HARD RULE: every rule below may only use
+   colour, opacity, background, text-decoration, or text-shadow. Changing
+   font-size, font-weight, font-family, font-style, or letter-spacing would
+   change how wide the text lays out, and the transparent textarea on top
+   would no longer line up with it. Faux weight is a text-shadow. */
+.md-mark {
+  color: var(--color-text-faint);
+  opacity: 0.55;
+}
+
+.md-heading {
+  color: var(--color-gold);
+  text-shadow: 0 0 0.55px currentColor;
+}
+
+.md-strong {
+  color: var(--color-text-primary);
+  text-shadow: 0 0 0.5px currentColor;
+}
+
+.md-em {
+  color: var(--color-text-primary);
+  opacity: 0.92;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-gold) 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+.md-strike {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.md-code {
+  color: var(--color-gold);
+  background: var(--color-surface-2);
+  border-radius: 3px;
+}
+
+.md-quote {
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-gold) 6%, transparent);
+}
+
+.md-link {
+  color: var(--color-gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-url {
+  color: var(--color-text-faint);
+  opacity: 0.7;
 }
 
 /* A piece rendered for reading (the raw markdown is one click away). Trims

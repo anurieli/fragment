@@ -68,7 +68,9 @@ const FEATURES = [
     category: "Press",
     items: [
       { name: "Pieces Space", desc: "Every idea gets a short-form feed alongside its long-form draft. Toggle with Write | Pieces (⌘1 / ⌘2)." },
-      { name: "Read vs Edit", desc: "A piece reads as formatted markdown and switches to raw markdown the moment you click in, so what you publish stays byte-exact. Long pieces clip with Show more." },
+      { name: "One Piece per Page", desc: "Each piece fills the view: meta row pinned on top, triage and footer pinned below, only the text scrolling between them. Reach the end and one more scroll snaps you to the next piece." },
+      { name: "Read vs Edit", desc: "A piece reads as formatted markdown and switches to raw markdown the moment you click in, so what you publish stays byte-exact." },
+      { name: "Live Markdown", desc: "While typing, headings go gold and bold, italic, code and links style themselves, with the ## and ** markers dimmed but still there. The text stays exactly what you typed, spaces and blank lines included." },
       { name: "Clearing the Inbox", desc: "Every inbox piece shows a triage row: Work on it (→ In progress), Ready to ship (→ the publish queue), or Dismiss (removable, with Undo). The feed opens on Inbox whenever there's one to clear." },
       { name: "Make It a Draft", desc: "An essay, Substack, or script piece gets a fourth triage action: its text moves into a note in this idea and opens in the editor. Same piece, new home — it leaves the feed and appears under Drafts." },
       { name: "Roving Focus", desc: "J/K or the arrow keys move focus between piece cards. Enter opens the textarea, Esc exits back to roving." },

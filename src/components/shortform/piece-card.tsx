@@ -24,9 +24,7 @@ import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
 import { PieceRefineMenu } from "./piece-refine-menu";
 import { PieceTriageBar } from "./piece-triage";
-
-/** Clip height for a rendered piece before "Show more" appears (~16 lines). */
-const COLLAPSED_BODY_PX = 340;
+import { LiveMarkdownTextarea } from "./live-markdown-textarea";
 
 const FORMAT_LABELS: Record<ContentFormat, string> = {
   tweet: "X",
@@ -97,6 +95,9 @@ interface PieceCardProps {
   now: number;
   focused: boolean;
   editing: boolean;
+  /** 1-based position in the visible feed, for the "3 / 12" locator. */
+  position: number;
+  total: number;
   onFocusCard: () => void;
   onEnterEdit: () => void;
   onExitEdit: () => void;
@@ -104,18 +105,24 @@ interface PieceCardProps {
 }
 
 /**
- * A single short-form piece: meta row, an auto-growing plain textarea (not
- * Tiptap — byte-exact whitespace is the promise for short-form content),
- * then a footer with live char count and placeholder Share/overflow menu.
- * Borderless — separation between cards comes from PieceSeparator hairlines,
- * not a card border. The focused card (roving keyboard focus) gets a 3px
- * gold left rail.
+ * One short-form piece, filling the feed's viewport as a single page: a meta
+ * row pinned to the top, the piece's text scrolling in the middle, and the
+ * triage row + footer pinned to the bottom. Reading one piece shouldn't mean
+ * watching the next one slide into frame, so the feed snaps a page at a time
+ * (see shortform-feed.tsx) and only the middle band moves under you.
+ *
+ * The text is a plain textarea, never Tiptap — byte-exact whitespace is the
+ * promise for short-form content — with live markdown highlighting painted
+ * behind it while editing (LiveMarkdownTextarea) and fully rendered markdown
+ * while reading. The focused page gets a 3px gold left rail.
  */
 export function PieceCard({
   piece,
   now,
   focused,
   editing,
+  position,
+  total,
   onFocusCard,
   onEnterEdit,
   onExitEdit,
@@ -130,6 +137,7 @@ export function PieceCard({
   const notes = useDataStore((s) => s.notes);
   const addSnippet = useDataStore((s) => s.addSnippet);
   const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
   const showToast = useToastStore((s) => s.showToast);
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
   const { generateStream, enabled: slashEnabled } = useSlashCommand();
@@ -154,10 +162,6 @@ export function PieceCard({
   // even if the user never clicked in.
   const isEditing = editing || flowGenerating;
 
-  const renderedRef = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-
   const resize = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -168,19 +172,6 @@ export function PieceCard({
   useEffect(() => {
     resize();
   }, [piece.body, streamedBody, isEditing, resize]);
-
-  // A feed of full-length pieces is unreadable, so anything taller than
-  // COLLAPSED_BODY_PX is clipped with a "Show more". Measured rather than
-  // guessed from character count — rendered markdown height doesn't track
-  // length closely enough (a list of one-word items is tall and short).
-  useEffect(() => {
-    const el = renderedRef.current;
-    if (!el) {
-      setOverflows(false);
-      return;
-    }
-    setOverflows(el.scrollHeight > COLLAPSED_BODY_PX + 24);
-  }, [body, isEditing, expanded]);
 
   useEffect(() => {
     // Only drive focus programmatically (and jump the cursor to the end)
@@ -350,16 +341,20 @@ export function PieceCard({
       data-piece-card
       data-piece-id={piece.id}
       onClick={onFocusCard}
-      className={`relative pl-5 pr-2 py-4 transition-colors duration-150 rounded-[var(--radius-default)] ${
+      onMouseEnter={() => setHoveredPiece(piece.id)}
+      onMouseLeave={() => setHoveredPiece(null)}
+      className={`relative flex flex-col h-full min-h-0 pl-5 pr-2 py-4 transition-colors duration-150 rounded-[var(--radius-default)] ${
         focused ? "bg-surface-2/40" : ""
       }`}
     >
+      {/* Page marker for the focused piece. Softened from the old card-height
+          rail: at a full page tall, a solid gold bar reads as an alert. */}
       {focused && (
-        <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-gold" />
+        <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-gold/50" />
       )}
 
-      {/* Meta row */}
-      <div className="flex items-center gap-2.5 mb-2 flex-wrap">
+      {/* Meta row — pinned to the top of the page */}
+      <div className="shrink-0 flex items-center gap-2.5 mb-2 flex-wrap">
         <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-text-muted px-1.5 py-0.5 rounded-[4px] bg-surface-2 border border-border">
           {platformChip(piece.format)}
         </span>
@@ -424,7 +419,14 @@ export function PieceCard({
           </span>
         )}
 
-        <span className={`ml-auto flex items-center gap-1.5 text-[11px] ${staleClass}`}>
+        <span
+          title={`Piece ${position} of ${total} in this view`}
+          className="ml-auto text-[10px] font-[family-name:var(--font-mono)] text-text-faint"
+        >
+          {position}/{total}
+        </span>
+
+        <span className={`flex items-center gap-1.5 text-[11px] ${staleClass}`}>
           {!piece.seen && (
             <span
               className="w-1.5 h-1.5 rounded-full bg-gold"
@@ -443,76 +445,57 @@ export function PieceCard({
           follows streamedBody (local state) instead of the store, matching
           the long-form editor's streamingContent pattern — see
           handleFlowGenerate. */}
-      {isEditing ? (
-        <>
-          <textarea
-            ref={textareaRef}
-            data-piece-textarea
-            tabIndex={-1}
-            value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
-            onChange={handleBodyChange}
-            onFocus={enterEditing}
-            onBlur={onExitEdit}
-            onKeyDown={handleTextareaKeyDown}
-            readOnly={flowGenerating}
-            placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
-            className="shortform-piece-textarea w-full resize-none bg-transparent outline-none text-[14px] leading-relaxed text-text-primary placeholder:text-text-faint font-[family-name:var(--font-body)]"
-            rows={1}
-          />
-          {inlineEditEnabled && !flowGenerating && (
-            <PieceRefineMenu
+      <div className="flex-1 min-h-0 overflow-y-auto pr-3 -mr-1">
+        {isEditing ? (
+          <>
+            <LiveMarkdownTextarea
               textareaRef={textareaRef}
-              containerRef={cardRef}
-              onEdit={handleRefineEdit}
-              onSnip={handleRefineSnip}
+              value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
+              onChange={handleBodyChange}
+              onFocus={enterEditing}
+              onBlur={onExitEdit}
+              onKeyDown={handleTextareaKeyDown}
+              readOnly={flowGenerating}
+              placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
             />
-          )}
-        </>
-      ) : body.trim() ? (
-        <>
-          <div className="relative">
-            <div
-              ref={renderedRef}
-              onClick={enterEditing}
-              title="Click to edit the raw markdown"
-              style={{ maxHeight: expanded ? undefined : COLLAPSED_BODY_PX }}
-              className={`prose-preview shortform-piece-rendered text-[14px] leading-relaxed text-text-primary font-[family-name:var(--font-body)] cursor-text ${
-                expanded ? "" : "overflow-hidden"
-              }`}
-              // Safe: markdownToPreviewHtml runs markdown-it with html:false,
-              // so any raw HTML in an agent-pushed body is escaped, not
-              // injected.
-              dangerouslySetInnerHTML={{ __html: markdownToPreviewHtml(body) }}
-            />
-            {overflows && !expanded && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
+            {inlineEditEnabled && !flowGenerating && (
+              <PieceRefineMenu
+                textareaRef={textareaRef}
+                containerRef={cardRef}
+                onEdit={handleRefineEdit}
+                onSnip={handleRefineSnip}
+              />
             )}
+          </>
+        ) : body.trim() ? (
+          <div
+            onClick={enterEditing}
+            title="Click to edit the raw markdown"
+            className="prose-preview shortform-piece-rendered text-[14px] leading-relaxed text-text-primary font-[family-name:var(--font-body)] cursor-text"
+            // Safe: markdownToPreviewHtml runs markdown-it with html:false,
+            // so any raw HTML in an agent-pushed body is escaped, not
+            // injected.
+            dangerouslySetInnerHTML={{ __html: markdownToPreviewHtml(body) }}
+          />
+        ) : (
+          <div
+            onClick={enterEditing}
+            className="text-[14px] leading-relaxed text-text-faint font-[family-name:var(--font-body)] cursor-text"
+          >
+            {slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
           </div>
-          {overflows && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-              className="mt-1 text-[11px] text-text-faint hover:text-gold transition-colors duration-150"
-            >
-              {expanded ? "Show less" : "Show more"}
-            </button>
-          )}
-        </>
-      ) : (
-        <div
-          onClick={enterEditing}
-          className="text-[14px] leading-relaxed text-text-faint font-[family-name:var(--font-body)] cursor-text"
-        >
-          {slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Triage — only while the piece is still sitting in the inbox. */}
       {piece.status === "inbox" && !flowGenerating && (
-        <PieceTriageBar piece={piece} onDismiss={onDelete} />
+        <div className="shrink-0">
+          <PieceTriageBar piece={piece} onDismiss={onDelete} />
+        </div>
       )}
 
-      {/* Footer */}
-      <div className="flex items-center gap-3 mt-2.5">
+      {/* Footer — pinned to the bottom of the page */}
+      <div className="shrink-0 flex items-center gap-3 mt-2.5 pt-2.5 border-t border-border">
         <span className={`text-[10px] font-[family-name:var(--font-mono)] ${footer.over ? "text-red" : "text-text-faint"}`}>
           {footer.text}
         </span>

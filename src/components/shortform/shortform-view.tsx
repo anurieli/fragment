@@ -50,6 +50,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   const showToast = useToastStore((s) => s.showToast);
   const revealPieceId = useAppStore((s) => s.revealPieceId);
   const clearRevealPiece = useAppStore((s) => s.clearRevealPiece);
+  const setFocusedPiece = useAppStore((s) => s.setFocusedPiece);
+  const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
 
   const [filter, setFilterRaw] = useState<PieceFilter>("all");
   const [sort, setSort] = useState<PieceSortMode>(defaultSortForFilter("all"));
@@ -110,16 +112,27 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     }
   }, [pendingFocusId, visible]);
 
-  // Keep the focused card on screen. Roving with J/K past the fold, or
-  // arriving from the idea panel, should never leave you looking at the
-  // wrong piece.
+  // Keep the focused piece on screen, and tell the rest of the app which one
+  // it is so the idea workspace can mark it. Roving with J/K, or arriving
+  // from the panel, should always land a whole page.
   useEffect(() => {
-    const id = focusedIndex >= 0 ? visible[focusedIndex]?.id : undefined;
+    const id = focusedIndex >= 0 ? visible[focusedIndex]?.id : null;
+    setFocusedPiece(id);
     if (!id) return;
     document
       .querySelector(`[data-piece-card][data-piece-id="${id}"]`)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [focusedIndex, visible]);
+      ?.closest("[data-piece-page]")
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [focusedIndex, visible, setFocusedPiece]);
+
+  // Leaving the Pieces space clears both markers — a stale "you are here"
+  // pointing at a feed nobody is looking at is worse than none.
+  useEffect(() => {
+    return () => {
+      setFocusedPiece(null);
+      setHoveredPiece(null);
+    };
+  }, [setFocusedPiece, setHoveredPiece]);
 
   // A click in the idea workspace names a piece; land on it here. If the
   // current filter hides it, widen to All first and resolve on the next pass.
@@ -136,7 +149,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     clearRevealPiece();
     document
       .querySelector(`[data-piece-card][data-piece-id="${revealPieceId}"]`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      ?.closest("[data-piece-page]")
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [revealPieceId, visible, filter, setFilter, clearRevealPiece]);
 
   const handleNewPiece = useCallback(() => {
@@ -254,7 +268,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
 
       <IdeaResources ideaId={ideaId} />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto snap-y snap-mandatory">
         {visible.length === 0 ? (
           <ShortformEmptyState filter={filter} />
         ) : (

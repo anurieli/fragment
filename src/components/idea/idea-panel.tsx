@@ -29,6 +29,13 @@ const STATUS_DOT: Record<PieceStatus, string> = {
   published: "bg-green",
 };
 
+const STATUS_WORD: Record<PieceStatus, string> = {
+  inbox: "in the inbox, needs a decision",
+  "in-progress": "in progress",
+  ready: "ready to publish",
+  published: "published",
+};
+
 /** First non-empty line of a piece, as a plain-text row label — markdown
  * syntax stripped so a `## heading` reads as a title, not as hashes. */
 function pieceLabel(piece: ContentPiece): string {
@@ -365,20 +372,38 @@ export function IdeaPanelToggle() {
   );
 }
 
-/** One piece as a table-of-contents row: status dot, plain-text label, and the
- * unseen pulse for anything an agent pushed that you haven't looked at yet. */
+/** One piece as a table-of-contents row: a status dot (grey inbox, blue in
+ * progress, gold ready, green published), the plain-text label, and the unseen
+ * pulse for anything an agent pushed that you haven't looked at yet.
+ *
+ * The row also mirrors the feed: whichever piece has roving focus over there
+ * gets the gold rail here, and hovering a card lights up its row, so the panel
+ * answers "where am I" without you having to find the highlighted card. */
 function PieceRow({ piece, onOpen }: { piece: ContentPiece; onOpen: () => void }) {
+  const focusedPieceId = useAppStore((s) => s.focusedPieceId);
+  const hoveredPieceId = useAppStore((s) => s.hoveredPieceId);
+  const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
+  const isFocused = focusedPieceId === piece.id;
+  const isHovered = hoveredPieceId === piece.id;
+
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
-      title={pieceLabel(piece)}
-      className="flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer hover:bg-surface-2 transition-colors duration-150"
+      onMouseEnter={() => setHoveredPiece(piece.id)}
+      onMouseLeave={() => setHoveredPiece(null)}
+      title={`${pieceLabel(piece)} — ${STATUS_WORD[piece.status]}`}
+      className={`relative flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150 ${
+        isFocused ? "bg-surface-3" : isHovered ? "bg-surface-2" : "hover:bg-surface-2"
+      }`}
     >
+      {isFocused && <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gold" />}
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />
-      <span className="flex-1 min-w-0 truncate text-[12px] text-text-muted">
+      <span
+        className={`flex-1 min-w-0 truncate text-[12px] ${isFocused ? "text-text-primary" : "text-text-muted"}`}
+      >
         {pieceLabel(piece)}
       </span>
       {!piece.seen && piece.origin === "agent" && (

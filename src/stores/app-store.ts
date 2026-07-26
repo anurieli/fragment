@@ -51,6 +51,12 @@ interface AppState {
   /** One-shot "jump to this piece" request from the idea workspace to the
    * pieces feed: the feed focuses it, scrolls it into view, and clears this. */
   revealPieceId: string | null;
+  /** Which piece the feed currently has roving focus on, and which one the
+   * pointer is over. Published here rather than kept local to the feed so the
+   * idea workspace can show you where you are without owning the feed's
+   * state. Both are null whenever the Pieces space isn't showing. */
+  focusedPieceId: string | null;
+  hoveredPieceId: string | null;
   liveEditorNoteId: string | null;
   liveEditorContent: string | null;
   isDraggingToHelper: boolean;
@@ -98,6 +104,8 @@ interface AppState {
   toggleIdeaPanel: () => void;
   revealPiece: (id: string) => void;
   clearRevealPiece: () => void;
+  setFocusedPiece: (id: string | null) => void;
+  setHoveredPiece: (id: string | null) => void;
   setShowCreationFlow: (v: boolean) => void;
   setGeneratingNote: (id: string | null) => void;
   setStreamingContent: (content: string | null) => void;
@@ -127,6 +135,8 @@ export const useAppStore = create<AppState>((set) => ({
   ideaSpaces: {},
   ideaPanelOpen: true,
   revealPieceId: null,
+  focusedPieceId: null,
+  hoveredPieceId: null,
   liveEditorNoteId: null,
   liveEditorContent: null,
   isDraggingToHelper: false,
@@ -201,6 +211,8 @@ export const useAppStore = create<AppState>((set) => ({
   toggleIdeaPanel: () => set((s) => ({ ideaPanelOpen: !s.ideaPanelOpen })),
   revealPiece: (id) => set({ revealPieceId: id }),
   clearRevealPiece: () => set({ revealPieceId: null }),
+  setFocusedPiece: (id) => set({ focusedPieceId: id }),
+  setHoveredPiece: (id) => set({ hoveredPieceId: id }),
   setShowCreationFlow: (v) => set({ showCreationFlow: v }),
   setGeneratingNote: (id) => set({ generatingNoteId: id }),
   setStreamingContent: (content) => set({ streamingContent: content }),

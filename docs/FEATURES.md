@@ -768,6 +768,8 @@ Every idea gets a second writing space alongside its long-form note: **Write** (
 [ Sidebar: ideas + standalone notes ] [ Idea workspace: drafts + pieces ] [ Editor or Pieces feed ] [ Snip Bar ]
 ```
 
+The workspace mirrors where you are in the feed: the piece with roving focus gets the gold rail and a lit row, and hovering a card in the feed lights up its row here (and vice versa). Status is the dot on the left of each row: grey inbox, blue in progress, gold ready, green published.
+
 The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form notes with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Pieces** lists the short-form feed (rolled up through child ideas, newest first, capped at 12 with a "N more" link); clicking any of them opens the Pieces space. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace — `⌘\` brings the sidebar back.
 
 **Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Rows are a single line each and sub-ideas start collapsed, so a long list stays scannable; hovering a row shows `N drafts · M pieces` (short-form only — drafts are listed by name in the workspace instead of counted twice). A gold number on the right of a row counts pieces waiting in that idea's inbox. Sub-ideas expand automatically when one of them is the open idea, or while a search is active.
@@ -791,7 +793,16 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 
 The triage row only exists while a piece's status is `inbox`; once triaged, the card goes back to being just the piece. The idea workspace mirrors this, listing untriaged pieces under a gold **Inbox N · needs a decision** heading above the rest.
 
-**Reading vs editing a piece:** a card shows its body as *rendered* markdown — headings, bold, lists, links, blockquotes, with single line breaks preserved as line breaks (X and LinkedIn post them verbatim). Clicking in swaps to the raw markdown in a plain textarea, so what you edit and publish is byte-exact; the stored string is never rewritten by a rendering pass, and the char count always reflects the raw text. Anything taller than ~340px is clipped with a **Show more** so a busy inbox stays scannable.
+**One piece per page.** The feed is a deck, not a scroll. Each piece fills the viewport: its meta row is pinned to the top, its triage row and footer to the bottom, and only its text moves in between. Run off the end of a long piece and the scroll chains outward and snaps to the next one (`scroll-snap-type: y mandatory` with `scroll-snap-stop: always`, so a fast flick can't skip a piece). The meta row carries a `3/12` locator. This replaced a continuous feed of hairline-separated cards, where reading one piece meant watching the next slide halfway into frame.
+
+**Reading vs editing a piece:** reading shows *rendered* markdown — headings, bold, lists, links, blockquotes, with single line breaks preserved as line breaks (X and LinkedIn post them verbatim). Clicking in swaps to the raw markdown in a plain textarea, so what you edit and publish is byte-exact; the stored string is never rewritten by a rendering pass, and the char count always reflects the raw text.
+
+**Live markdown while typing.** The editing textarea isn't bare. A highlighted copy of the same string is painted directly behind it (`src/lib/markdown-highlight.ts`): headings go gold, bold and italic and code and links get styled, and the `##`/`**`/`>`/bullet markers stay on screen but dim back. Two invariants make this safe, and both are enforced by tests:
+
+1. **The text is never touched.** `highlightMarkdown` only wraps spans; stripping them returns the source character for character. It is a highlighter, not a renderer.
+2. **No style may change a glyph's width.** The textarea on top is transparent (`-webkit-text-fill-color: transparent`) and still owns the caret, the selection, undo, spellcheck and IME. If the mirror behind it laid out one pixel differently, the caret would drift off the glyphs. So every `.md-*` rule in `globals.css` is restricted to colour, opacity, background, text-decoration and text-shadow. Faux bold is a `text-shadow`, never `font-weight`. Measured across a mixed-markdown fixture, no character moves more than 0.15px horizontally or at all vertically.
+
+This is the reason short-form doesn't use Tiptap: a document model round-trips the text on every save, and "line one.\n\n\n\nline two" comes back as "line one.\n\nline two". For a tweet spaced on purpose, that's a rewrite. Long-form pieces that *want* a document model have **Make it a draft**, which moves them into the Tiptap editor.
 
 **Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment it takes focus (click, `J`/`K`, or a jump from the idea workspace), since a focused card is readable without editing it.
 
@@ -853,7 +864,12 @@ The triage row only exists while a piece's status is `inbox`; once triaged, the 
 - [ ] Unseen dot clears when the card takes focus, without entering edit mode
 - [ ] A piece with markdown renders formatted while reading and shows raw markdown once clicked into
 - [ ] Single newlines survive as line breaks in the rendered view; char count still counts the raw text
-- [ ] A piece longer than the fold clips with Show more / Show less
+- [ ] Each piece fills the viewport; scrolling a long one moves only its text, with the meta row and footer pinned
+- [ ] Running off the end of a piece snaps to the next one, and a fast flick can't skip a piece
+- [ ] Typing `## x`, `**x**`, `*x*`, `` `x` ``, `[a](b)`, `- x`, `> x` styles them live, with the markers dimmed but still visible
+- [ ] The caret stays exactly on the glyphs while typing markdown (no drift on a long wrapped line with bold and headings)
+- [ ] Undo (⌘Z), spellcheck and text selection still work inside a piece
+- [ ] The workspace row for the focused piece shows the gold rail; hovering a card lights its row
 - [ ] The Pieces space opens on the Inbox filter when the idea has untriaged pieces, on All when it doesn't
 - [ ] Every inbox card shows the triage row; it disappears once the piece is triaged
 - [ ] Work on it / Ready to ship move the piece to that status and out of the Inbox filter
