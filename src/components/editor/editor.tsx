@@ -41,6 +41,7 @@ import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token
 import { debounce, type DebouncedFn } from "@/lib/utils";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
+import { useGenerateTitle } from "@/hooks/use-generate-title";
 import { NoteUsageFooter } from "./note-usage-footer";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
@@ -138,6 +139,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
   const saveStatus = useSaveStatus();
   const { startGeneration, abort: abortGeneration } = useStreamGeneration();
+  const { generateTitle, isGenerating: generatingTitle } = useGenerateTitle();
   const isGenerating = generatingNoteId === activeNoteId && generatingNoteId !== null;
 
   const floatingLabelAbortRef = useRef<AbortController | null>(null);
@@ -1372,7 +1374,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           title={previewVersion ? previewVersion.title : note.title}
           subtitle={previewVersion ? previewVersion.subtitle ?? "" : note.subtitle ?? ""}
           disabled={!!timelinePreviewVersionId || isGenerating}
+          generatingTitle={generatingTitle}
           onTitleChange={(v) => updateNoteTitle(note.id, v)}
+          onGenerateTitle={() => generateTitle(note.id, contentRef.current || note.content)}
           onSubtitleChange={(v) => updateNoteSubtitle(note.id, v)}
           onFocusBody={() => {
             // Sync focus — Tiptap's focus() command defers to rAF, which loses

@@ -86,6 +86,30 @@ Write a first draft based on their description. The draft should:
 
 Return ONLY the draft content in markdown — no explanations, no code fences, just the document.`;
 
+// Sent through the same /api/generate substitution as Flow, so it may only use
+// the placeholders that route knows: {goal}, {audience}, {tone}, {remember},
+// {contextAbove}, {contextBelow}, {userInstruction}. The draft itself rides in
+// {contextAbove}; the note's four context fields carry the metadata.
+export const DEFAULT_TITLE_PROMPT = `You are a writing assistant. The user wants a title for the document they are writing.
+
+Document goal: "{goal}"
+Target audience: "{audience}"
+Tone: "{tone}"
+Additional context to remember: "{remember}"
+
+Here is the document:
+---
+{contextAbove}
+---
+
+Write one title for it. The title must:
+1. Say what this specific document is about, not what its category is
+2. Fit the goal, audience and tone above
+3. Stay under 70 characters
+4. Read as a title: no closing punctuation, no quotes, no markdown
+
+Return ONLY the title text, nothing else.`;
+
 // The character/count limits stated in this prompt mirror the CAP_* constants
 // in src/lib/voice-context.ts, which enforce them defensively after parsing.
 // Keep the two in sync — if you bump a cap there, update the prose here too.
