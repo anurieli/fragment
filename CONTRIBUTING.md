@@ -44,10 +44,11 @@ npm run dev          # Start the dev server (http://localhost:3100)
 npm test             # Unit tests (Vitest)
 npm run test:e2e     # End-to-end tests (Playwright)
 npm run build        # Production build
+npm run lint         # ESLint (Next core-web-vitals + TypeScript rules)
 ```
 
-Before opening a pull request, please make sure `npm run build` passes and that any
-tests covering the area you changed still pass.
+Before opening a pull request, please make sure `npm run build`, `npm test` and
+`npm run lint` all pass.
 
 ## Code standards
 

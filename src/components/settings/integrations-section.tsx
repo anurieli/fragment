@@ -68,7 +68,7 @@ function ComposioKeyField({ value, onChange }: { value: string; onChange: (v: st
         </button>
       </div>
       <p className="text-[10px] text-text-faint leading-relaxed">
-        From your Composio dashboard's API keys page. Powers the LinkedIn connection below.
+        From your Composio dashboard&apos;s API keys page. Powers the LinkedIn connection below.
       </p>
     </div>
   );

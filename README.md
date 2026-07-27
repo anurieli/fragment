@@ -109,6 +109,7 @@ npm run dev          # Start the dev server (http://localhost:3100)
 npm run build        # Production build
 npm test             # Unit tests (Vitest)
 npm run test:e2e     # End-to-end tests (Playwright)
+npm run lint         # ESLint (Next core-web-vitals + TypeScript rules)
 ```
 
 ## Tech stack

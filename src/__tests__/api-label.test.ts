@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { makeApiRequest, type ApiRequestDouble } from "./helpers/api-request";
+
 // We test the route handler by importing and calling POST directly.
 // Need to mock next/server and global fetch.
 
@@ -17,7 +19,7 @@ vi.mock("next/server", () => ({
 }));
 
 // We'll import the POST handler after mocking
-let POST: (req: { json: () => Promise<unknown> }) => Promise<unknown>;
+let POST: (req: ApiRequestDouble) => Promise<unknown>;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -37,8 +39,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function makeReq(body: Record<string, unknown>) {
-  return { json: () => Promise.resolve(body) } as Parameters<typeof POST>[0];
+function makeReq(body: Record<string, unknown>, headers?: Record<string, string>) {
+  return makeApiRequest(body, headers);
 }
 
 function makeJwt(payload: Record<string, unknown>): string {
@@ -239,5 +241,44 @@ describe("POST /api/label", () => {
     const res = (await POST(req)) as { body: { label: string }; status: number };
     expect(res.status).toBe(503);
     expect(res.body.label).toBe("AI labeling failed");
+  });
+});
+
+/**
+ * The guards run before the handler reads the body, so they are the first
+ * thing a request meets and the last thing anyone notices when they break.
+ * These two pin them down, and by construction they only pass if the request
+ * double carries real headers.
+ */
+describe("POST /api/label request guards", () => {
+  it("refuses a body whose declared size is over the cap, without parsing it", async () => {
+    const json = vi.fn();
+    const req = { json, headers: new Headers({ "content-length": "2000000" }) };
+
+    const res = (await POST(req)) as { body: { error: string }; status: number };
+    expect(res.status).toBe(413);
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it("rate limits one client past its per-window budget", async () => {
+    const ip = "198.51.100.7";
+    const spend = () =>
+      POST(makeReq({ provider: "not-a-provider" }, { "x-forwarded-for": ip })) as Promise<{
+        status: number;
+      }>;
+
+    // The budget is 20 per minute; each of these is rejected as a bad provider
+    // but still counts, because the limiter runs first.
+    for (let i = 0; i < 20; i++) {
+      expect((await spend()).status).toBe(400);
+    }
+
+    expect((await spend()).status).toBe(429);
+
+    // A different client is unaffected: the budget is per IP, not global.
+    const other = (await POST(
+      makeReq({ provider: "not-a-provider" }, { "x-forwarded-for": "198.51.100.8" }),
+    )) as { status: number };
+    expect(other.status).toBe(400);
   });
 });

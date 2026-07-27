@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { makeApiRequest, type ApiRequestDouble } from "./helpers/api-request";
+
 const mockNextResponse = {
   json: vi.fn((body: unknown, init?: { status?: number }) => ({
     body,
@@ -12,7 +14,7 @@ vi.mock("next/server", () => ({
   NextResponse: mockNextResponse,
 }));
 
-let POST: (req: { json: () => Promise<unknown> }) => Promise<unknown>;
+let POST: (req: ApiRequestDouble) => Promise<unknown>;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -31,8 +33,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function makeReq(body: Record<string, unknown>) {
-  return { json: () => Promise.resolve(body) } as Parameters<typeof POST>[0];
+function makeReq(body: Record<string, unknown>, headers?: Record<string, string>) {
+  return makeApiRequest(body, headers);
 }
 
 describe("POST /api/edit", () => {

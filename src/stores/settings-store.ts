@@ -94,8 +94,8 @@ interface SettingsState {
 type PersistedSettingsState = Pick<SettingsState, "settings">;
 const SETTINGS_SHADOW_KEY = "fragment:settings:shadow";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- stored state may have pre-migration shape
 function mergePersistedSettings(persisted: unknown): AppSettings {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- stored state may have pre-migration shape
   const raw = (persisted && typeof persisted === "object" ? persisted : {}) as any;
   const { __savedAt: _ignoredSavedAt, ...s } = raw;
   const snippetPersisted = s.featureProviders?.snippetLabeling ?? {};
