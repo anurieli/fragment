@@ -9,13 +9,20 @@ import { useContentStore } from "@/stores/content-store";
 import { loadAllNotes, loadSnippetsForNote, loadSnippetsForIdea, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources } from "@/lib/persistence";
 import { recoverFromCrash } from "@/hooks/use-auto-save";
 import { logPersistence } from "@/lib/persistence-logger";
+import { useToastStore } from "@/hooks/use-toast";
 
 export function usePersistence() {
   const activeNoteId = useAppStore((s) => s.activeNoteId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const setActiveNote = useAppStore((s) => s.setActiveNote);
   const { setNotes, setSnippets, setVersions, setHydrated } = useDataStore();
-  const { setIdeas, setPieces, setResources, setHydrated: setContentHydrated } = useContentStore();
+  const {
+    setIdeas,
+    setPieces,
+    setResources,
+    setHydrated: setContentHydrated,
+    setLoadFailed: setContentLoadFailed,
+  } = useContentStore();
   const prevNoteId = useRef<string | null>(null);
   const prevSnipScope = useRef<{ noteId: string | null; ideaId: string | null }>({ noteId: null, ideaId: null });
 
@@ -58,8 +65,19 @@ export function usePersistence() {
           );
           if (owner) useAppStore.getState().setActiveIdea(owner.ideaId);
         }
-      } catch {
+        setContentLoadFailed(false);
+      } catch (error) {
+        // The library could not be read. Do NOT leave the empty maps looking
+        // like an empty library: the agent-inbox importer reads them as "none
+        // of this exists yet", re-imports every pending handoff at its file
+        // status, and acks the source markdown out of the inbox — turning a
+        // failed read into permanent loss. loadFailed makes the importer stand
+        // down until a reload succeeds.
         logPersistence("hydrate_fail", { error: "content-engine load threw" });
+        setContentLoadFailed(true);
+        useToastStore
+          .getState()
+          .showToast("Couldn't open your library — reload before editing");
       } finally {
         setContentHydrated(true);
       }

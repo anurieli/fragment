@@ -22,6 +22,9 @@ export type PersistenceEvent =
   | "idea_save_fail"
   | "piece_save_fail"
   | "resource_save_fail"
+  /** An agent-inbox batch was imported but a write failed, so the handoff
+   * files were deliberately left un-acked for the next poll to retry. */
+  | "inbox_ack_withheld"
   | "review_save_fail"
   | "storage_persist_result"
   | "fs_backup_save"

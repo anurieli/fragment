@@ -383,15 +383,22 @@ export function assertPublishGuard(piece: Pick<ContentPiece, "status" | "publish
   }
 }
 
+/**
+ * Throws on a read failure rather than returning [].
+ *
+ * "No ideas" and "I couldn't read your ideas" are different facts and the
+ * caller has to be able to tell them apart: hydration renders the first as an
+ * empty library, and the agent-inbox importer treats it as "none of these
+ * pieces exist yet", re-inserts them, and then acks their source markdown out
+ * of the inbox. Swallowing the error turned a transient read failure into
+ * permanent divergence. See loadContentEngine in use-persistence.ts.
+ */
 export async function loadAllIdeas(): Promise<Idea[]> {
-  try {
-    return await db.ideas.toArray();
-  } catch {
-    return [];
-  }
+  return await db.ideas.toArray();
 }
 
-export async function saveIdea(idea: Idea): Promise<void> {
+/** Resolves true iff the row is actually on disk. See savePiece. */
+export async function saveIdea(idea: Idea): Promise<boolean> {
   // Depth guard: a child idea's parent must itself be a root idea. Checked
   // against the actual stored parent row, not the caller's assumption.
   if (idea.parentId !== null) {
@@ -404,8 +411,10 @@ export async function saveIdea(idea: Idea): Promise<void> {
 
   try {
     await db.ideas.put(idea);
+    return true;
   } catch {
     logPersistence("idea_save_fail", { id: idea.id });
+    return false;
   }
 }
 
@@ -418,15 +427,22 @@ export async function deleteIdeaRow(id: string): Promise<void> {
   }
 }
 
+/** Throws on a read failure rather than returning []. See loadAllIdeas. */
 export async function loadAllContentPieces(): Promise<ContentPiece[]> {
-  try {
-    return await db.contentPieces.toArray();
-  } catch {
-    return [];
-  }
+  return await db.contentPieces.toArray();
 }
 
-export async function savePiece(piece: ContentPiece): Promise<void> {
+/**
+ * Resolves true iff the row is actually on disk, false if IndexedDB refused
+ * the write.
+ *
+ * Callers that own the only other copy of this piece MUST check the result.
+ * The agent-inbox importer is the one that matters: it acks imported handoff
+ * files, and an ack moves the source markdown into `.imported/` where nothing
+ * re-imports it. Acking on the strength of a write that silently failed
+ * destroys the last durable copy of a piece that only ever existed in memory.
+ */
+export async function savePiece(piece: ContentPiece): Promise<boolean> {
   // Exactly-one-content-home guard (noteId XOR body).
   pieceContentHome(piece);
   // Publish-record guard.
@@ -434,8 +450,10 @@ export async function savePiece(piece: ContentPiece): Promise<void> {
 
   try {
     await db.contentPieces.put(piece);
+    return true;
   } catch {
     logPersistence("piece_save_fail", { id: piece.id });
+    return false;
   }
 }
 
@@ -448,19 +466,19 @@ export async function deletePieceRow(id: string): Promise<void> {
   }
 }
 
+/** Throws on a read failure rather than returning []. See loadAllIdeas. */
 export async function loadAllResources(): Promise<Resource[]> {
-  try {
-    return await db.resources.toArray();
-  } catch {
-    return [];
-  }
+  return await db.resources.toArray();
 }
 
-export async function saveResource(resource: Resource): Promise<void> {
+/** Resolves true iff the row is actually on disk. See savePiece. */
+export async function saveResource(resource: Resource): Promise<boolean> {
   try {
     await db.resources.put(resource);
+    return true;
   } catch {
     logPersistence("resource_save_fail", { id: resource.id });
+    return false;
   }
 }
 

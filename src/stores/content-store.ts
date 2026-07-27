@@ -77,8 +77,18 @@ interface ContentState {
   pieces: Record<string, ContentPiece>;
   resources: Record<string, Resource>;
   hydrated: boolean;
+  /**
+   * True when the initial IndexedDB read of ideas/pieces/resources threw, so
+   * the empty maps above mean "unknown", not "nothing". Anything whose
+   * correctness depends on knowing what already exists must refuse to run
+   * while this is set — above all the agent-inbox importer, which would treat
+   * every pending handoff as new, re-insert it at its file status, and then
+   * ack the source markdown out of the inbox for good.
+   */
+  loadFailed: boolean;
 
   setHydrated: (v: boolean) => void;
+  setLoadFailed: (v: boolean) => void;
   setIdeas: (ideas: Idea[]) => void;
   setPieces: (pieces: ContentPiece[]) => void;
   setResources: (resources: Resource[]) => void;
@@ -151,8 +161,10 @@ export const useContentStore = create<ContentState>((set, get) => ({
   pieces: {},
   resources: {},
   hydrated: false,
+  loadFailed: false,
 
   setHydrated: (v) => set({ hydrated: v }),
+  setLoadFailed: (v) => set({ loadFailed: v }),
 
   setIdeas: (ideas) => {
     const map: Record<string, Idea> = {};

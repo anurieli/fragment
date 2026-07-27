@@ -2,6 +2,18 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-27 - Never ack a handoff the database didn't keep
+
+**Commit**: `TBD` on `main`
+
+**Summary**: Agent-pushed pieces went missing from the library while their ideas stayed put, and the inbox re-presented work that had already been triaged. Two holes on the import path, both of which end with the last durable copy of a piece being deleted. First, the ack is destructive: it moves the handoff markdown into `.imported/`, which nothing re-reads, so an ack is a promise that the piece is safely on disk elsewhere. `savePiece`, `saveIdea` and `saveResource` caught every IndexedDB failure, logged it, and resolved as if the write had succeeded (`persistence.ts`), and `useAgentInbox` acked unconditionally after awaiting them — so a refused write left the piece in one tab's memory, acked its markdown out of the inbox, and lost it at the next reload. Those three now resolve `false` on a refused write, and the importer withholds the ack for the whole batch unless every write in it landed, leaving the files pending for the next poll (import is idempotent, so the retry is clean). Second, `loadAllIdeas`, `loadAllContentPieces` and `loadAllResources` returned `[]` on a read failure, making "I couldn't read your library" indistinguishable from "your library is empty" — the importer then read the empty maps as "none of this exists yet", re-inserted every pending piece at its *file* status (undoing triage) and acked the source away. Those three now throw, hydration records `loadFailed` on the content store and tells the user to reload, and the importer stands down entirely while it is set. Notes never had this failure mode because `loadAllNotes` reconciles against a localStorage backup; ideas and pieces have no such backup, which is why the same fault presented as ideas surviving (they re-materialize from `idea.json` manifests, which are never acked) while pieces vanished.
+
+**Files**: `src/lib/persistence.ts`, `src/hooks/use-agent-inbox.ts`, `src/hooks/use-persistence.ts`, `src/stores/content-store.ts`, `src/lib/persistence-logger.ts`, `src/__tests__/agent-inbox-ack-safety.test.ts`
+
+**Verification**: 4 new tests driving the real hook against a mocked persistence layer. Two are true regressions, failing on the previous importer and passing now: an ack withheld when `savePiece` resolves `false`, and no polling at all while `loadFailed` is set. The other two pin behaviour that was already correct by accident (a rejected write aborted the poll before the ack) so the new `.catch(() => false)` path can't quietly re-enable the ack. `tsc --noEmit` and `npm run build` clean; suite at 579 of 601, the 22 failures being the same pre-existing `api-*` set (ARI-132), unchanged by this work. Not verified: whether this fault is what actually cost the pieces in the reported incident — that evidence only exists in the user's browser profile, and both holes were confirmed by reading the code rather than by reproducing the loss.
+
+**Related**: `~/bin/dev-process-reaper.py` on olympus was SIGTERM'ing `fragment-app.service` every ~45 minutes (every 30 min of uptime) from 2026-07-26 18:11 onward. `next start` runs a process named `next-server`, which matches the reaper's dev-server patterns, and its only ownership test was membership in a live `hermes-gateway-*.service` cgroup — a production systemd unit is in none, so it read as an orphan. The reaper now skips any process in a managed non-gateway `.service` cgroup. Outside this repo, so not in the file list above.
+
 ## 2026-07-27 - Cloud: Postgres, accounts, and cross-device sync (ARI-68, ARI-112, ARI-66, ARI-65)
 
 **Commit**: `6fef563` on `feat/cloud-sync`

@@ -14,6 +14,7 @@ import {
 import { ackTauriImportedFiles, readTauriIdeaFiles, readTauriInboxFiles, readTauriResourceFiles } from "@/lib/agent-inbox/tauri-inbox";
 import { generateId } from "@/lib/utils";
 import { saveIdea, savePiece, saveResource } from "@/lib/persistence";
+import { logPersistence } from "@/lib/persistence-logger";
 import { useContentStore } from "@/stores/content-store";
 
 const POLL_INTERVAL_MS = 10_000;
@@ -78,6 +79,11 @@ export function useAgentInbox() {
   const refreshInbox = useCallback(async () => {
     if (runningRef.current) return;
     if (!useContentStore.getState().hydrated) return;
+    // The library failed to load, so the store's empty maps mean "unknown".
+    // Importing against them would re-insert every pending piece at its file
+    // status and then ack the markdown away. Stand down until a reload reads
+    // the database successfully.
+    if (useContentStore.getState().loadFailed) return;
     runningRef.current = true;
 
     try {
@@ -125,6 +131,12 @@ export function useAgentInbox() {
       });
 
       const allNewIdeas = [...ideaResult.ideasToCreate, ...result.ideasToCreate];
+      // Every write in this batch has to actually reach IndexedDB before any
+      // of the batch's files may be acked. An ack moves the source markdown
+      // into `.imported/`, which nothing re-reads — so acking on the strength
+      // of a write that silently failed leaves the piece in this tab's memory
+      // and nowhere else, and it dies with the next reload.
+      let allWritesPersisted = true;
       if (
         allNewIdeas.length > 0 ||
         result.piecesToUpsert.length > 0 ||
@@ -141,16 +153,34 @@ export function useAgentInbox() {
           return { ideas, pieces, resources };
         });
 
-        await Promise.all(allNewIdeas.map((idea) => saveIdea(idea)));
-        await Promise.all(result.piecesToUpsert.map((piece) => savePiece(piece)));
-        await Promise.all(result.resourcesToCreate.map((resource) => saveResource(resource)));
-        await Promise.all(resourceResult.resourcesToUpsert.map((resource) => saveResource(resource)));
+        // saveIdea/savePiece/saveResource resolve false on a refused write and
+        // can also reject outright (saveIdea's parent-depth contract guard), so
+        // a throw counts as "not persisted" too rather than escaping to the
+        // catch below, where it would look like a failed poll.
+        const written = await Promise.all([
+          ...allNewIdeas.map((idea) => saveIdea(idea).catch(() => false)),
+          ...result.piecesToUpsert.map((piece) => savePiece(piece).catch(() => false)),
+          ...result.resourcesToCreate.map((resource) => saveResource(resource).catch(() => false)),
+          ...resourceResult.resourcesToUpsert.map((resource) =>
+            saveResource(resource).catch(() => false),
+          ),
+        ]);
+        allWritesPersisted = written.every(Boolean);
+      }
+
+      const allAcks = [...result.acks, ...resourceResult.acks];
+
+      if (!allWritesPersisted) {
+        // Leave everything in the inbox and rewind the cursor so the next poll
+        // re-reads these same files. Import is idempotent, so a later retry
+        // against a working database is a clean no-op for whatever did land.
+        logPersistence("inbox_ack_withheld", { files: allAcks.length });
+        return;
       }
 
       const maxMtime = files.reduce((max, f) => Math.max(max, f.mtime), cursorRef.current ?? 0);
       cursorRef.current = maxMtime;
 
-      const allAcks = [...result.acks, ...resourceResult.acks];
       if (allAcks.length > 0) {
         if (isTauri()) {
           await ackTauriImportedFiles(allAcks);
