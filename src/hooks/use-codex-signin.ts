@@ -6,6 +6,8 @@ import { useAppStore } from "@/stores/app-store";
 import { postCodexStart, postCodexToken, openExternal } from "@/lib/ai-client";
 import { primeCodexRefreshToken } from "@/lib/codex-token-manager";
 import { CODEX_DEVICE_VERIFY_URL } from "@/lib/codex-auth";
+import { signInWithIdToken } from "@/lib/sync/api";
+import { syncNow } from "@/lib/sync/engine";
 
 export type CodexSignInPhase = "idle" | "loading" | "code" | "polling";
 
@@ -80,6 +82,18 @@ export function useCodexSignIn(onConnected?: () => void) {
             });
             primeCodexRefreshToken(refreshToken);
             setCodexConnection("connected");
+
+            // Signing in to ChatGPT is also how you sign in to Fragment: the
+            // same id_token becomes a Fragment session, which is what makes
+            // this device's writing sync. Deliberately not awaited and never
+            // fatal — a build with no cloud behind it answers 503 here, and
+            // the AI connection this flow exists for is already established.
+            if (data.idToken) {
+              signInWithIdToken(data.idToken)
+                .then(() => syncNow())
+                .catch(() => {});
+            }
+
             setPhase("idle");
             setError(null);
             onConnected?.();

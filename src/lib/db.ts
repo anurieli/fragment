@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview } from "./types";
+import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview, OutboxEntry, SyncStateRow } from "./types";
 import type { Idea, ContentPiece, Resource } from "./content-engine";
 
 class FragmentDB extends Dexie {
@@ -16,6 +16,8 @@ class FragmentDB extends Dexie {
   contentPieces!: Table<ContentPiece, string>;
   resources!: Table<Resource, string>;
   reviews!: Table<StoredReview, string>;
+  outbox!: Table<OutboxEntry, [string, string]>;
+  syncState!: Table<SyncStateRow, string>;
 
   constructor() {
     super("fragment");
@@ -293,6 +295,30 @@ class FragmentDB extends Dexie {
         "id, ideaId, noteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
       resources: "id, ownerId, ownerType, createdAt",
       reviews: "id, noteId, receivedAt",
+    });
+
+    // v19 — cloud sync bookkeeping (ARI-66).
+    //
+    // Both tables are local-only and never sync themselves. `outbox` is keyed
+    // on [collection+id] so a second edit to the same record replaces the
+    // pending entry instead of queueing a duplicate push.
+    this.version(19).stores({
+      notes: "id, updatedAt",
+      snippets: "id, noteId, order, ideaId",
+      settings: "id",
+      noteVersions: "id, noteId, createdAt",
+      images: "id, noteId, createdAt",
+      apiLogs: "id, timestamp, route, provider, status, noteId, synced",
+      feedbackQueue: "id, status, createdAt",
+      voices: "id, updatedAt",
+      voiceSamples: "id, voiceId, createdAt",
+      ideas: "id, parentId, pinnedAt, priority, updatedAt, createdAt",
+      contentPieces:
+        "id, ideaId, noteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
+      resources: "id, ownerId, ownerType, createdAt",
+      reviews: "id, noteId, receivedAt",
+      outbox: "[collection+id], collection, updatedAt",
+      syncState: "id",
     });
   }
 }

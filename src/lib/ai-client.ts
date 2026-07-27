@@ -752,6 +752,9 @@ export async function postCodexToken(bodyJson: string): Promise<Response> {
       status: "success",
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
+      // Carried through so the desktop build can trade it for a Fragment
+      // session the same way the web app does.
+      idToken: tokenData.id_token,
     });
   } catch {
     return jsonResponse({ error: "Could not reach auth server", status: "error" }, 503);

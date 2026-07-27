@@ -309,6 +309,40 @@ export interface StoredReview extends ReviewReturn {
   receivedAt: number;
 }
 
+/**
+ * A local change waiting to be pushed to the cloud.
+ *
+ * The entry stamps its own `updatedAt` at write time rather than reading one
+ * off the record, because not every synced type carries one — a Snippet has
+ * `createdAt` and `order` and nothing else. "When this device last touched
+ * it" is the value last-write-wins actually needs, and it is well defined for
+ * every collection including deletions, which leave no record behind to read.
+ */
+export interface OutboxEntry {
+  /** Dexie table name, matching a SyncedCollection. */
+  collection: string;
+  id: string;
+  updatedAt: number;
+  /** A tombstone: the row is gone locally and must be removed on the server. */
+  deleted: boolean;
+}
+
+/** Sync bookkeeping. One row, id "main". */
+export interface SyncStateRow {
+  id: string;
+  /** Highest server rev applied. 0 means nothing has ever synced. */
+  cursor: number;
+  lastSyncedAt: number | null;
+  /**
+   * The account this device's local data belongs to, once it has been linked.
+   *
+   * Recorded so that signing in as somebody else on a shared browser cannot
+   * quietly upload the previous person's writing into the new account. On a
+   * mismatch the engine stops rather than guessing whose data it is holding.
+   */
+  userId: string | null;
+}
+
 export interface AppSettings {
   id: string;
   providerCredentials: ProviderCredentials;

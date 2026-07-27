@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { User, Eye, EyeOff } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useDeviceId } from "@/hooks/use-device-id";
-import { identify } from "@/lib/convex-client";
+import { identify } from "@/lib/cloud-client";
 
 export function UserProfileSection() {
   const { settings, updateUserProfile } = useSettingsStore();

@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://*.ingest.sentry.io https://*.posthog.com https://*.i.posthog.com https://*.convex.cloud https://*.convex.site https://openrouter.ai https://auth.openai.com https://chatgpt.com https://api.openai.com https://api.anthropic.com https://api.perplexity.ai http://localhost:11434 http://127.0.0.1:11434; font-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://*.ingest.sentry.io https://*.posthog.com https://*.i.posthog.com https://openrouter.ai https://auth.openai.com https://chatgpt.com https://api.openai.com https://api.anthropic.com https://api.perplexity.ai http://localhost:11434 http://127.0.0.1:11434; font-src 'self' data:"
     }
   },
   "bundle": {

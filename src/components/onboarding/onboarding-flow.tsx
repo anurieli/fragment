@@ -20,7 +20,7 @@ import { extractSampleText, SAMPLE_ACCEPT } from "@/lib/sample-extract";
 import { analyzeVoice } from "@/hooks/use-analyze-voice";
 import { useDeviceId } from "@/hooks/use-device-id";
 import { useToastStore } from "@/hooks/use-toast";
-import { identify } from "@/lib/convex-client";
+import { identify } from "@/lib/cloud-client";
 import type { VoiceSample } from "@/lib/types";
 import { hasWorkingProvider, hasAnyProviderPresent } from "@/lib/ai/connection-status";
 import { isHosted } from "@/lib/edition";

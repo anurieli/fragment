@@ -20,7 +20,7 @@ import { useToastStore } from "@/hooks/use-toast";
 import { captureEvent } from "@/lib/posthog";
 import { useDeviceId } from "@/hooks/use-device-id";
 import { generateId } from "@/lib/utils";
-import { submitFeedback } from "@/lib/convex-client";
+import { submitFeedback } from "@/lib/cloud-client";
 import type { FeedbackType, FeedbackQueueItem } from "@/lib/types";
 import { useMediaCapture } from "./use-media-capture";
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { db } from "@/lib/db";
-import { submitFeedback } from "@/lib/convex-client";
+import { submitFeedback } from "@/lib/cloud-client";
 import { useDeviceId } from "./use-device-id";
 
 export function useFeedbackSync(): void {

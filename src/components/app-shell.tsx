@@ -11,9 +11,10 @@ import { useDeviceId } from "@/hooks/use-device-id";
 import { useLogSync } from "@/hooks/use-log-sync";
 import { useFeedbackSync } from "@/hooks/use-feedback-sync";
 import { useCodexConnection } from "@/hooks/use-codex-connection";
+import { useCloudSync } from "@/hooks/use-cloud-sync";
 import { useAgentInbox } from "@/hooks/use-agent-inbox";
 import { usePublishVerification } from "@/hooks/use-publish-verification";
-import { identify } from "@/lib/convex-client";
+import { identify } from "@/lib/cloud-client";
 import { initPostHog } from "@/lib/posthog";
 import { initSentry, setSentryUser } from "@/lib/sentry";
 import { Sidebar } from "./sidebar/sidebar";
@@ -48,6 +49,9 @@ export function AppShell() {
   useLogSync();
   useFeedbackSync();
   useCodexConnection();
+  // Cloud sync. A no-op until someone signs in, so this costs nothing in the
+  // local-only setup that is still the default way to run Fragment.
+  useCloudSync();
   // Polls the local agent inbox and imports pending pieces. `refreshInbox` /
   // `ingressAvailable` are intentionally unused here — no UI affordance yet
   // (see ARI-154); the hook stays consumable for whoever adds one.
@@ -77,7 +81,7 @@ export function AppShell() {
     return () => clearTimeout(timer);
   }, [hydrated]);
 
-  // Identify user with Convex + PostHog after hydration
+  // Identify this install to the backend + PostHog after hydration
   useEffect(() => {
     if (!hydrated) return;
 

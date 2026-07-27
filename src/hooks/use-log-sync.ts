@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { db } from "@/lib/db";
-import { syncLogs } from "@/lib/convex-client";
-import type { SyncableLog } from "@/lib/convex-client";
+import { syncLogs } from "@/lib/cloud-client";
+import type { SyncableLog } from "@/lib/cloud-client";
 import { useDeviceId } from "./use-device-id";
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes

@@ -135,6 +135,10 @@ export async function POST(req: NextRequest) {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       identity: identityFromTokenData(tokenData),
+      // Returned so the client can exchange it for a Fragment session. The
+      // server re-verifies it against OpenAI's JWKS before trusting a word of
+      // it (src/lib/server/codex-verify.ts) — this is transport, not proof.
+      idToken: tokenData.id_token,
     });
   } catch {
     return NextResponse.json(
