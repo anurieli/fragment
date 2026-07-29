@@ -4,8 +4,23 @@ import { isDatabaseConfigured } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/session";
 import { applySync } from "@/lib/server/sync-store";
 import { parseSyncRequest } from "@/lib/sync/protocol";
+import { guardJsonMutation } from "@/lib/server/csrf";
+import {
+  bodyTooLarge,
+  checkRateLimit,
+  payloadTooLargeResponse,
+} from "@/lib/api-guards";
 
 export const runtime = "nodejs";
+
+/**
+ * A sync push is a bulk write, so it gets a bigger body allowance than the AI
+ * routes and a budget counted per account rather than per IP: the thing worth
+ * bounding is how fast one signed-in user can grow the shared documents table,
+ * and their address is the least stable part of their identity.
+ */
+const MAX_SYNC_BODY_BYTES = 8_000_000; // ~8 MB
+const SYNC_RATE_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 
 /**
  * POST /api/v1/sync
@@ -26,9 +41,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const refused = guardJsonMutation(req);
+  if (refused) return refused;
+
+  if (bodyTooLarge(req, MAX_SYNC_BODY_BYTES)) return payloadTooLargeResponse();
+
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+
+  const budget = checkRateLimit(`sync:${user.id}`, SYNC_RATE_LIMIT);
+  if (!budget.ok) {
+    return NextResponse.json(
+      { error: "Syncing too often. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(budget.retryAfter) } },
+    );
   }
 
   let body: unknown;

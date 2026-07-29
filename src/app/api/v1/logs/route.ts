@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isDatabaseConfigured, query } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/session";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/api-guards";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,13 @@ const MAX_LOGS_PER_REQUEST = 200;
  * tokens. One way only. These rows never sync back down to a client, which is
  * why they are not part of the documents table.
  */
+/** Anonymous callers can write here, so the volume needs a ceiling. */
+const LOGS_RATE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
 export async function POST(req: NextRequest) {
+  const budget = checkRateLimit(`logs:${getClientIp(req)}`, LOGS_RATE_LIMIT);
+  if (!budget.ok) return rateLimitResponse(budget.retryAfter);
+
   if (!isDatabaseConfigured()) return NextResponse.json({ ok: true });
 
   let body: { deviceId?: string; logs?: unknown };

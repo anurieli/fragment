@@ -23,7 +23,7 @@ export function isSyncableTableName(name: string): name is SyncedCollection {
 }
 
 /**
- * Fields stripped on the way out, per collection.
+ * Fields stripped on the way out, per collection. Dots denote nesting.
  *
  * `providerCredentials` holds the user's own OpenAI, Anthropic and OpenRouter
  * keys. Fragment's whole pitch is bring-your-own-key, and a key the user
@@ -32,10 +32,69 @@ export function isSyncableTableName(name: string): name is SyncedCollection {
  * with the breach surface that implies. The rest of settings — writing style,
  * profile, feature preferences — is exactly the kind of thing you want to
  * find already configured on a second device.
+ *
+ * The same reasoning covers three credentials that live under `userProfile`
+ * rather than beside the provider keys, and were therefore missed when this
+ * list was first written: `kitApiKey` is full control of the writer's mailing
+ * list, and `composioApiKey` plus `linkedInConnectedAccountId` together are
+ * permission to post to their LinkedIn as them. A field is on this list
+ * because of what it can do, not because of where it happens to sit in the
+ * settings object.
  */
 const STRIPPED_FIELDS: Partial<Record<SyncedCollection, string[]>> = {
-  settings: ["providerCredentials"],
+  settings: [
+    "providerCredentials",
+    "userProfile.kitApiKey",
+    "userProfile.composioApiKey",
+    "userProfile.linkedInConnectedAccountId",
+  ],
 };
+
+/** Read a dotted path, returning `undefined` if any link is missing. */
+function readPath(row: Record<string, unknown>, path: string): unknown {
+  return path.split(".").reduce<unknown>((node, key) => {
+    if (node === null || typeof node !== "object") return undefined;
+    return (node as Record<string, unknown>)[key];
+  }, row);
+}
+
+/** True when the whole path exists, so a restore knows to put it back. */
+function hasPath(row: Record<string, unknown>, path: string): boolean {
+  const keys = path.split(".");
+  let node: unknown = row;
+  for (const key of keys) {
+    if (node === null || typeof node !== "object") return false;
+    if (!(key in (node as Record<string, unknown>))) return false;
+    node = (node as Record<string, unknown>)[key];
+  }
+  return true;
+}
+
+/**
+ * Copy-on-write down a dotted path. Every object along the way is cloned, so
+ * the caller's row (which is the live Dexie record) is never mutated.
+ */
+function withPath(
+  row: Record<string, unknown>,
+  path: string,
+  apply: (parent: Record<string, unknown>, key: string) => void,
+): Record<string, unknown> {
+  const keys = path.split(".");
+  const copy = { ...row };
+
+  let parent: Record<string, unknown> = copy;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    const child = parent[key];
+    if (child === null || typeof child !== "object") return copy;
+    const cloned = { ...(child as Record<string, unknown>) };
+    parent[key] = cloned;
+    parent = cloned;
+  }
+
+  apply(parent, keys[keys.length - 1]);
+  return copy;
+}
 
 /** The version of a record that is safe to send. */
 export function sanitizeForSync(
@@ -45,8 +104,12 @@ export function sanitizeForSync(
   const stripped = STRIPPED_FIELDS[collection];
   if (!stripped || stripped.length === 0) return row;
 
-  const copy = { ...row };
-  for (const field of stripped) delete copy[field];
+  let copy = row;
+  for (const field of stripped) {
+    copy = withPath(copy, field, (parent, key) => {
+      delete parent[key];
+    });
+  }
   return copy;
 }
 
@@ -65,9 +128,13 @@ export function mergeFromSync(
   const stripped = STRIPPED_FIELDS[collection];
   if (!stripped || stripped.length === 0 || !local) return incoming;
 
-  const merged = { ...incoming };
+  let merged = incoming;
   for (const field of stripped) {
-    if (field in local) merged[field] = local[field];
+    if (!hasPath(local, field)) continue;
+    const value = readPath(local, field);
+    merged = withPath(merged, field, (parent, key) => {
+      parent[key] = value;
+    });
   }
   return merged;
 }

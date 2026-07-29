@@ -276,7 +276,9 @@ function AboutYouStep({ onContinue, onSkip }: AboutYouStepProps) {
           Tell us a bit about yourself.
         </h2>
         <p className="text-sm text-text-muted leading-relaxed">
-          This helps us personalize Fragment for you. Saved to your device.
+          This helps us personalize Fragment for you. Your writing stays on
+          your device; the name and email go to us so we know who is using
+          Fragment. Both are optional.
         </p>
       </div>
 

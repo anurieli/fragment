@@ -30,7 +30,17 @@ export function getPool(): Pool | null {
     max: Number(process.env.DATABASE_POOL_MAX ?? 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
-    ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+    // Verify the server certificate. Encryption without authentication stops
+    // a passive listener and does nothing about an active one, which is the
+    // threat that actually matters on the hop from a serverless function to a
+    // managed database. Hosted Postgres providers (Neon, Supabase, RDS) all
+    // present certificates from public CAs, so the system trust store is
+    // enough; set DATABASE_SSL_INSECURE=true only for a self-hosted server
+    // with a self-signed certificate.
+    ssl:
+      process.env.DATABASE_SSL === "true"
+        ? { rejectUnauthorized: process.env.DATABASE_SSL_INSECURE !== "true" }
+        : undefined,
   });
 
   // A pool that emits an unhandled 'error' takes the process down. Idle

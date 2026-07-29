@@ -82,12 +82,27 @@ function isLocalHost(host: string | null | undefined): boolean {
  * Matrix:
  *   - hosted build                          → closed, always
  *   - FRAGMENT_LOCAL_INGRESS unset/not "true" → closed, always
- *   - request Host is localhost/127.0.0.1/::1 → open, no token required
  *   - request Host is in allowedHosts       → open, no token required
+ *   - request Host is localhost/127.0.0.1/::1 → open, no token required,
+ *                                              but ONLY when no allowedHosts
+ *                                              list is configured (see below)
  *   - any other Host                        → open only with an exact
  *                                              `Authorization: Bearer <token>`
  *                                              match against ingressToken;
  *                                              closed if the token is unset
+ *
+ * The `Host` header is supplied by the caller and is not evidence of where a
+ * request came from: anyone who can reach the server can send
+ * `Host: localhost`. Trusting it unconditionally meant a deployment reachable
+ * beyond the loopback (the tailnet instance, say) handed its inbox, its
+ * filesystem-writing ack route and its outbound fetches to any peer that
+ * asked in the right shape.
+ *
+ * So the localhost shortcut now only applies when the operator has NOT named
+ * the hosts they expect. Setting FRAGMENT_INGRESS_ALLOWED_HOSTS is read as a
+ * statement that the deployment is reachable by name, and from that point the
+ * list is exhaustive: a bare `npm run dev` on a laptop still works with no
+ * configuration, and a named deployment stops accepting a forged Host.
  */
 export function gateAgentInbox(
   env: AgentInboxGateEnv,
@@ -96,8 +111,13 @@ export function gateAgentInbox(
 ): AgentInboxGateResult {
   if (env.isHosted) return { allowed: false };
   if (!env.localIngressEnabled) return { allowed: false };
-  if (isLocalHost(host)) return { allowed: true };
-  if (env.allowedHosts?.includes(normalizeHostname(host))) return { allowed: true };
+
+  const hasAllowList = Boolean(env.allowedHosts && env.allowedHosts.length > 0);
+  if (hasAllowList && env.allowedHosts!.includes(normalizeHostname(host))) {
+    return { allowed: true };
+  }
+  if (!hasAllowList && isLocalHost(host)) return { allowed: true };
+
   if (!env.ingressToken) return { allowed: false };
   return { allowed: authHeader === `Bearer ${env.ingressToken}` };
 }

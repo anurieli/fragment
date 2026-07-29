@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isDatabaseConfigured, query } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/session";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/api-guards";
 import { putBlob, BlobTooLarge } from "@/lib/server/blob-store";
 
 export const runtime = "nodejs";
@@ -20,7 +21,13 @@ const TYPES = new Set(["bug", "feature", "feedback"]);
  * our own storage there is no third party to hand a signed URL, so asking for
  * one first would be a round trip that buys nothing.
  */
+/** Anonymous callers can write here, so the volume needs a ceiling. */
+const FEEDBACK_RATE_LIMIT = { limit: 10, windowMs: 60_000 } as const;
+
 export async function POST(req: NextRequest) {
+  const budget = checkRateLimit(`feedback:${getClientIp(req)}`, FEEDBACK_RATE_LIMIT);
+  if (!budget.ok) return rateLimitResponse(budget.retryAfter);
+
   if (!isDatabaseConfigured()) return NextResponse.json({ ok: true });
 
   let form: FormData;

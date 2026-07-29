@@ -29,10 +29,27 @@ export const MODELS_RATE_LIMIT = { limit: 40, windowMs: 60_000 } as const;
 
 // ─── Client IP ──────────────────────────────────────────────────────────────
 
+/**
+ * The caller's address, preferring headers the client cannot forge.
+ *
+ * `x-forwarded-for` is appended to by every hop, and the LEFTMOST entry is
+ * whatever the client sent — so keying a rate limit on it hands the attacker
+ * a fresh bucket per request just by varying a header. The platform-set
+ * headers come first for that reason, and the XFF fallback reads from the
+ * RIGHT, which is the hop nearest us and the one a client cannot prepend to.
+ */
 export function getClientIp(req: NextRequest): string {
+  const platform =
+    req.headers.get("x-vercel-forwarded-for")?.trim() ||
+    req.headers.get("x-real-ip")?.trim();
+  if (platform) return platform;
+
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown";
-  return req.headers.get("x-real-ip")?.trim() || "unknown";
+  if (forwarded) {
+    const hops = forwarded.split(",");
+    return hops[hops.length - 1]?.trim() || "unknown";
+  }
+  return "unknown";
 }
 
 // ─── Rate limiting (fixed window, in-memory) ─────────────────────────────────

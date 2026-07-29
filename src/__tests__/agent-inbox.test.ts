@@ -62,6 +62,26 @@ describe("gateAgentInbox", () => {
     expect(gateAgentInbox(env, "evil.example.com", null)).toEqual({ allowed: false });
   });
 
+  it("refuses a forged localhost Host once the operator has named their hosts", () => {
+    // `Host` is caller-supplied and proves nothing about where a request came
+    // from. On a deployment reachable by name, anyone who can route to it can
+    // send `Host: localhost` — which used to hand over the inbox, the
+    // filesystem-writing ack route and the outbound fetches.
+    const env = { ...openEnv, allowedHosts: ["olympus.example.ts.net"] };
+    expect(gateAgentInbox(env, "localhost", null)).toEqual({ allowed: false });
+    expect(gateAgentInbox(env, "127.0.0.1:3011", null)).toEqual({ allowed: false });
+    expect(gateAgentInbox(env, "[::1]", null)).toEqual({ allowed: false });
+  });
+
+  it("keeps the zero-config localhost path for a plain `npm run dev`", () => {
+    // No allow list configured means nobody has claimed a hostname, so the
+    // loopback shortcut is the only thing making local development work.
+    expect(gateAgentInbox(openEnv, "localhost:3100", null)).toEqual({ allowed: true });
+    expect(gateAgentInbox({ ...openEnv, allowedHosts: [] }, "localhost:3100", null)).toEqual({
+      allowed: true,
+    });
+  });
+
   it("allowed hosts do not bypass the hosted or ingress-disabled checks", () => {
     expect(
       gateAgentInbox(

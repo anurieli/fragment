@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/lib/server/db";
 import { verifyCodexIdToken, InvalidCodexToken } from "@/lib/server/codex-verify";
 import { signIn, signOut, getSessionUser, setSessionCookie } from "@/lib/server/session";
+import { guardJsonMutation, isCrossSite, crossSiteRefused } from "@/lib/server/csrf";
 
 // node:crypto and the pg driver — never the edge runtime.
 export const runtime = "nodejs";
@@ -29,6 +30,12 @@ function cloudUnavailable() {
 
 export async function POST(req: NextRequest) {
   if (!isDatabaseConfigured()) return cloudUnavailable();
+
+  // Minting a session is the one request an attacker's page most wants to
+  // make on a victim's behalf: it does not need a stolen cookie, it plants
+  // one. See src/lib/server/csrf.ts for why Lax alone does not cover this.
+  const refused = guardJsonMutation(req);
+  if (refused) return refused;
 
   let idToken: string | undefined;
   try {
@@ -65,8 +72,12 @@ export async function GET() {
   return NextResponse.json({ user });
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   if (!isDatabaseConfigured()) return cloudUnavailable();
+  // No JSON body to require here, but a cross-site page should not be able to
+  // sign someone out either. DELETE is not reachable from a plain form, so
+  // this is cheap belt-and-braces rather than the load-bearing check.
+  if (isCrossSite(req)) return crossSiteRefused();
   await signOut();
   return NextResponse.json({ ok: true });
 }

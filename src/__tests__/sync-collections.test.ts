@@ -83,3 +83,79 @@ describe("mergeFromSync", () => {
     expect(applied.providerCredentials).toEqual({ openaiApiKey: "sk-local" });
   });
 });
+
+/**
+ * Nested credentials.
+ *
+ * The first version of STRIPPED_FIELDS listed only `providerCredentials`, so
+ * three keys that live under `userProfile` synced to the server in plaintext:
+ * a Kit key (full control of the writer's mailing list) and a Composio key
+ * plus connected-account id (permission to post to their LinkedIn as them).
+ * A field belongs on the strip list because of what it can do, not because of
+ * where it sits in the object.
+ */
+describe("nested credential stripping", () => {
+  const settings = () => ({
+    id: "app",
+    providerCredentials: { openaiApiKey: "sk-provider" },
+    userProfile: {
+      displayName: "Ariel",
+      email: "a@example.com",
+      kitApiKey: "kit-live-secret",
+      composioApiKey: "comp-live-secret",
+      linkedInConnectedAccountId: "acct_123",
+    },
+    theme: "dark",
+  });
+
+  it("strips the integration keys nested under userProfile", () => {
+    const out = sanitizeForSync("settings", settings());
+    const profile = out.userProfile as Record<string, unknown>;
+
+    expect(profile.kitApiKey).toBeUndefined();
+    expect(profile.composioApiKey).toBeUndefined();
+    expect(profile.linkedInConnectedAccountId).toBeUndefined();
+
+    const wire = JSON.stringify(out);
+    expect(wire).not.toContain("kit-live-secret");
+    expect(wire).not.toContain("comp-live-secret");
+    expect(wire).not.toContain("acct_123");
+  });
+
+  it("keeps the rest of the profile, which is the point of syncing settings", () => {
+    const profile = sanitizeForSync("settings", settings()).userProfile as Record<string, unknown>;
+    expect(profile.displayName).toBe("Ariel");
+    expect(profile.email).toBe("a@example.com");
+  });
+
+  it("does not mutate the caller's nested objects", () => {
+    // sanitizeForSync is handed the live Dexie record; deleting in place would
+    // wipe the user's own key off their machine.
+    const original = settings();
+    sanitizeForSync("settings", original);
+    expect(original.userProfile.kitApiKey).toBe("kit-live-secret");
+    expect(original.userProfile.composioApiKey).toBe("comp-live-secret");
+  });
+
+  it("restores nested keys from the local row on the way down", () => {
+    const incoming = sanitizeForSync("settings", settings());
+    const local = settings();
+
+    const merged = mergeFromSync("settings", incoming, local);
+    const profile = merged.userProfile as Record<string, unknown>;
+
+    expect(profile.kitApiKey).toBe("kit-live-secret");
+    expect(profile.composioApiKey).toBe("comp-live-secret");
+    expect(profile.linkedInConnectedAccountId).toBe("acct_123");
+  });
+
+  it("takes the remote value for non-credential profile fields", () => {
+    const incoming = sanitizeForSync("settings", {
+      ...settings(),
+      userProfile: { ...settings().userProfile, displayName: "Renamed" },
+    });
+
+    const merged = mergeFromSync("settings", incoming, settings());
+    expect((merged.userProfile as Record<string, unknown>).displayName).toBe("Renamed");
+  });
+});

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isDatabaseConfigured, query } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/session";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/api-guards";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,13 @@ export const runtime = "nodejs";
  * Silently does nothing when no database is configured. Telemetry must never
  * be the reason a self-hosted app shows an error.
  */
+/** Anonymous callers can write here, so the volume needs a ceiling. */
+const IDENTIFY_RATE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
 export async function POST(req: NextRequest) {
+  const budget = checkRateLimit(`identify:${getClientIp(req)}`, IDENTIFY_RATE_LIMIT);
+  if (!budget.ok) return rateLimitResponse(budget.retryAfter);
+
   if (!isDatabaseConfigured()) return NextResponse.json({ ok: true });
 
   let body: {
