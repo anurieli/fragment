@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-29 - Fragment goes public: hosted SaaS live on Vercel with Neon Postgres (56fcecf, b0541e3)
+
+**Commits**: `56fcecf` (front door + billing schema) and `b0541e3` (deploy unblockers) on `main`
+
+**Summary**: The hosted edition existed only as a build flag; nothing public served it. It is now live in production at https://fragment-amber.vercel.app: Vercel project `fragment` (account ariel@cuttheedge.com, team `ariel-nurielis-projects`), Neon Postgres `neon-teal-house` (us-east-1) provisioned through the Vercel Marketplace and wired into the project env, migrations 001 and 002 applied through the unpooled URL, and the deployment verified end to end (landing renders for strangers, `fragment_entered` or a session cookie goes straight to the app, agent-inbox gate answers 404, unauthenticated sync answers 401, and the identify route wrote and read a device row in Neon). Sign in with ChatGPT works on the hosted origin as-is because it is a device-code flow with no redirect URI. The landing page at `/` is new: hero, Snip/Flow/Refine/Press cards, sync and open-source sections, GitHub links throughout, shown exactly once per visitor and never on self-host or desktop builds (the gate checks cookie presence only, no DB hit). Migration 002 makes the schema Stripe-ready before any billing code exists: `stripe_customer_id`/`plan`/`plan_status` on users, `credit_grants` buckets plus an append-only `credit_ledger` in integer micro-USD, and `stripe_events` for webhook dedupe; the wallet lives in our Postgres and Stripe only moves money, per how Cursor/Lovable/OpenRouter meter AI usage in 2026. Deploy unblockers: removed five git-tracked `skills/convex-*` symlinks whose targets left with Convex (they broke Vercel's upload at lstat), added `.vercelignore`. Operational note: `vercel link`/`env pull` silently overwrote `.env.local` and pointed the OLYMPUS instance's DATABASE_URL at Neon; restored from postgres-main credentials and the file now carries a warning comment. Auth expansion (better-auth: Google + email, keeping ChatGPT) is researched and specced in ARI-229; hardening list (R2 blobs, Vercel Pro before charging, managed AI key, Neon Launch backups, custom domain) in ARI-230; deployment log on ARI-80.
+
+**Files**: `src/app/page.tsx`, `src/components/landing/landing-page.tsx` (new), `db/migrations/002_billing_ready.sql` (new), `.vercelignore` (new), `.gitignore`, `skills/convex-*` (removed)
+
+**Verification**: `tsc --noEmit` clean, hosted build clean with `/` dynamic and all routes registered, self-host build keeps `/` static (confirmed on the olympus rebuild), suite 619 of 619. Production smoke tests ran against the live URL as listed above, plus a browser walk of landing, Start writing, and the onboarding overlay. The olympus `fragment-app` was rebuilt on the same commit and still serves 200 with its own postgres-main database. Not verified: a real sign-in and cross-device sync round-trip on the hosted deployment, which needs a human ChatGPT account.
+
 ## 2026-07-27 - Generate a note's title from the note (ARI-45)
 
 **Commit**: `7646cc0` on `main`
