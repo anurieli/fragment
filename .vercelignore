@@ -1,0 +1,5 @@
+# Local-agent and desktop artifacts irrelevant to the web build.
+.claude
+.agents
+src-tauri
+docs
