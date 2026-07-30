@@ -71,15 +71,6 @@ export async function fetchCurrentUser(): Promise<CloudUser | null> {
   }
 }
 
-/** Exchange a verified Codex id_token for a session cookie. */
-export async function signInWithIdToken(idToken: string): Promise<CloudUser> {
-  const { user } = await request<{ user: CloudUser }>("/api/v1/auth/session", {
-    method: "POST",
-    body: JSON.stringify({ idToken }),
-  });
-  return user;
-}
-
 export async function signOutOfCloud(): Promise<void> {
   await request<{ ok: boolean }>("/api/v1/auth/session", { method: "DELETE" });
 }

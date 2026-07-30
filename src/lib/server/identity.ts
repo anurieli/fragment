@@ -3,11 +3,15 @@ import { queryOne } from "./db";
 /**
  * A verified identity from any provider, in the shape `signIn` needs.
  *
- * Each provider's own verification module (codex-verify.ts, and its Google
- * counterpart when ARI-229 lands) produces its own richer type and narrows it
- * to this before calling `signIn`. This module never verifies anything
- * itself — it exists to resolve an already-trusted `(provider, subject)`
- * pair to a user row, nothing more.
+ * Each provider's own verification module produces its own richer type and
+ * narrows it to this before calling `signIn`. This module never verifies
+ * anything itself — it exists to resolve an already-trusted
+ * `(provider, subject)` pair to a user row, nothing more.
+ *
+ * Codex/ChatGPT is deliberately not such a provider. Its credential exists
+ * only to route AI calls (src/hooks/use-codex-signin.ts); it must never
+ * reach `signIn`. Google, landing with ARI-229, will be the first and only
+ * caller of this until a second provider is added.
  */
 export interface VerifiedIdentity {
   provider: string;

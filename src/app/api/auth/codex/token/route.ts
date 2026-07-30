@@ -8,10 +8,12 @@ import {
 import { extractCodexIdentity, type CodexIdentity } from "@/lib/codex-api";
 
 /**
- * Pull the user's identity out of the token response. Prefers the OIDC
- * `id_token` (stable per-user `sub`); falls back to the access token, which
- * carries the same claims. Phase 1: server-side session minting will verify
- * this against OpenAI's JWKS before trusting it — this is capture only.
+ * Pull the user's identity out of the token response for display only (e.g.
+ * "connected as name@email" in Settings). Prefers the OIDC `id_token`
+ * (stable per-user `sub`); falls back to the access token, which carries the
+ * same claims. Never verified and never used for anything beyond a label —
+ * this credential's only real job is routing AI calls through Codex, and it
+ * must never be trusted as proof of who is asking.
  */
 function identityFromTokenData(data: {
   id_token?: string;
@@ -135,10 +137,6 @@ export async function POST(req: NextRequest) {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       identity: identityFromTokenData(tokenData),
-      // Returned so the client can exchange it for a Fragment session. The
-      // server re-verifies it against OpenAI's JWKS before trusting a word of
-      // it (src/lib/server/codex-verify.ts) — this is transport, not proof.
-      idToken: tokenData.id_token,
     });
   } catch {
     return NextResponse.json(

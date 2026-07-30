@@ -6,18 +6,21 @@ import { useAppStore } from "@/stores/app-store";
 import { postCodexStart, postCodexToken, openExternal } from "@/lib/ai-client";
 import { primeCodexRefreshToken } from "@/lib/codex-token-manager";
 import { CODEX_DEVICE_VERIFY_URL } from "@/lib/codex-auth";
-import { signInWithIdToken } from "@/lib/sync/api";
-import { syncNow } from "@/lib/sync/engine";
 
 export type CodexSignInPhase = "idle" | "loading" | "code" | "polling";
 
 /**
- * The OpenAI device-code sign-in flow, extracted so both the Settings card and
- * the global reconnect banner drive the exact same logic.
+ * The OpenAI device-code flow for connecting Codex as an AI provider.
  *
- * Flow: start() → shows a user code → openVerification() opens OpenAI in the
- * browser and begins polling → on success, credentials are stored and
- * `onConnected` fires.
+ * "Sign in" here is OpenAI's own name for their device-code flow, not a
+ * Fragment account: this hook stores `codexAccessToken`/`codexRefreshToken`
+ * for routing AI calls and nothing else. It must never mint a Fragment
+ * session — that credential's only job is AI routing.
+ *
+ * Extracted so both the Settings card and the global reconnect banner drive
+ * the exact same logic. Flow: start() → shows a user code → openVerification()
+ * opens OpenAI in the browser and begins polling → on success, credentials
+ * are stored and `onConnected` fires.
  */
 export function useCodexSignIn(onConnected?: () => void) {
   const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
@@ -83,17 +86,9 @@ export function useCodexSignIn(onConnected?: () => void) {
             primeCodexRefreshToken(refreshToken);
             setCodexConnection("connected");
 
-            // Signing in to ChatGPT is also how you sign in to Fragment: the
-            // same id_token becomes a Fragment session, which is what makes
-            // this device's writing sync. Deliberately not awaited and never
-            // fatal — a build with no cloud behind it answers 503 here, and
-            // the AI connection this flow exists for is already established.
-            if (data.idToken) {
-              signInWithIdToken(data.idToken)
-                .then(() => syncNow())
-                .catch(() => {});
-            }
-
+            // This credential is for routing AI calls through Codex, full
+            // stop. It must never be used to sign in to Fragment or start a
+            // sync session — that is Google's job (ARI-229), not this flow's.
             setPhase("idle");
             setError(null);
             onConnected?.();
