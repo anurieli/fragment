@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-07-30 14:45 - Sever ChatGPT/Codex from Fragment sign-in entirely (b2d65db)
+
+**Commit**: `b2d65db` on `main`, live in production
+
+**Summary**: Ariel, direct correction: "i dont want chat gpt sign in... ONLY use of that credential is for codex routing!" The gap: connecting Codex as an AI provider silently minted a Fragment session as a side effect. `useCodexSignIn`'s success handler took the `id_token` from the device-poll response and called `signInWithIdToken()`, which hit `POST /api/v1/auth/session`, which verified it and signed the browser into Fragment and triggered a sync. Someone who only wanted OpenAI's models for Refine/Flow got a Fragment account they never asked for. Removed rather than disabled: `POST /api/v1/auth/session` no longer exists, so a forged `id_token` gets a 405, not a rejected sign-in; `codex-verify.ts` is deleted since nothing else called `verifyCodexIdToken`; `signInWithIdToken` is gone from the client; the `id_token` field itself is no longer carried through either token-poll response (web or the Tauri desktop equivalent in `ai-client.ts`), since nothing reads it and there is no reason to hand a JWT that identifies a person back to the client for no purpose. The AI-provider connection flow is untouched: device code, token storage, the "Sign in with ChatGPT" button and its copy all still work exactly as before, because that half was never the problem, only the silent session mint riding along with it.
+
+**Files**: `src/app/api/v1/auth/session/route.ts`, `src/hooks/use-codex-signin.ts`, `src/lib/sync/api.ts`, `src/lib/server/codex-verify.ts` (deleted), `src/lib/server/identity.ts`, `src/app/api/auth/codex/token/route.ts`, `src/lib/ai-client.ts`
+
+**Verification**: 660 of 660 passing, `tsc --noEmit` clean, production build clean, full sweep confirmed zero remaining references to any of the removed functions. Verified live rather than only in tests: `POST /api/v1/auth/session` with a fabricated `idToken` returns 405 both locally and on the production deployment, `GET`/`DELETE` on the same route still behave exactly as before. Net effect, stated plainly rather than left implicit: hosted Fragment now has zero sign-in path until Google (ARI-229) lands. That is the correct state given today's decision, not a stopgap, and `signIn()`/`findOrCreateUser()` from the identity refactor two hours earlier are already shaped for Google to be the first caller.
+
 ## 2026-07-30 12:35 - Identity made provider-agnostic, ahead of Google sign-in (5e8866e)
 
 **Commit**: `5e8866e` on `main`, live in production
