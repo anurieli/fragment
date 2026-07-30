@@ -40,7 +40,7 @@ suite("share isolation (real database)", () => {
     const root = process.cwd();
     await db.query("drop schema if exists public cascade");
     await db.query("create schema public");
-    for (const file of ["001_init.sql", "003_sharing.sql"]) {
+    for (const file of ["001_init.sql", "003_sharing.sql", "004_identities.sql"]) {
       await db.query(readFileSync(join(root, "db", "migrations", file), "utf8"));
     }
   }, 30_000);
@@ -52,8 +52,8 @@ suite("share isolation (real database)", () => {
 
   async function makeOwner(sub: string) {
     const row = await db.queryOne(
-      "insert into users (codex_sub, email, name) values ($1, $2, $3) returning id",
-      [sub, `${sub}@example.com`, sub],
+      "insert into users (email, name) values ($1, $2) returning id",
+      [`${sub}@example.com`, sub],
     );
     return row.id as string;
   }

@@ -11,7 +11,6 @@ import type { SyncRequest, SyncResponse } from "./protocol";
 
 export interface CloudUser {
   id: string;
-  codexSub: string;
   email: string | null;
   name: string | null;
 }

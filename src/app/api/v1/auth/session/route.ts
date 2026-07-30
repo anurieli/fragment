@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   try {
     const identity = await verifyCodexIdToken(idToken);
     const { user, token, expiresAt } = await signIn(
-      identity,
+      { provider: "openai", subject: identity.sub, email: identity.email, name: identity.name },
       req.headers.get("user-agent"),
     );
     await setSessionCookie(token, expiresAt);

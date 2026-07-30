@@ -34,10 +34,10 @@ function check(name, condition, detail = "") {
 }
 
 // --- Set up one user with two device sessions (A and B) -------------------
-await client.query("delete from users where codex_sub = 'test-sub-e2e'");
+await client.query("delete from users where email = 'e2e@example.com'");
 const { rows } = await client.query(
-  "insert into users (codex_sub, email, name) values ($1,$2,$3) returning id",
-  ["test-sub-e2e", "e2e@example.com", "E2E"],
+  "insert into users (email, name) values ($1,$2) returning id",
+  ["e2e@example.com", "E2E"],
 );
 const userId = rows[0].id;
 
@@ -171,9 +171,9 @@ console.log("\nDeletes");
 
 console.log("\nIsolation between accounts");
 {
-  await client.query("delete from users where codex_sub = 'test-sub-other'");
+  await client.query("delete from users where email = 'other@example.com'");
   const other = await client.query(
-    "insert into users (codex_sub) values ('test-sub-other') returning id",
+    "insert into users (email) values ('other@example.com') returning id",
   );
   const otherToken = randomBytes(32).toString("base64url");
   await client.query(
@@ -183,7 +183,7 @@ console.log("\nIsolation between accounts");
 
   const res = await sync(otherToken, 0, []);
   check("a different account sees none of this user's documents", res.changes.length === 0, `${res.changes.length} leaked`);
-  await client.query("delete from users where codex_sub = 'test-sub-other'");
+  await client.query("delete from users where email = 'other@example.com'");
 }
 
 console.log("\nBatching");
@@ -214,7 +214,7 @@ console.log("\nBatching");
 }
 
 // --- Clean up -------------------------------------------------------------
-await client.query("delete from users where codex_sub = 'test-sub-e2e'");
+await client.query("delete from users where email = 'e2e@example.com'");
 await client.end();
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

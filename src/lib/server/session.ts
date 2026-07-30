@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { query, queryOne, isDatabaseConfigured } from "./db";
-import type { VerifiedCodexIdentity } from "./codex-verify";
+import { findOrCreateUser, type VerifiedIdentity } from "./identity";
 
 /**
  * Sessions.
@@ -22,7 +22,6 @@ const SESSION_TTL_DAYS = 60;
 
 export interface SessionUser {
   id: string;
-  codexSub: string;
   email: string | null;
   name: string | null;
 }
@@ -45,30 +44,16 @@ function cookieOptions(expires: Date) {
 /**
  * Find or create the user behind a verified identity, then start a session.
  *
- * Keyed on `sub`, never on email: people change their email address, and two
- * accounts must not collide because someone reused an address.
+ * Provider-agnostic since migration 004: the identity lookup is
+ * `(provider, subject)` against the `identities` table (see
+ * src/lib/server/identity.ts), not a column on `users`. Codex/ChatGPT and
+ * Google are both just callers that verify a token and pass `provider`.
  */
 export async function signIn(
-  identity: VerifiedCodexIdentity,
+  identity: VerifiedIdentity,
   userAgent: string | null,
 ): Promise<{ user: SessionUser; token: string; expiresAt: Date }> {
-  const user = await queryOne<{
-    id: string;
-    codex_sub: string;
-    email: string | null;
-    name: string | null;
-  }>(
-    `insert into users (codex_sub, email, name)
-     values ($1, $2, $3)
-     on conflict (codex_sub) do update
-       set email      = coalesce(excluded.email, users.email),
-           name       = coalesce(excluded.name, users.name),
-           updated_at = now()
-     returning id, codex_sub, email, name`,
-    [identity.sub, identity.email, identity.name],
-  );
-
-  if (!user) throw new Error("Failed to upsert user");
+  const user = await findOrCreateUser(identity);
 
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -79,7 +64,7 @@ export async function signIn(
   );
 
   return {
-    user: { id: user.id, codexSub: user.codex_sub, email: user.email, name: user.name },
+    user: { id: user.id, email: user.email, name: user.name },
     token,
     expiresAt,
   };
@@ -131,13 +116,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const token = await readSessionToken();
   if (!token) return null;
 
-  const row = await queryOne<{
-    id: string;
-    codex_sub: string;
-    email: string | null;
-    name: string | null;
-  }>(
-    `select u.id, u.codex_sub, u.email, u.name
+  const row = await queryOne<{ id: string; email: string | null; name: string | null }>(
+    `select u.id, u.email, u.name
        from sessions s
        join users u on u.id = s.user_id
       where s.id = $1 and s.expires_at > now()`,
@@ -145,7 +125,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   );
 
   if (!row) return null;
-  return { id: row.id, codexSub: row.codex_sub, email: row.email, name: row.name };
+  return { id: row.id, email: row.email, name: row.name };
 }
 
 /** Revoke the session this request presents. */
