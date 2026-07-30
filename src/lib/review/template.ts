@@ -27,6 +27,34 @@ export interface ReviewTemplateData {
   bodyHtml: string;
   /** Sanitized filename stem (no extension) used to name the downloaded JSON. */
   filenameStem: string;
+  /**
+   * Hosted mode. When set, "Send back" POSTs the same payload to this URL
+   * instead of downloading a file and opening a mailto.
+   *
+   * The offline file and the hosted page are deliberately one template. The
+   * comment model, the anchoring, the selection popup and the autosave are
+   * the parts that took work to get right; only the last step differs, so
+   * only the last step branches. A fix to anchoring lands in both at once.
+   */
+  submitUrl?: string;
+  /** Reviewer's name, prefilled in hosted mode where we already know them. */
+  reviewerName?: string;
+  /**
+   * Comments this reviewer has already submitted, so returning to the link
+   * shows their own thread. Never contains another reviewer's comments — see
+   * `listCommentsForGuest` in src/lib/server/shares.ts.
+   */
+  initialComments?: Array<{
+    id: string;
+    anchorText: string;
+    prefix: string;
+    suffix: string;
+    body: string;
+  }>;
+  /** Snapshot revision, echoed back on submit so stale anchors are detectable. */
+  revision?: number;
+  /** Whether the reviewer may edit the text, not just comment on it. */
+  allowEdits?: boolean;
 }
 
 export function renderReviewTemplate(data: ReviewTemplateData): string {
@@ -113,14 +141,39 @@ ${bodyHtml}
 </div>
 
 <script>
-${SCRIPT.replace("__DOC_ID__", JSON.stringify(docId))
-  .replace("__TITLE__", JSON.stringify(data.title))
-  .replace("__AUTHOR_NAME__", JSON.stringify(authorName))
-  .replace("__AUTHOR_EMAIL__", JSON.stringify(authorEmail))
-  .replace("__FILENAME_STEM__", JSON.stringify(filenameStem))}
+${SCRIPT.replace("__DOC_ID__", jsLiteral(docId))
+  .replace("__TITLE__", jsLiteral(data.title))
+  .replace("__AUTHOR_NAME__", jsLiteral(authorName))
+  .replace("__AUTHOR_EMAIL__", jsLiteral(authorEmail))
+  .replace("__FILENAME_STEM__", jsLiteral(filenameStem))
+  .replace("__SUBMIT_URL__", jsLiteral(data.submitUrl ?? ""))
+  .replace("__REVIEWER_NAME__", jsLiteral(data.reviewerName ?? ""))
+  .replace("__REVISION__", jsLiteral(data.revision ?? 1))
+  .replace("__ALLOW_EDITS__", jsLiteral(data.allowEdits !== false))
+  .replace("__INITIAL_COMMENTS__", jsLiteral(data.initialComments ?? []))}
 </script>
 </body>
 </html>`;
+}
+
+/**
+ * Serialise a value for injection into the inlined `<script>` block.
+ *
+ * `JSON.stringify` alone is not enough. An HTML parser ends a script element
+ * at the first `</script`, wherever it appears, including inside what the
+ * JavaScript grammar would call a string. So a note titled `</script><img
+ * src=x onerror=...>` closes the tag early and everything after it is parsed
+ * as markup: script injection through a title, a reviewer's name, or a
+ * comment body.
+ *
+ * Escaping `<` as `<` produces a JS string that is identical at runtime
+ * and contains no character sequence the HTML parser will act on. Applied to
+ * every injected literal rather than only the obviously-attacker-controlled
+ * ones, because "which of these is user input" is exactly the question that
+ * gets answered wrongly later.
+ */
+function jsLiteral(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
 export function escapeHtml(str: string): string {
@@ -275,6 +328,12 @@ const SCRIPT = `(function () {
   var AUTHOR_NAME = __AUTHOR_NAME__;
   var AUTHOR_EMAIL = __AUTHOR_EMAIL__;
   var FILENAME_STEM = __FILENAME_STEM__;
+  var SUBMIT_URL = __SUBMIT_URL__;
+  var REVIEWER_NAME = __REVIEWER_NAME__;
+  var REVISION = __REVISION__;
+  var ALLOW_EDITS = __ALLOW_EDITS__;
+  var INITIAL_COMMENTS = __INITIAL_COMMENTS__;
+  var HOSTED = !!SUBMIT_URL;
   var STORAGE_KEY = "fragment-review:" + DOC_ID;
   var NAME_KEY = "fragment-review:reviewer-name";
   var CONTEXT_LEN = 30;
@@ -343,6 +402,25 @@ const SCRIPT = `(function () {
         if (savedName) nameInput.value = savedName;
       }
     } catch (e) { /* corrupt/unavailable storage — start fresh */ }
+
+    // Hosted: fall back to what this reviewer already submitted. localStorage
+    // wins when present because it is a superset — submitting resends every
+    // comment, so anything on the server is also local, but a comment typed
+    // and not yet sent exists only locally. When storage is empty (a second
+    // device, a cleared browser) the server copy is all there is.
+    if (!restoredComments && HOSTED && INITIAL_COMMENTS.length) {
+      comments = INITIAL_COMMENTS.slice();
+      restoredComments = true;
+    }
+    if (HOSTED && !nameInput.value && REVIEWER_NAME) {
+      nameInput.value = REVIEWER_NAME;
+    }
+    if (HOSTED && !ALLOW_EDITS) {
+      editToggle.checked = false;
+      docEl.setAttribute("contenteditable", "false");
+      var editRow = editToggle.closest(".review-sidebar-section") || editToggle.parentNode;
+      if (editRow) editRow.hidden = true;
+    }
 
     if (restoredComments) {
       comments.forEach(function (c) {
@@ -660,6 +738,35 @@ const SCRIPT = `(function () {
       comments: comments,
     };
     if (editedFullText !== undefined) payload.editedFullText = editedFullText;
+
+    // -------------------------------------------------------------------
+    // Hosted: POST straight to the author's Fragment. No download, no
+    // attachment, no second email for the reviewer to remember to send.
+    // -------------------------------------------------------------------
+    if (HOSTED) {
+      payload.revision = REVISION;
+      sendBtn.disabled = true;
+      sendStatusEl.textContent = "Sending...";
+      fetch(SUBMIT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      }).then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        sendBtn.disabled = false;
+        sendStatusEl.textContent = comments.length === 1
+          ? "Sent. 1 comment is now with " + (AUTHOR_NAME || "the author") + "."
+          : "Sent. " + comments.length + " comments are now with " + (AUTHOR_NAME || "the author") + ".";
+      }).catch(function () {
+        sendBtn.disabled = false;
+        // The work is still in localStorage, so say so rather than implying
+        // it is gone. A reviewer who thinks they lost their notes does not
+        // write them a second time.
+        sendStatusEl.textContent = "Couldn't send just now. Your comments are saved in this browser — try again in a moment.";
+      });
+      return;
+    }
 
     var filename = (FILENAME_STEM || sanitizeFilename(TITLE)) + ".fragment-review.json";
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

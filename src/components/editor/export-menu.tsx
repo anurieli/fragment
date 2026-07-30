@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail } from "lucide-react";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2, RefreshCw } from "lucide-react";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -24,6 +24,9 @@ import {
 } from "@/lib/export";
 import { buildReviewFile, reviewFileName, parseReviewReturn } from "@/lib/review";
 import { ReviewPanel } from "@/components/review/review-panel";
+import { ShareDialog } from "@/components/review/share-dialog";
+import { isHosted } from "@/lib/edition";
+import { listShares, listReviews } from "@/lib/sharing/client";
 import type { Editor } from "@tiptap/react";
 
 interface ExportMenuProps {
@@ -46,6 +49,8 @@ function triggerHtmlDownload(html: string, filename: string) {
 export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [checkingComments, setCheckingComments] = useState(false);
   const [kitDraftBusy, setKitDraftBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -62,7 +67,11 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const kitApiKey = userProfile.kitApiKey;
   const hasKitKey = Boolean(kitApiKey?.trim());
   const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
+  const saveHostedReview = useReviewStore((s) => s.saveHostedReview);
   const note = notes[noteId];
+  // Link sharing needs a server to point the link at. The self-hosted and
+  // desktop builds keep the emailed-file route, which needs nothing.
+  const canShareLink = isHosted();
 
   useEffect(() => {
     if (!open) return;
@@ -191,6 +200,57 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     setOpen(false);
   }
 
+  /**
+   * Pull in whatever reviewers have left on the hosted links for this note.
+   *
+   * Hosted comments are stored as the same `StoredReview` records as the ones
+   * imported from a `.fragment-review.json` file, so both show up in the one
+   * review panel. A reviewer is a reviewer; where their comments travelled
+   * from is not something the reader of the panel should have to think about.
+   */
+  async function handleCheckForComments() {
+    setOpen(false);
+    setCheckingComments(true);
+    try {
+      const shares = await listShares(noteId);
+      const perShare = await Promise.all(shares.map((s) => listReviews(s.id).catch(() => [])));
+
+      let imported = 0;
+      for (const reviews of perShare) {
+        for (const review of reviews) {
+          if (review.comments.length === 0 && !review.editedFullText) continue;
+          await saveHostedReview(noteId, review.guestId, {
+            docId: review.guestId,
+            reviewerName: review.name?.trim() || review.email,
+            timestamp: Date.parse(review.lastSeenAt ?? "") || Date.now(),
+            comments: review.comments.map((c) => ({
+              id: c.id,
+              anchorText: c.anchorText,
+              prefix: c.prefix,
+              suffix: c.suffix,
+              body: c.body,
+            })),
+            editedFullText: review.editedFullText ?? undefined,
+          });
+          imported += 1;
+        }
+      }
+
+      if (imported === 0) {
+        showToast(
+          shares.length === 0 ? "This note hasn't been shared yet" : "No comments yet",
+        );
+      } else {
+        showToast(`${imported} reviewer${imported === 1 ? "" : "s"} so far`);
+        setReviewPanelOpen(true);
+      }
+    } catch {
+      showToast("Couldn't check for comments right now");
+    } finally {
+      setCheckingComments(false);
+    }
+  }
+
   function handleImportReviewClick() {
     importInputRef.current?.click();
     setOpen(false);
@@ -316,6 +376,36 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
 
           <div className="mx-3 border-t border-border" />
 
+          {canShareLink && (
+            <>
+              <button
+                onClick={() => {
+                  setShareDialogOpen(true);
+                  setOpen(false);
+                }}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+                title="Send a link. Reviewers comment in the browser with just an email, no account."
+              >
+                <Link2 size={13} className="shrink-0" />
+                <span className="flex-1 text-left">Share a link</span>
+              </button>
+              <button
+                onClick={handleCheckForComments}
+                disabled={checkingComments}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150 disabled:opacity-50"
+                title="Pull in comments reviewers have left on your shared links"
+              >
+                <RefreshCw
+                  size={13}
+                  className={`shrink-0 ${checkingComments ? "animate-spin" : ""}`}
+                />
+                <span className="flex-1 text-left">
+                  {checkingComments ? "Checking..." : "Check for comments"}
+                </span>
+              </button>
+            </>
+          )}
+
           <button
             onClick={handleSendForReview}
             className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
@@ -356,6 +446,17 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
 
       {reviewPanelOpen && (
         <ReviewPanel noteId={noteId} editor={editor} onClose={() => setReviewPanelOpen(false)} />
+      )}
+
+      {shareDialogOpen && (
+        <ShareDialog
+          noteId={noteId}
+          title={note.title}
+          // Read at click time, not render time, so the frozen copy reviewers
+          // see is what was on screen when the link was made.
+          getMarkdown={getMarkdown}
+          onClose={() => setShareDialogOpen(false)}
+        />
       )}
     </div>
   );

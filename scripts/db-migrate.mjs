@@ -25,7 +25,14 @@ if (!connectionString) {
 
 const client = new pg.Client({
   connectionString,
-  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : undefined,
+  // Verify the certificate, matching src/lib/server/db.ts. This connection
+  // carries schema changes with superuser-ish rights, so it is the last one
+  // that should accept whoever answers. DATABASE_SSL_INSECURE=true remains
+  // the escape hatch for a self-hosted server with a self-signed cert.
+  ssl:
+    process.env.DATABASE_SSL === "true"
+      ? { rejectUnauthorized: process.env.DATABASE_SSL_INSECURE !== "true" }
+      : undefined,
 });
 
 await client.connect();

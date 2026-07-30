@@ -53,3 +53,59 @@ export function buildReviewFile(note: ReviewNoteInput, opts: BuildReviewFileOpti
 export function reviewFileName(title: string): string {
   return `${sanitizeFilename(title)}.review.html`;
 }
+
+export interface HostedReviewPageOptions extends BuildReviewFileOptions {
+  /** Stable id for this share, used as the autosave key across visits. */
+  docId: string;
+  /** Where "Send back" POSTs. Presence of this is what makes the page hosted. */
+  submitUrl: string;
+  /** Snapshot revision, echoed back on submit. */
+  revision: number;
+  /** Whether the reviewer may rewrite the text as well as comment on it. */
+  allowEdits: boolean;
+  /** This reviewer's name, if we already know it. */
+  reviewerName?: string;
+  /**
+   * Only ever this reviewer's own comments. The type does not stop a caller
+   * passing someone else's, so the single caller (src/app/r/[token]/route.ts)
+   * sources them from `listCommentsForGuest`, which cannot return another
+   * guest's rows.
+   */
+  initialComments?: Array<{
+    id: string;
+    anchorText: string;
+    prefix: string;
+    suffix: string;
+    body: string;
+  }>;
+}
+
+/**
+ * The same review page, served over HTTP instead of emailed as a file.
+ *
+ * Shares every line of the offline version except the last step: comments go
+ * back over fetch rather than through a downloaded JSON file and a mailto.
+ * Keeping one template means the anchoring, the selection popup and the
+ * autosave cannot drift apart between the two ways in.
+ */
+export function buildHostedReviewPage(
+  note: ReviewNoteInput,
+  opts: HostedReviewPageOptions,
+): string {
+  const title = note.title.trim() || "Untitled";
+
+  return renderReviewTemplate({
+    docId: opts.docId,
+    title,
+    titleHtml: escapeHtml(title),
+    authorName: opts.authorName?.trim() ?? "",
+    authorEmail: opts.authorEmail?.trim() ?? "",
+    bodyHtml: md.render(note.markdown ?? ""),
+    filenameStem: sanitizeFilename(title),
+    submitUrl: opts.submitUrl,
+    revision: opts.revision,
+    allowEdits: opts.allowEdits,
+    reviewerName: opts.reviewerName,
+    initialComments: opts.initialComments,
+  });
+}
