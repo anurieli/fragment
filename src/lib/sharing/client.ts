@@ -17,6 +17,11 @@ export interface ShareSummary {
   createdAt: string;
   revokedAt?: string | null;
   expiresAt?: string | null;
+  /** Cheap aggregate — how many comments this share has and when the newest
+   * one landed, so the toolbar's "new comments" badge (ARI-245) never has to
+   * fetch full review bodies just to know whether to light up. */
+  commentCount?: number;
+  lastCommentAt?: string | null;
 }
 
 export interface HostedReview {

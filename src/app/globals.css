@@ -344,6 +344,21 @@
   color: transparent;
 }
 
+/* Jump-to highlight — set by clicking a comment in ReviewPanel (ARI-245).
+   Stays visible (not just a selection) until another comment is clicked or
+   the panel closes; see src/lib/editor/comment-highlight-extension.ts. */
+.comment-jump-highlight {
+  background: var(--color-gold-muted);
+  border-bottom: 2px solid var(--color-gold);
+  border-radius: 2px;
+  animation: commentHighlightFlash 900ms ease-out;
+}
+
+@keyframes commentHighlightFlash {
+  0% { background: var(--color-gold-strong); }
+  100% { background: var(--color-gold-muted); }
+}
+
 /* Drop zone active states */
 .drop-zone-active {
   background: var(--color-gold-muted) !important;

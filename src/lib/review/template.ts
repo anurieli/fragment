@@ -77,7 +77,7 @@ ${STYLES}
 <div class="review-shell">
 
   <header class="review-intro">
-    <p class="review-intro-eyebrow">Fragment · Review</p>
+    <p class="review-intro-eyebrow">Fragment · Where your thoughts come together</p>
     <h1 class="review-intro-title">${titleHtml}</h1>
     <p class="review-intro-sub">${authorLine} Select any text below to leave a comment, or add a general note in the sidebar. When you're done, hit "Send back".</p>
   </header>
@@ -124,6 +124,11 @@ ${bodyHtml}
       <div class="review-sidebar-section review-send-section">
         <button id="send-back" class="review-btn review-btn-primary" type="button">Send back</button>
         <p id="send-status" class="review-hint review-send-status" role="status"></p>
+        <div id="send-conversion" class="review-conversion" hidden>
+          <p class="review-conversion-title">Fragment</p>
+          <p class="review-conversion-sub">Where your thoughts come together. You just used it to leave feedback &mdash; writing lives here too.</p>
+          <a id="conversion-cta" class="review-btn review-btn-secondary review-conversion-cta" href="/" target="_blank" rel="noopener">Try Fragment free &rarr;</a>
+        </div>
       </div>
     </aside>
   </div>
@@ -312,6 +317,31 @@ const STYLES = `
     border-radius: var(--radius-default); padding: 10px; width: 240px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   }
   .review-selection-form-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+  .review-conversion {
+    margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border);
+    animation: fadeIn 0.3s ease-out;
+  }
+  .review-conversion-title {
+    font-family: var(--font-display); font-size: 15px; color: var(--color-gold); margin: 0 0 4px;
+  }
+  .review-conversion-sub { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 10px; }
+  .review-conversion-cta { text-decoration: none; text-align: center; display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Mobile — a reviewer opening this from a text message is opening it on a
+     phone. Tighter padding, smaller display type, full-width tap targets
+     the selection popup already handles via clamping in showSelectionPopup. */
+  @media (max-width: 640px) {
+    .review-shell { padding: 1.5rem 1rem 4rem; }
+    .review-intro { margin-bottom: 1.75rem; }
+    .review-intro-title { font-size: 1.5rem; }
+    .review-intro-eyebrow { font-size: 10px; }
+    .review-doc { padding: 1.5rem 1.25rem; border-radius: var(--radius-default); }
+    .review-sidebar { padding: 1.25rem; }
+    .review-btn-pill { padding: 10px 16px; font-size: 14px; }
+    /* 16px+ keeps iOS Safari from zooming the viewport in on focus. */
+    .review-input, .review-textarea { font-size: 16px; }
+  }
 `;
 
 /**
@@ -347,6 +377,8 @@ const SCRIPT = `(function () {
   var addNoteBtn = document.getElementById("add-note-comment");
   var sendBtn = document.getElementById("send-back");
   var sendStatusEl = document.getElementById("send-status");
+  var sendConversionEl = document.getElementById("send-conversion");
+  var conversionCta = document.getElementById("conversion-cta");
   var selectionPopup = document.getElementById("selection-popup");
   var selectionCommentBtn = document.getElementById("selection-comment-btn");
   var selectionForm = document.getElementById("selection-comment-form");
@@ -651,21 +683,45 @@ const SCRIPT = `(function () {
     selectionPopup.style.top = top + "px";
   }
 
-  document.addEventListener("mouseup", function (e) {
-    if (selectionPopup.contains(e.target)) return;
+  // Positioned off the selection's own bounding rect rather than pointer
+  // coordinates, so this works the same for a mouse drag, a touch-selection
+  // handle drag, and (as a side effect) keyboard selection — a reviewer's
+  // friend is just as likely to be on a phone as a laptop.
+  function handleSelectionEnd(target) {
+    if (selectionPopup.contains(target)) return;
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hideSelectionPopup(); return; }
     var range = sel.getRangeAt(0);
     if (!docEl.contains(range.commonAncestorContainer)) { hideSelectionPopup(); return; }
     if (range.toString().trim().length === 0) { hideSelectionPopup(); return; }
     pendingRange = range.cloneRange();
-    showSelectionPopup(e.clientX, e.clientY);
+    var rect = range.getBoundingClientRect();
+    showSelectionPopup(rect.left + rect.width / 2, rect.bottom);
+  }
+
+  document.addEventListener("mouseup", function (e) {
+    handleSelectionEnd(e.target);
   });
 
-  document.addEventListener("mousedown", function (e) {
-    if (!selectionPopup.contains(e.target) && e.target !== docEl && !docEl.contains(e.target)) {
+  // Touch selection settles a beat after the finger lifts (the browser is
+  // still resolving the native selection handles), so this runs on a short
+  // delay rather than reading the selection synchronously on touchend.
+  document.addEventListener("touchend", function (e) {
+    var target = e.target;
+    setTimeout(function () { handleSelectionEnd(target); }, 60);
+  });
+
+  function handlePointerDownOutside(target) {
+    if (!selectionPopup.contains(target) && target !== docEl && !docEl.contains(target)) {
       hideSelectionPopup();
     }
+  }
+
+  document.addEventListener("mousedown", function (e) {
+    handlePointerDownOutside(e.target);
+  });
+  document.addEventListener("touchstart", function (e) {
+    handlePointerDownOutside(e.target);
   });
 
   selectionCommentBtn.addEventListener("click", function () {
@@ -758,6 +814,13 @@ const SCRIPT = `(function () {
         sendStatusEl.textContent = comments.length === 1
           ? "Sent. 1 comment is now with " + (AUTHOR_NAME || "the author") + "."
           : "Sent. " + comments.length + " comments are now with " + (AUTHOR_NAME || "the author") + ".";
+        // The conversion moment (ARI-244): they've just finished the one
+        // interaction that proves the product works for them. Shown only
+        // after "Send back" succeeds — never before, and never blocking it.
+        if (conversionCta && window.location.origin.indexOf("http") === 0) {
+          conversionCta.href = window.location.origin + "/";
+        }
+        if (sendConversionEl) sendConversionEl.hidden = false;
       }).catch(function () {
         sendBtn.disabled = false;
         // The work is still in localStorage, so say so rather than implying

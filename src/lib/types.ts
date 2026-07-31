@@ -299,6 +299,10 @@ export interface ReviewReturn {
   timestamp: number;
   comments: ReviewComment[];
   editedFullText?: string;
+  /** Hosted reviews only — the guest's email, for grouping duplicate sessions
+   * from the same reviewer in the ReviewPanel. Never set for emailed/imported
+   * `.fragment-review.json` files, which carry no verified address. */
+  reviewerEmail?: string;
 }
 
 /** A `ReviewReturn` persisted to the `reviews` Dexie table after import. */

@@ -3,11 +3,41 @@
 import { useEffect, useMemo } from "react";
 import { X, MessageSquare, User } from "lucide-react";
 import type { Editor } from "@tiptap/react";
-import type { ReviewComment } from "@/lib/types";
+import type { ReviewComment, StoredReview } from "@/lib/types";
 import { useReviewStore } from "@/stores/review-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { locateAnchor } from "@/lib/review";
 import { formatDate } from "@/lib/utils";
+
+/**
+ * The same reviewer opening a hosted link from two browsers creates two
+ * `share_guests` rows with one address (src/lib/server/shares.ts explains
+ * why: address-based resume would be a confidentiality bug). That is fine at
+ * the data layer but reads as two strangers here, so sessions sharing a
+ * normalized email are folded into one card. Imported `.fragment-review.json`
+ * files carry no verified address and are never merged with anything.
+ */
+function groupReviews(reviews: StoredReview[]): StoredReview[] {
+  const byKey = new Map<string, StoredReview>();
+  const order: string[] = [];
+  for (const r of reviews) {
+    const key = r.reviewerEmail ? `email:${r.reviewerEmail.toLowerCase()}` : `id:${r.id}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, r);
+      order.push(key);
+      continue;
+    }
+    const newer = r.receivedAt > existing.receivedAt ? r : existing;
+    const older = newer === r ? existing : r;
+    const seenCommentIds = new Set(older.comments.map((c) => c.id));
+    byKey.set(key, {
+      ...newer,
+      comments: [...older.comments, ...newer.comments.filter((c) => !seenCommentIds.has(c.id))],
+    });
+  }
+  return order.map((k) => byKey.get(k)!).sort((a, b) => b.receivedAt - a.receivedAt);
+}
 
 interface ReviewPanelProps {
   noteId: string;
@@ -40,7 +70,8 @@ function buildTextIndex(doc: Editor["state"]["doc"]): { text: string; map: numbe
 
 export function ReviewPanel({ noteId, editor, onClose }: ReviewPanelProps) {
   const loadForNote = useReviewStore((s) => s.loadForNote);
-  const reviews = useReviewStore((s) => s.listForNote(noteId));
+  const rawReviews = useReviewStore((s) => s.listForNote(noteId));
+  const reviews = useMemo(() => groupReviews(rawReviews), [rawReviews]);
   const showToast = useToastStore((s) => s.showToast);
 
   useEffect(() => {
@@ -65,14 +96,19 @@ export function ReviewPanel({ noteId, editor, onClose }: ReviewPanelProps) {
     }
     const from = map[Math.min(pos.start, map.length - 1)];
     const to = map[Math.min(pos.end - 1, map.length - 1)] + 1;
-    editor.chain().focus().setTextSelection({ from, to }).scrollIntoView().run();
+    editor.chain().focus().setCommentHighlight({ from, to }).setTextSelection({ from, to }).scrollIntoView().run();
+  }
+
+  function handleClose() {
+    editor.chain().clearCommentHighlight().run();
+    onClose();
   }
 
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/40"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
@@ -90,7 +126,7 @@ export function ReviewPanel({ noteId, editor, onClose }: ReviewPanelProps) {
             </span>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
           >
             <X size={16} />

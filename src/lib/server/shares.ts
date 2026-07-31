@@ -216,6 +216,38 @@ export async function listSharesForUser(userId: string, noteId?: string): Promis
   return rows.map(toShare);
 }
 
+export interface ShareCommentCount {
+  shareId: string;
+  commentCount: number;
+  lastCommentAt: string | null;
+}
+
+/**
+ * How many comments each of this user's shares has, and when the newest one
+ * landed. Aggregated in one query so the "new comments" badge (ARI-245) never
+ * has to pull comment bodies just to know whether to light up.
+ */
+export async function listCommentCountsForUser(
+  userId: string,
+  noteId?: string,
+): Promise<ShareCommentCount[]> {
+  const rows = await query<{ id: string; comment_count: string; last_comment_at: string | null }>(
+    `select s.id,
+            count(sc.id) as comment_count,
+            max(sc.created_at) as last_comment_at
+       from shares s
+       left join share_comments sc on sc.share_id = s.id
+      where s.user_id = $1 ${noteId ? "and s.note_id = $2" : ""}
+      group by s.id`,
+    noteId ? [userId, noteId] : [userId],
+  );
+  return rows.map((r) => ({
+    shareId: r.id,
+    commentCount: Number(r.comment_count),
+    lastCommentAt: r.last_comment_at,
+  }));
+}
+
 /** Kill the link. Comments already collected survive; the door closes. */
 export async function revokeShare(shareId: string, userId: string): Promise<boolean> {
   const rows = await query<{ id: string }>(

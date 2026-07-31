@@ -84,7 +84,7 @@ function shell(title: string, inner: string): string {
   .gate-label { display: block; font-size: 13px; color: #a5a093; margin: 0 0 7px; }
   .gate-input {
     width: 100%; padding: 11px 13px; margin-bottom: 14px; border-radius: 8px;
-    border: 1px solid #2e2c28; background: #151412; color: #e8e4dc; font-size: 15px; font-family: inherit;
+    border: 1px solid #2e2c28; background: #151412; color: #e8e4dc; font-size: 16px; font-family: inherit;
   }
   .gate-input:focus { outline: none; border-color: #c9a961; }
   .gate-btn {
@@ -94,10 +94,14 @@ function shell(title: string, inner: string): string {
   .gate-btn:disabled { opacity: .6; cursor: default; }
   .gate-note { color: #6f6b60; font-size: 12.5px; line-height: 1.6; margin: 18px 0 0; }
   .gate-error { color: #e0755f; font-size: 13.5px; margin: 0 0 12px; min-height: 18px; }
+  @media (max-width: 380px) {
+    body { padding: 16px; }
+    .gate-title { font-size: 26px; }
+  }
 </style>
 </head>
 <body><div class="gate">
-  <p class="gate-eyebrow">Fragment · Review</p>
+  <p class="gate-eyebrow">Fragment · Where your thoughts come together</p>
   ${inner}
 </div></body>
 </html>`;

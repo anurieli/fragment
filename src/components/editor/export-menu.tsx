@@ -26,7 +26,7 @@ import { buildReviewFile, reviewFileName, parseReviewReturn } from "@/lib/review
 import { ReviewPanel } from "@/components/review/review-panel";
 import { ShareDialog } from "@/components/review/share-dialog";
 import { isHosted } from "@/lib/edition";
-import { listShares, listReviews } from "@/lib/sharing/client";
+import { pullHostedReviews } from "@/lib/sharing/pull-reviews";
 import type { Editor } from "@tiptap/react";
 
 interface ExportMenuProps {
@@ -212,34 +212,10 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     setOpen(false);
     setCheckingComments(true);
     try {
-      const shares = await listShares(noteId);
-      const perShare = await Promise.all(shares.map((s) => listReviews(s.id).catch(() => [])));
-
-      let imported = 0;
-      for (const reviews of perShare) {
-        for (const review of reviews) {
-          if (review.comments.length === 0 && !review.editedFullText) continue;
-          await saveHostedReview(noteId, review.guestId, {
-            docId: review.guestId,
-            reviewerName: review.name?.trim() || review.email,
-            timestamp: Date.parse(review.lastSeenAt ?? "") || Date.now(),
-            comments: review.comments.map((c) => ({
-              id: c.id,
-              anchorText: c.anchorText,
-              prefix: c.prefix,
-              suffix: c.suffix,
-              body: c.body,
-            })),
-            editedFullText: review.editedFullText ?? undefined,
-          });
-          imported += 1;
-        }
-      }
+      const { imported, hasShares } = await pullHostedReviews(noteId, saveHostedReview);
 
       if (imported === 0) {
-        showToast(
-          shares.length === 0 ? "This note hasn't been shared yet" : "No comments yet",
-        );
+        showToast(hasShares ? "No comments yet" : "This note hasn't been shared yet");
       } else {
         showToast(`${imported} reviewer${imported === 1 ? "" : "s"} so far`);
         setReviewPanelOpen(true);

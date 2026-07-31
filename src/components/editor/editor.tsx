@@ -8,6 +8,7 @@ import Typography from "@tiptap/extension-typography";
 import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { TextSelection } from "@tiptap/pm/state";
+import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
 import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
 import {
   PanelLeftOpen,
@@ -24,6 +25,7 @@ import { useAppStore } from "@/stores/app-store";
 import { NoteCreationFlow, EmptyNoteActions, ContextFieldsTooltip } from "./note-creation-flow";
 import { NoteHeader } from "./note-header";
 import { ExportMenu } from "./export-menu";
+import { CommentsAffordance } from "@/components/review/comments-affordance";
 import { InlineEditMenu } from "./inline-edit-menu";
 import { VersionPreviewBanner } from "../timeline/version-preview-banner";
 import { useDataStore } from "@/stores/data-store";
@@ -217,6 +219,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         transformCopiedText: true,
       }),
       SlashBlockExtension,
+      CommentHighlight,
     ],
     editorProps: {
       attributes: {
@@ -1304,6 +1307,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
         {/* Right action buttons */}
         <div className="flex items-center gap-2.5 shrink-0">
+          {editor && !timelinePreviewVersionId && (
+            <CommentsAffordance noteId={note.id} editor={editor} />
+          )}
           {editor && !timelinePreviewVersionId && (
             <>
               <button

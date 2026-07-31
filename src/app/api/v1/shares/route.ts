@@ -4,7 +4,7 @@ import { isDatabaseConfigured } from "@/lib/server/db";
 import { getSessionUser } from "@/lib/server/session";
 import { guardJsonMutation } from "@/lib/server/csrf";
 import { checkRateLimit, rateLimitResponse, bodyTooLarge } from "@/lib/api-guards";
-import { createShare, listSharesForUser, inviteGuests } from "@/lib/server/shares";
+import { createShare, listSharesForUser, listCommentCountsForUser, inviteGuests } from "@/lib/server/shares";
 
 export const runtime = "nodejs";
 
@@ -111,7 +111,11 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const noteId = req.nextUrl.searchParams.get("noteId") ?? undefined;
-  const shares = await listSharesForUser(user.id, noteId);
+  const [shares, counts] = await Promise.all([
+    listSharesForUser(user.id, noteId),
+    listCommentCountsForUser(user.id, noteId),
+  ]);
+  const countByShare = new Map(counts.map((c) => [c.shareId, c]));
 
   return NextResponse.json({
     shares: shares.map((s) => ({
@@ -123,6 +127,8 @@ export async function GET(req: NextRequest) {
       createdAt: s.createdAt,
       revokedAt: s.revokedAt,
       expiresAt: s.expiresAt,
+      commentCount: countByShare.get(s.id)?.commentCount ?? 0,
+      lastCommentAt: countByShare.get(s.id)?.lastCommentAt ?? null,
     })),
   });
 }
