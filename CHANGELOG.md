@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-01 14:52 - Collapse the share/review menu to one entry on hosted, fix landing page's dead sign-in promise (d8827d5)
+
+**Commit**: `d8827d5` on `main`, live in production
+
+**Summary**: Ariel logged into the live site and hit two things at once: the "sign in" the landing page promises doesn't exist, and the share/review menu was five overlapping options for one idea. On the sign-in side: there is no sign-up page anywhere in the app. `enterApp()` in `landing-page.tsx` just sets a cookie and reloads into the local-first app — no account, no credentials. Yet the "Your library, on every device" section explicitly said "Sign in and your notes... sync across devices, with your words stored in your account," a promise with no button behind it anywhere (the only "Sign in" UI in the whole app is "Sign in with ChatGPT" in Settings → Providers, which is exclusively Codex AI-routing per `api/v1/auth/session/route.ts`'s own comments, never Fragment auth). Reworded that section to describe sync as coming, not live, until ARI-229 (Google auth) ships. On the menu side: `ExportMenu` had "Share a link," "Check for comments," "Send for review" (downloads an `.html` file), "Import review" (uploads a `.json` file), and "View reviews" all sitting in one dropdown regardless of edition. The file-based flow only exists because self-hosted/desktop builds have no server to point a link at; on the hosted product it was just noise next to a real share link, and "Check for comments" duplicated what the toolbar's "View comments" badge (ARI-245) already does automatically. Gated the file-based trio behind `!isHosted()` and collapsed the hosted branch to a single "Share" entry that opens the existing `ShareDialog` — which already does everything Ariel asked for (one link, optional per-reviewer email invites, a toggle for comment-only vs. suggest-edits), it was just buried.
+
+**Files**: `src/components/editor/export-menu.tsx`, `src/components/landing/landing-page.tsx`
+
+**Verification**: 660 of 660 passing, `tsc --noEmit` clean, production build clean. Deployed live to `fragment-amber.vercel.app`.
+
 ## 2026-07-31 01:27 - Reviewer page polish and a persistent view-comments affordance (f2f160a)
 
 **Commit**: `f2f160a` on `main`, live in production
