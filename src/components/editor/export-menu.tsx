@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2, RefreshCw } from "lucide-react";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2 } from "lucide-react";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -26,7 +26,6 @@ import { buildReviewFile, reviewFileName, parseReviewReturn } from "@/lib/review
 import { ReviewPanel } from "@/components/review/review-panel";
 import { ShareDialog } from "@/components/review/share-dialog";
 import { isHosted } from "@/lib/edition";
-import { pullHostedReviews } from "@/lib/sharing/pull-reviews";
 import type { Editor } from "@tiptap/react";
 
 interface ExportMenuProps {
@@ -50,7 +49,6 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [checkingComments, setCheckingComments] = useState(false);
   const [kitDraftBusy, setKitDraftBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -67,7 +65,6 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const kitApiKey = userProfile.kitApiKey;
   const hasKitKey = Boolean(kitApiKey?.trim());
   const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
-  const saveHostedReview = useReviewStore((s) => s.saveHostedReview);
   const note = notes[noteId];
   // Link sharing needs a server to point the link at. The self-hosted and
   // desktop builds keep the emailed-file route, which needs nothing.
@@ -200,33 +197,6 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     setOpen(false);
   }
 
-  /**
-   * Pull in whatever reviewers have left on the hosted links for this note.
-   *
-   * Hosted comments are stored as the same `StoredReview` records as the ones
-   * imported from a `.fragment-review.json` file, so both show up in the one
-   * review panel. A reviewer is a reviewer; where their comments travelled
-   * from is not something the reader of the panel should have to think about.
-   */
-  async function handleCheckForComments() {
-    setOpen(false);
-    setCheckingComments(true);
-    try {
-      const { imported, hasShares } = await pullHostedReviews(noteId, saveHostedReview);
-
-      if (imported === 0) {
-        showToast(hasShares ? "No comments yet" : "This note hasn't been shared yet");
-      } else {
-        showToast(`${imported} reviewer${imported === 1 ? "" : "s"} so far`);
-        setReviewPanelOpen(true);
-      }
-    } catch {
-      showToast("Couldn't check for comments right now");
-    } finally {
-      setCheckingComments(false);
-    }
-  }
-
   function handleImportReviewClick() {
     importInputRef.current?.click();
     setOpen(false);
@@ -352,73 +322,58 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
 
           <div className="mx-3 border-t border-border" />
 
-          {canShareLink && (
+          {canShareLink ? (
+            <button
+              onClick={() => {
+                setShareDialogOpen(true);
+                setOpen(false);
+              }}
+              className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+              title="Get a link reviewers can open to read and comment — no account needed on their end"
+            >
+              <Link2 size={13} className="shrink-0" />
+              <span className="flex-1 text-left">Share</span>
+            </button>
+          ) : (
             <>
               <button
+                onClick={handleSendForReview}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+                title="Downloads a self-contained HTML file — no accounts, works offline, email it to anyone"
+              >
+                <MessageSquare size={13} className="shrink-0" />
+                <span className="flex-1 text-left">Send for review</span>
+              </button>
+              <button
+                onClick={handleImportReviewClick}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+                title="Load a .fragment-review.json file a reviewer sent back"
+              >
+                <Upload size={13} className="shrink-0" />
+                <span className="flex-1 text-left">Import review</span>
+              </button>
+              <button
                 onClick={() => {
-                  setShareDialogOpen(true);
+                  setReviewPanelOpen(true);
                   setOpen(false);
                 }}
                 className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
-                title="Send a link. Reviewers comment in the browser with just an email, no account."
+                title="See comments imported from reviewers"
               >
-                <Link2 size={13} className="shrink-0" />
-                <span className="flex-1 text-left">Share a link</span>
+                <MessageSquare size={13} className="shrink-0" />
+                <span className="flex-1 text-left">View reviews</span>
               </button>
-              <button
-                onClick={handleCheckForComments}
-                disabled={checkingComments}
-                className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150 disabled:opacity-50"
-                title="Pull in comments reviewers have left on your shared links"
-              >
-                <RefreshCw
-                  size={13}
-                  className={`shrink-0 ${checkingComments ? "animate-spin" : ""}`}
-                />
-                <span className="flex-1 text-left">
-                  {checkingComments ? "Checking..." : "Check for comments"}
-                </span>
-              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,.fragment-review.json,application/json"
+                onChange={handleImportReviewFile}
+                className="hidden"
+              />
             </>
           )}
-
-          <button
-            onClick={handleSendForReview}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
-            title="Downloads a self-contained HTML file — no accounts, works offline, email it to anyone"
-          >
-            <MessageSquare size={13} className="shrink-0" />
-            <span className="flex-1 text-left">Send for review</span>
-          </button>
-          <button
-            onClick={handleImportReviewClick}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
-            title="Load a .fragment-review.json file a reviewer sent back"
-          >
-            <Upload size={13} className="shrink-0" />
-            <span className="flex-1 text-left">Import review</span>
-          </button>
-          <button
-            onClick={() => {
-              setReviewPanelOpen(true);
-              setOpen(false);
-            }}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
-            title="See comments imported from reviewers"
-          >
-            <MessageSquare size={13} className="shrink-0" />
-            <span className="flex-1 text-left">View reviews</span>
-          </button>
         </div>
       )}
-
-      <input
-        ref={importInputRef}
-        type="file"
-        accept=".json,.fragment-review.json,application/json"
-        onChange={handleImportReviewFile}
-        className="hidden"
-      />
 
       {reviewPanelOpen && (
         <ReviewPanel noteId={noteId} editor={editor} onClose={() => setReviewPanelOpen(false)} />

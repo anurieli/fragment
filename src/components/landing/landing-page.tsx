@@ -118,8 +118,8 @@ export function LandingPage() {
           </h2>
           <p className="mx-auto mt-3 max-w-lg text-text-secondary">
             Fragment is local-first: it works with no account and no network.
-            Sign in and your notes, ideas, and pieces sync across devices,
-            with your words stored in your account and nowhere else.
+            Cross-device sync is on the way, so your notes, ideas, and pieces
+            will follow you without living anywhere but your own account.
           </p>
         </div>
       </section>
