@@ -10,7 +10,7 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 **Files**: `src/lib/textarea-selection.ts`, `src/components/editor/editor.tsx`, `src/components/shortform/piece-card.tsx`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
 
-**Verification**: 673 tests passed with 17 opt-in integration tests skipped; focused coverage verifies backward and forward textarea moves, CRLF offset mapping, stale-drag rejection in both editor types, Snip Bar versus source routing, ProseMirror mark and block preservation, valid transaction selection, and no-op editor self-drops. `npm run lint` exits with 0 errors and 31 existing warnings, `npx tsc --noEmit` is clean, and the production build is clean.
+**Verification**: 679 tests passed with 17 opt-in integration tests skipped; focused coverage verifies backward and forward textarea moves, CRLF offset mapping, stale-drag rejection in both editor types, Snip Bar versus source routing, ProseMirror mark and block preservation, valid transaction selection, and no-op editor self-drops. `npm run lint` exits with 0 errors and 31 existing warnings, `npx tsc --noEmit` is clean, and the production build is clean.
 
 ## 2026-08-02 - Keep the inline selection toolbar adjacent and inside the viewport (ARI-276)
 
