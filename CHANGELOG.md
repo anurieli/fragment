@@ -8,7 +8,7 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 **Files**: `src/components/editor/inline-edit-menu.tsx`, `src/lib/inline-menu-placement.ts` (new), `src/__tests__/inline-edit-menu.test.tsx` (new), `src/__tests__/inline-menu-placement.test.ts` (new), `docs/ONBOARDING.md`
 
-**Verification**: 6 regression tests cover scrolled coordinates, vertical flipping, horizontal and vertical clamping, off-screen selections, and custom-input restoration. Full suite: 666 passing and 17 opt-in integration tests skipped; ESLint exits clean with the same 33 existing warnings; `tsc --noEmit` and the production build pass.
+**Verification**: 6 regression tests cover scrolled coordinates, vertical flipping, horizontal and vertical clamping, off-screen selections, and custom-input restoration. The reconciled task branch passes 669 tests with 17 opt-in integration tests skipped; ESLint exits clean with the same 33 existing warnings; `tsc --noEmit` and the production build pass.
 
 ## 2026-08-02 10:19 - Make Snip Bar movements undo as one operation (b7b78f9)
 
