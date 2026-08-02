@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-02 - Keep the inline selection toolbar adjacent and inside the viewport (ARI-276)
+
+**Summary**: The Refine toolbar mixed Tiptap's viewport-relative selection coordinates with an absolute position inside the editor's scrolling content. Once the editor had scrolled, the missing scroll offset pushed the toolbar above the highlighted text and eventually outside the visible page. Placement now translates through the editor's live scroll offsets, measures the rendered toolbar, flips above or below based on available space, clamps to the editor and viewport edges, follows nested scroll and resize events, and hides while the selection itself is off-screen. A custom edit in progress keeps its prompt and regains focus when the selection returns to view.
+
+**Files**: `src/components/editor/inline-edit-menu.tsx`, `src/lib/inline-menu-placement.ts` (new), `src/__tests__/inline-edit-menu.test.tsx` (new), `src/__tests__/inline-menu-placement.test.ts` (new), `docs/ONBOARDING.md`
+
+**Verification**: 6 regression tests cover scrolled coordinates, vertical flipping, horizontal and vertical clamping, off-screen selections, and custom-input restoration. The reconciled task branch passes 669 tests with 17 opt-in integration tests skipped; ESLint exits clean with the same 33 existing warnings; `tsc --noEmit` and the production build pass.
+
 ## 2026-08-02 10:19 - Make Snip Bar movements undo as one operation (b7b78f9)
 
 **Commit**: `b7b78f9`
