@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-02 10:28 - Drag selected text to reorder it within a piece (c23cb3b)
+
+**Commit**: `c23cb3b`
+
+**Summary**: Fragment already took over selection drags with custom mouse handling so editor text could move into the Snip Bar without WebKit's native drag ghost. That custom path only handled the Snip Bar destination, so releasing the same drag back over the source editor discarded it. Long-form editor drops now move the selected ProseMirror slice through a schema-valid transaction, preserving formatting and selecting the moved range. Local long-form reorders no longer run the Snip Bar label prefetch, so selected text reaches the configured labeling provider only after a confirmed snippet drop. Short-form piece drops map the textarea's LF-normalized offsets back to the persisted source, preserving CRLF line endings, markdown markers, and whitespace exactly. A note or piece body that changes after mousedown invalidates the drag instead of being overwritten through stale positions or closures. Shared hit-target routing keeps nested Snip Bar drops distinct from source-editor reorders.
+
+**Files**: `src/lib/textarea-selection.ts`, `src/components/editor/editor.tsx`, `src/components/shortform/piece-card.tsx`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
+
+**Verification**: 679 tests passed with 17 opt-in integration tests skipped; focused coverage verifies backward and forward textarea moves, CRLF offset mapping, stale-drag rejection in both editor types, Snip Bar versus source routing, ProseMirror mark and block preservation, valid transaction selection, and no-op editor self-drops. `npm run lint` exits with 0 errors and 31 existing warnings, `npx tsc --noEmit` is clean, and the production build is clean.
+
 ## 2026-08-02 - Keep the inline selection toolbar adjacent and inside the viewport (ARI-276)
 
 **Summary**: The Refine toolbar mixed Tiptap's viewport-relative selection coordinates with an absolute position inside the editor's scrolling content. Once the editor had scrolled, the missing scroll offset pushed the toolbar above the highlighted text and eventually outside the visible page. Placement now translates through the editor's live scroll offsets, measures the rendered toolbar, flips above or below based on available space, clamps to the editor and viewport edges, follows nested scroll and resize events, and hides while the selection itself is off-screen. A custom edit in progress keeps its prompt and regains focus when the selection returns to view.
