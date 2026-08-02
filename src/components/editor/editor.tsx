@@ -9,7 +9,7 @@ import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { TextSelection } from "@tiptap/pm/state";
 import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
-import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
+import { isHistoryTransaction } from "@tiptap/pm/history";
 import {
   PanelLeftOpen,
   PanelRightOpen,
@@ -47,6 +47,10 @@ import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
 import { NoteUsageFooter } from "./note-usage-footer";
 import type { Editor as TiptapEditor } from "@tiptap/core";
+import {
+  addSnippetMovementToHistory,
+  snippetMovementEffects,
+} from "@/lib/editor/snippet-movement-history";
 
 /**
  * Encode empty paragraphs as NBSP lines so they survive the markdown round-trip.
@@ -153,10 +157,6 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const labelSnippetRef = useRef(labelSnippet);
   // Refs for snippet undo/redo tracking
   const editorRef = useRef<TiptapEditor | null>(null);
-  const snippetInsertMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
-  const snippetRemoveMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
-  const prevUndoDepthRef = useRef(0);
-  const pendingSnippetRecordRef = useRef<{ snapshot: import("@/lib/types").Snippet; isOutward?: boolean } | null>(null);
   const isCancellingDropRef = useRef(false);
 
   const note = activeNoteId ? notes[activeNoteId] : null;
@@ -313,19 +313,24 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                     useAppStore.getState().activeIdeaId ?? undefined,
                   );
 
-                  // Build snippet snapshot for undo tracking
                   const createdSnippet = useDataStore.getState().snippets[snippetId];
-                  if (createdSnippet) {
-                    pendingSnippetRecordRef.current = { snapshot: { ...createdSnippet }, isOutward: true };
-                  }
 
-                  // Delete source text from editor (this transaction triggers onUpdate
-                  // which records the snippet in snippetRemoveMapRef for undo)
+                  // Deleting the source and creating the snippet are one movement.
+                  // Metadata binds the persisted half to this exact editor transaction.
                   const tr = view.state.tr;
                   const docSize = tr.doc.content.size;
                   const sf = Math.min(range.from, docSize);
                   const st = Math.min(range.to, docSize);
-                  if (sf < st) { tr.delete(sf, st); view.dispatch(tr); }
+                  if (sf < st) {
+                    if (createdSnippet) {
+                      addSnippetMovementToHistory(tr, {
+                        direction: "to-snip-bar",
+                        snippet: createdSnippet,
+                      });
+                    }
+                    tr.delete(sf, st);
+                    view.dispatch(tr);
+                  }
 
                   // Apply label
                   if (card.labelStatus === "done" && card.label) {
@@ -460,14 +465,21 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
           const sizeBefore = editorInstance.state.doc.content.size;
 
-          // Tag this update so onUpdate can record it for undo tracking
-          if (snippetObj) {
-            pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
-          }
-
           // Insert via Tiptap's insertContentAt which correctly handles
-          // multi-paragraph content at any document position
-          editorInstance.chain().insertContentAt(dropPos.pos, contentNodes).run();
+          // multi-paragraph content at any document position. Keep the snippet
+          // removal attached to the same history event as the insertion.
+          const insertChain = editorInstance.chain();
+          if (snippetObj) {
+            insertChain
+              .command(({ tr }) => {
+                addSnippetMovementToHistory(tr, {
+                  direction: "to-editor",
+                  snippet: snippetObj,
+                });
+                return true;
+              });
+          }
+          insertChain.insertContentAt(dropPos.pos, contentNodes).run();
 
           const sizeAfter = editorInstance.state.doc.content.size;
           const insertedSize = sizeAfter - sizeBefore;
@@ -492,10 +504,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
           // Focus the editor so the selection highlight is visible
           setTimeout(() => view.focus(), 0);
-        } catch {
-          pendingSnippetRecordRef.current = null;
-          return false;
-        }
+        } catch { return false; }
 
         setDraggingToHelper(false);
         return true;
@@ -516,29 +525,17 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     onUpdate: ({ editor: ed, transaction }) => {
       if (isInternalUpdate.current) return;
 
-      const currentUD = undoDepth(ed.state);
-      const prevUD = prevUndoDepthRef.current;
-
       if (isHistoryTransaction(transaction)) {
-        // Undo or redo — sync snippet state with editor history
-        if (currentUD < prevUD) {
-          // UNDO: reverse the step at depth prevUD
-          if (!isCancellingDropRef.current) {
-            // Restore snippet that was removed by a snippet-drop
-            const inserted = snippetInsertMapRef.current.get(prevUD);
-            if (inserted) restoreSnippet(inserted);
-            // Remove snippet that was created by a text-to-snippet drag
-            const removed = snippetRemoveMapRef.current.get(prevUD);
-            if (removed) removeSnippet(removed.id);
+        // The non-document half travels inside the same ProseMirror history
+        // event as the text edit, so grouping and history pruning cannot detach it.
+        if (!isCancellingDropRef.current) {
+          for (const effect of snippetMovementEffects(transaction.steps)) {
+            if (effect.action === "restore") restoreSnippet(effect.snippet);
+            else removeSnippet(effect.snippet.id);
           }
-          isCancellingDropRef.current = false;
-        } else if (currentUD > prevUD) {
-          // REDO: re-apply the step at depth currentUD
-          const inserted = snippetInsertMapRef.current.get(currentUD);
-          if (inserted) removeSnippet(inserted.id);
-          const removed = snippetRemoveMapRef.current.get(currentUD);
-          if (removed) restoreSnippet(removed);
         }
+        isCancellingDropRef.current = false;
+
         // Clear pending-drop visual state on any history event
         const pending = useAppStore.getState().pendingSnippetDrop;
         if (pending && !pending.cancelled) commitPendingDrop();
@@ -546,28 +543,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         // Normal edit — commit pending drop and invalidate redo snippet entries
         const pending = useAppStore.getState().pendingSnippetDrop;
         if (pending && !pending.cancelled) commitPendingDrop();
-
-        // Any new edit after an undo clears the redo stack; prune stale entries
-        for (const depth of snippetInsertMapRef.current.keys()) {
-          if (depth > currentUD) snippetInsertMapRef.current.delete(depth);
-        }
-        for (const depth of snippetRemoveMapRef.current.keys()) {
-          if (depth > currentUD) snippetRemoveMapRef.current.delete(depth);
-        }
       }
-
-      // Record a snippet drop or text-to-snippet operation for future undo/redo
-      if (pendingSnippetRecordRef.current) {
-        const { snapshot, isOutward } = pendingSnippetRecordRef.current;
-        if (isOutward) {
-          snippetRemoveMapRef.current.set(currentUD, snapshot);
-        } else {
-          snippetInsertMapRef.current.set(currentUD, snapshot);
-        }
-        pendingSnippetRecordRef.current = null;
-      }
-
-      prevUndoDepthRef.current = currentUD;
 
       // Skip serialization while a transient slashBlock node is in the document
       // (the markdown serializer doesn't know how to handle it)
@@ -737,15 +713,19 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
     const { from, to, snippetId } = pendingEditorDeletion;
 
-    // Tag for undo tracking: undoing this deletion should remove the created snippet
+    const { tr } = editor.state;
+
+    // Tag the editor transaction with the persisted half of the movement.
     if (snippetId) {
       const snippet = useDataStore.getState().snippets[snippetId];
       if (snippet) {
-        pendingSnippetRecordRef.current = { snapshot: { ...snippet }, isOutward: true };
+        addSnippetMovementToHistory(tr, {
+          direction: "to-snip-bar",
+          snippet,
+        });
       }
     }
 
-    const { tr } = editor.state;
     const docSize = editor.state.doc.content.size;
     const safeFrom = Math.min(from, docSize);
     const safeTo = Math.min(to, docSize);
@@ -774,12 +754,20 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     }));
 
     const snippetObj = useDataStore.getState().snippets[snippetId];
-    if (snippetObj) {
-      pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
-    }
 
     const sizeBefore = editor.state.doc.content.size;
-    editor.chain().insertContentAt(dropPos.pos, contentNodes).run();
+    const insertChain = editor.chain();
+    if (snippetObj) {
+      insertChain
+        .command(({ tr }) => {
+          addSnippetMovementToHistory(tr, {
+            direction: "to-editor",
+            snippet: snippetObj,
+          });
+          return true;
+        });
+    }
+    insertChain.insertContentAt(dropPos.pos, contentNodes).run();
     const sizeAfter = editor.state.doc.content.size;
     const insertedSize = sizeAfter - sizeBefore;
     const from = dropPos.pos;
@@ -932,8 +920,20 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     if (!snippetId) return;
     labelSnippet(snippetId, selectedText, note.content, note.goal, activeNoteId);
 
-    // Remove the snipped text from the editor
-    editor.chain().focus().deleteRange({ from, to }).run();
+    const createdSnippet = useDataStore.getState().snippets[snippetId];
+    const deleteChain = editor.chain().focus();
+    if (createdSnippet) {
+      deleteChain.command(({ tr }) => {
+        addSnippetMovementToHistory(tr, {
+          direction: "to-snip-bar",
+          snippet: createdSnippet,
+        });
+        return true;
+      });
+    }
+
+    // Remove the snipped text from the editor as the document half of the move.
+    deleteChain.deleteRange({ from, to }).run();
 
     if (!helperBarOpen) toggleHelperBar();
   }, [
@@ -1130,12 +1130,18 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         }));
 
         const sizeBefore = editor.state.doc.content.size;
-
+        const insertChain = editor.chain();
         if (snippetObj) {
-          pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
+          insertChain
+            .command(({ tr }) => {
+              addSnippetMovementToHistory(tr, {
+                direction: "to-editor",
+                snippet: snippetObj,
+              });
+              return true;
+            });
         }
-
-        editor.chain().insertContentAt(dropPos.pos, contentNodes).run();
+        insertChain.insertContentAt(dropPos.pos, contentNodes).run();
 
         const sizeAfter = editor.state.doc.content.size;
         const insertedSize = sizeAfter - sizeBefore;
@@ -1154,9 +1160,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
         useAppStore.getState().setDraggingToEditor(false);
         setTimeout(() => editor.view.focus(), 0);
-      } catch {
-        pendingSnippetRecordRef.current = null;
-      }
+      } catch {}
       setDraggingToHelper(false);
     },
     [editor, removeSnippet, setDraggingToHelper, setPendingSnippetDrop],

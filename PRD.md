@@ -216,7 +216,9 @@ There are two ways to create a snippet:
 3. The Snip Bar shows drop feedback (gold background, "Drop here" placeholder)
 4. Release
 5. Snippet is created at the drop position
-6. Text remains in the editor
+6. The selected text is removed from the editor; this is a move, not a copy
+7. Undo restores the text and removes the snippet as one operation; redo removes
+   the text and restores that same snippet
 
 In both cases, the snippet immediately enters `labelStatus: "loading"` and an async AI labeling request fires.
 
@@ -231,7 +233,8 @@ When a new snippet is dragged into the Snip Bar from the editor, its position in
 3. A gold drop cursor (line) appears in the editor at the nearest text position, showing exactly where the text will be inserted
 4. Release
 5. The snippet's markdown content is inserted at that position in the document
-6. The snippet remains in the Snip Bar — it's not consumed. You can reuse it multiple times.
+6. The snippet is removed from the Snip Bar; undo and redo reverse both halves of
+   the movement together
 
 ### Reordering Snippets (within Snip Bar)
 
