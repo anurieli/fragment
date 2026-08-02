@@ -32,16 +32,14 @@ import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice } from "@/lib/voice-context";
-import { useToastStore } from "@/hooks/use-toast";
 import { useLabelSnippet } from "@/hooks/use-label-snippet";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
-import { logApiCall } from "@/lib/api-logger";
-import { postLabel } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
-import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { debounce, type DebouncedFn } from "@/lib/utils";
-import { moveEditorSelection } from "@/lib/textarea-selection";
+import {
+  moveEditorSelection,
+  selectionDragDestination,
+} from "@/lib/textarea-selection";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
@@ -117,7 +115,6 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     pendingEditorDeletion,
     setPendingEditorDeletion,
     setFloatingDragCard,
-    updateFloatingCardLabel,
     setLiveEditorContent,
     generatingNoteId,
     streamingContent,
@@ -140,7 +137,6 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     restoreSnippet,
   } = useDataStore();
   const settings = useSettingsStore((s) => s.settings);
-  const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
   const { labelSnippet } = useLabelSnippet();
   const { enabled: slashEnabled } = useSlashCommand();
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
@@ -149,11 +145,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const { generateTitle, isGenerating: generatingTitle } = useGenerateTitle();
   const isGenerating = generatingNoteId === activeNoteId && generatingNoteId !== null;
 
-  const floatingLabelAbortRef = useRef<AbortController | null>(null);
   const dragClickPosRef = useRef<number | null>(null);
   const customDragRangeRef = useRef<{ from: number; to: number } | null>(null);
   // Stable refs for functions used inside Tiptap handleDOMEvents closures
-  const prefetchLabelRef = useRef<((text: string, signal: AbortSignal) => Promise<void>) | null>(null);
   const labelSnippetRef = useRef(labelSnippet);
   // Refs for snippet undo/redo tracking
   const editorRef = useRef<TiptapEditor | null>(null);
@@ -249,6 +243,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           // Prevents native text drag ghost that WebKit/Tauri can't override.
           event.preventDefault();
 
+          const dragStartDoc = view.state.doc;
+          const dragStartNoteId = useAppStore.getState().activeNoteId;
+          const draggedText = dragStartDoc.textBetween(from, to, "\n");
           const startX = event.clientX;
           const startY = event.clientY;
           let dragging = false;
@@ -259,20 +256,14 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
               dragging = true;
               dragClickPosRef.current = null;
 
-              const txt = view.state.doc.textBetween(from, to, "\n");
-              if (!txt.trim()) { cleanup(); return; }
+              if (!draggedText.trim()) { cleanup(); return; }
 
               customDragRangeRef.current = { from, to };
               useAppStore.getState().setDraggingToHelper(true);
               useAppStore.getState().setFloatingDragCard({
-                content: txt, label: null, labelStatus: "loading",
+                content: draggedText, label: null, labelStatus: "idle",
               });
               view.dom.classList.add("is-snippet-dragging-out");
-
-              // Prefetch label
-              floatingLabelAbortRef.current?.abort();
-              floatingLabelAbortRef.current = new AbortController();
-              prefetchLabelRef.current?.(txt, floatingLabelAbortRef.current.signal);
             }
 
             // Position floating card directly on the DOM (no React re-renders)
@@ -288,18 +279,34 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
             document.removeEventListener("mouseup", onUp);
           };
 
+          const resetDragState = () => {
+            customDragRangeRef.current = null;
+            useAppStore.getState().setDraggingToHelper(false);
+            useAppStore.getState().setFloatingDragCard(null);
+            view.dom.classList.remove("is-snippet-dragging-out");
+          };
+
           const onUp = (e: MouseEvent) => {
             cleanup();
 
             if (dragging) {
+              if (
+                view.isDestroyed ||
+                useAppStore.getState().activeNoteId !== dragStartNoteId ||
+                !view.state.doc.eq(dragStartDoc)
+              ) {
+                resetDragState();
+                return;
+              }
+
               // Check if mouse is over the Snip Bar drop zone
               const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
               const el = document.elementFromPoint(e.clientX, e.clientY);
-              const isOverSnipBar = dropZone && (dropZone.contains(el) || el === dropZone);
+              const destination = selectionDragDestination(view.dom, dropZone, el);
 
-              if (isOverSnipBar) {
+              if (destination === "snip-bar" && dropZone) {
                 const range = customDragRangeRef.current;
-                const noteId = useAppStore.getState().activeNoteId;
+                const noteId = dragStartNoteId;
                 const card = useAppStore.getState().floatingDragCard;
                 if (range && noteId && card) {
                   const idxAttr = dropZone.getAttribute("data-drop-index");
@@ -343,14 +350,14 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                   // Keep the Snip Bar open after a successful drop
                   useAppStore.getState().pinHelperBar();
                 }
-              } else if (el && view.dom.contains(el)) {
+              } else if (destination === "source") {
                 // This custom drag used to own the gesture and then ignore a
                 // release back over the editor. Move the original Slice so
                 // marks and block structure survive the reorder.
                 const range = customDragRangeRef.current;
                 const drop = view.posAtCoords({ left: e.clientX, top: e.clientY });
                 if (range && drop) {
-                  const tr = moveEditorSelection(view.state, range, drop.pos);
+                  const tr = moveEditorSelection(view.state, range, drop.pos, dragStartDoc);
                   if (tr) {
                     view.dispatch(tr);
                     view.focus();
@@ -358,12 +365,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                 }
               }
 
-              // Clean up all drag state
-              customDragRangeRef.current = null;
-              useAppStore.getState().setDraggingToHelper(false);
-              floatingLabelAbortRef.current?.abort();
-              useAppStore.getState().setFloatingDragCard(null);
-              view.dom.classList.remove("is-snippet-dragging-out");
+              resetDragState();
             }
             // Click-only (no drag): Tiptap mouseup handler places cursor
           };
@@ -979,82 +981,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     [editor, note, inlineEdit, inlineEditEnabled],
   );
 
-  // Prefetch a label for the floating drag card
-  const prefetchLabel = useCallback(
-    async (content: string, signal: AbortSignal) => {
-      if (!settings.snippetLabeling.enabled) {
-        updateFloatingCardLabel(null, "idle" as "done");
-        return;
-      }
-      try {
-        const { provider, model } = settings.featureProviders.snippetLabeling;
-        const { promptTemplate, maxEssayContext } = settings.snippetLabeling;
-        const truncatedEssayContent =
-          maxEssayContext > 0 ? (note?.content ?? "").slice(0, maxEssayContext) : "";
-
-        const buildBody = (codexToken: string | undefined) =>
-          JSON.stringify({
-            snippetContent: content,
-            essayContent: truncatedEssayContent,
-            goal: note?.goal ?? "",
-            promptTemplate,
-            model,
-            provider,
-            apiKey: getProviderKey(provider, settings.providerCredentials) || undefined,
-            codexToken,
-          });
-
-        // Proactive token validation
-        let codexToken: string | undefined;
-        if (provider === "codex") {
-          const token = await ensureValidCodexToken(
-            settings.providerCredentials.codexAccessToken,
-            settings.providerCredentials.codexRefreshToken,
-            updateProviderCredentials,
-          );
-          if (!token) {
-            useToastStore.getState().showToast("ChatGPT disconnected. Reconnect in Settings.");
-            updateFloatingCardLabel(null, "error");
-            return;
-          }
-          codexToken = token;
-        }
-
-        let res = await postLabel(buildBody(codexToken), { signal });
-
-        // Fallback: force refresh on 401
-        if (res.status === 401 && provider === "codex") {
-          const fresh = await forceRefreshCodexToken(updateProviderCredentials);
-          if (fresh) {
-            res = await postLabel(buildBody(fresh), { signal });
-          }
-        }
-
-        const data = await res.json();
-        if (data._meta) {
-          const modelUsed = (data._meta.modelUsed as string | undefined) || model;
-          logApiCall("label", "snip-drag-preview", provider, modelUsed, data._meta, activeNoteId ?? undefined).catch(() => {});
-        }
-        if (!res.ok) {
-          if (res.status === 401) {
-            const toast = provider === "codex" ? "ChatGPT disconnected. Reconnect in Settings." : "API key invalid. Check Settings.";
-            useToastStore.getState().showToast(toast);
-          }
-          updateFloatingCardLabel(null, "error");
-          return;
-        }
-        updateFloatingCardLabel(data.label, "done");
-      } catch (err) {
-        if ((err as Error).name !== "AbortError") {
-          updateFloatingCardLabel(null, "error");
-        }
-      }
-    },
-    [settings, note?.content, note?.goal, updateFloatingCardLabel, updateProviderCredentials],
-  );
-
   // Keep stable refs current for use inside Tiptap handleDOMEvents closures
-  prefetchLabelRef.current = prefetchLabel;
   labelSnippetRef.current = labelSnippet;
 
   // Only used for pending-return drags (native DnD).

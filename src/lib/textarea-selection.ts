@@ -1,4 +1,5 @@
 import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { dropPoint } from "@tiptap/pm/transform";
 
 /**
@@ -18,6 +19,61 @@ export interface MovedTextSelection {
   value: string;
   selectionStart: number;
   selectionEnd: number;
+}
+
+export interface TextareaSelectionRange {
+  start: number;
+  end: number;
+}
+
+export type SelectionDragDestination = "snip-bar" | "source" | "outside";
+
+function sourceOffsetAtTextareaOffset(value: string, textareaOffset: number): number | null {
+  if (textareaOffset < 0) return null;
+
+  let sourceOffset = 0;
+  let normalizedOffset = 0;
+  while (sourceOffset < value.length && normalizedOffset < textareaOffset) {
+    if (value[sourceOffset] === "\r" && value[sourceOffset + 1] === "\n") {
+      sourceOffset += 2;
+    } else {
+      sourceOffset += 1;
+    }
+    normalizedOffset += 1;
+  }
+  return normalizedOffset === textareaOffset ? sourceOffset : null;
+}
+
+function textareaLength(value: string): number {
+  return value.replace(/\r\n/g, "\n").length;
+}
+
+/**
+ * Maps the LF-normalized offsets exposed by a textarea back to the source
+ * string. Browsers expose every CRLF as one character, while persisted piece
+ * bodies retain both source characters.
+ */
+export function textareaSelectionRange(
+  value: string,
+  start: number,
+  end: number,
+): TextareaSelectionRange | null {
+  if (start < 0 || start >= end) return null;
+  const sourceStart = sourceOffsetAtTextareaOffset(value, start);
+  const sourceEnd = sourceOffsetAtTextareaOffset(value, end);
+  if (sourceStart === null || sourceEnd === null) return null;
+  return { start: sourceStart, end: sourceEnd };
+}
+
+/** Classifies a selection drag from the actual element hit at the pointer. */
+export function selectionDragDestination(
+  source: Element,
+  snipBar: Element | null,
+  hit: Element | null,
+): SelectionDragDestination {
+  if (snipBar && (hit === snipBar || snipBar.contains(hit))) return "snip-bar";
+  if (hit === source || source.contains(hit)) return "source";
+  return "outside";
 }
 
 /**
@@ -51,6 +107,37 @@ export function moveTextSelection(
 }
 
 /**
+ * Moves a textarea selection while preserving persisted line endings.
+ * Returns null when the current value changed after mousedown so a stale drag
+ * cannot overwrite newer content.
+ */
+export function moveTextareaSelection(
+  currentValue: string,
+  dragStartValue: string,
+  start: number,
+  end: number,
+  dropOffset: number,
+): MovedTextSelection | null {
+  if (currentValue !== dragStartValue) return null;
+
+  const source = textareaSelectionRange(currentValue, start, end);
+  const sourceDrop = sourceOffsetAtTextareaOffset(currentValue, dropOffset);
+  if (!source || sourceDrop === null) return null;
+
+  const moved = moveTextSelection(currentValue, source.start, source.end, sourceDrop);
+  if (!moved) return null;
+
+  const selected = currentValue.slice(source.start, source.end);
+  const normalizedSelectionLength = textareaLength(selected);
+  const normalizedSelectionStart = textareaLength(moved.value.slice(0, moved.selectionStart));
+  return {
+    value: moved.value,
+    selectionStart: normalizedSelectionStart,
+    selectionEnd: normalizedSelectionStart + normalizedSelectionLength,
+  };
+}
+
+/**
  * Builds one ProseMirror transaction that moves a selected slice in-place.
  * Using a Slice rather than textBetween preserves marks and block structure;
  * the transaction mapping accounts for the source deletion on forward drops.
@@ -59,7 +146,9 @@ export function moveEditorSelection(
   state: EditorState,
   range: { from: number; to: number },
   dropPos: number,
+  dragStartDoc: ProseMirrorNode = state.doc,
 ): Transaction | null {
+  if (!state.doc.eq(dragStartDoc)) return null;
   const { from, to } = range;
   const docSize = state.doc.content.size;
   if (from < 0 || to > docSize || from >= to) return null;

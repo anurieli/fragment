@@ -3,8 +3,10 @@ import { Schema } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import {
   moveEditorSelection,
-  moveTextSelection,
+  moveTextareaSelection,
   rangeForOffsets,
+  selectionDragDestination,
+  textareaSelectionRange,
 } from "@/lib/textarea-selection";
 import { highlightMarkdown } from "@/lib/markdown-highlight";
 
@@ -62,7 +64,7 @@ describe("rangeForOffsets", () => {
 
 describe("moving a dragged selection", () => {
   it("moves exact textarea text backward and reports its new selection", () => {
-    expect(moveTextSelection("alpha beta gamma", 6, 11, 0)).toEqual({
+    expect(moveTextareaSelection("alpha beta gamma", "alpha beta gamma", 6, 11, 0)).toEqual({
       value: "beta alpha gamma",
       selectionStart: 0,
       selectionEnd: 5,
@@ -70,7 +72,7 @@ describe("moving a dragged selection", () => {
   });
 
   it("adjusts a forward textarea drop after removing the source", () => {
-    expect(moveTextSelection("alpha beta gamma", 0, 6, 11)).toEqual({
+    expect(moveTextareaSelection("alpha beta gamma", "alpha beta gamma", 0, 6, 11)).toEqual({
       value: "beta alpha gamma",
       selectionStart: 5,
       selectionEnd: 11,
@@ -78,7 +80,27 @@ describe("moving a dragged selection", () => {
   });
 
   it("does nothing when textarea text is dropped inside its original selection", () => {
-    expect(moveTextSelection("alpha beta gamma", 6, 10, 8)).toBeNull();
+    expect(moveTextareaSelection("alpha beta gamma", "alpha beta gamma", 6, 10, 8)).toBeNull();
+  });
+
+  it("maps normalized textarea offsets back to CRLF source bytes", () => {
+    expect(textareaSelectionRange("alpha\r\nbeta gamma", 6, 10)).toEqual({
+      start: 7,
+      end: 11,
+    });
+    expect(
+      moveTextareaSelection("alpha\r\nbeta gamma", "alpha\r\nbeta gamma", 6, 10, 0),
+    ).toEqual({
+      value: "betaalpha\r\n gamma",
+      selectionStart: 0,
+      selectionEnd: 4,
+    });
+  });
+
+  it("does not overwrite a body that changed after the drag started", () => {
+    expect(
+      moveTextareaSelection("new alpha beta gamma", "alpha beta gamma", 6, 10, 0),
+    ).toBeNull();
   });
 
   it("moves a ProseMirror slice with its formatting intact", () => {
@@ -128,5 +150,53 @@ describe("moving a dragged selection", () => {
     const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 6) });
 
     expect(moveEditorSelection(state, { from: 1, to: 6 }, 4)).toBeNull();
+  });
+
+  it("preserves complete block nodes when moving across paragraphs", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "paragraph+" },
+        paragraph: { content: "text*" },
+        text: {},
+      },
+    });
+    const first = schema.node("paragraph", null, schema.text("alpha"));
+    const second = schema.node("paragraph", null, schema.text("beta"));
+    const doc = schema.node("doc", null, [first, second]);
+    const state = EditorState.create({ doc });
+
+    const tr = moveEditorSelection(state, { from: 0, to: first.nodeSize }, doc.content.size);
+    expect(tr?.doc.toJSON()).toEqual(
+      schema.node("doc", null, [second, first]).toJSON(),
+    );
+    expect(tr?.getMeta("uiEvent")).toBe("drop");
+  });
+
+  it("does not apply positions captured from an older editor document", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "paragraph+" },
+        paragraph: { content: "text*" },
+        text: {},
+      },
+    });
+    const doc = schema.node("doc", null, [schema.node("paragraph", null, schema.text("alpha beta"))]);
+    const state = EditorState.create({ doc });
+    const changedState = state.apply(state.tr.insertText("new ", 1));
+
+    expect(moveEditorSelection(changedState, { from: 1, to: 6 }, 11, doc)).toBeNull();
+  });
+});
+
+describe("selection drag routing", () => {
+  it("routes nested Snip Bar and source-editor targets before outside targets", () => {
+    const source = document.createElement("div");
+    const sourceChild = source.appendChild(document.createElement("span"));
+    const snipBar = document.createElement("div");
+    const snipChild = snipBar.appendChild(document.createElement("span"));
+
+    expect(selectionDragDestination(source, snipBar, snipChild)).toBe("snip-bar");
+    expect(selectionDragDestination(source, snipBar, sourceChild)).toBe("source");
+    expect(selectionDragDestination(source, snipBar, document.createElement("div"))).toBe("outside");
   });
 });

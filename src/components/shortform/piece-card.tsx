@@ -19,9 +19,11 @@ import {
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
 import {
-  moveTextSelection,
+  moveTextareaSelection,
   offsetAtPoint,
   pointInTextareaSelection,
+  selectionDragDestination,
+  textareaSelectionRange,
 } from "@/lib/textarea-selection";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
@@ -319,13 +321,15 @@ export function PieceCard({
     async (instruction: string, selectionStart: number, selectionEnd: number): Promise<string | null> => {
       if (!inlineEditEnabled) return null;
       const body = piece.body ?? "";
-      const selectedText = body.slice(selectionStart, selectionEnd);
+      const selection = textareaSelectionRange(body, selectionStart, selectionEnd);
+      if (!selection) return null;
+      const selectedText = body.slice(selection.start, selection.end);
       if (!selectedText.trim()) return null;
       const ctx = buildRefineContext({
         format: piece.format,
         body,
-        selectionStart,
-        selectionEnd,
+        selectionStart: selection.start,
+        selectionEnd: selection.end,
         idea,
       });
       return inlineEdit(
@@ -350,9 +354,19 @@ export function PieceCard({
   // of agent-pushed pieces has no draft at all. Snippets are idea-scoped now
   // (see snip-scope.ts), so this always has a home.
   const snipOut = useCallback(
-    (selectionStart: number, selectionEnd: number, atIndex?: number) => {
-      const body = piece.body ?? "";
-      const selectedText = body.slice(selectionStart, selectionEnd);
+    (
+      selectionStart: number,
+      selectionEnd: number,
+      atIndex?: number,
+      dragStartBody?: string,
+    ) => {
+      const currentPiece = useContentStore.getState().pieces[piece.id];
+      if (!currentPiece) return;
+      const body = currentPiece.body ?? "";
+      if (dragStartBody !== undefined && body !== dragStartBody) return;
+      const selection = textareaSelectionRange(body, selectionStart, selectionEnd);
+      if (!selection) return;
+      const selectedText = body.slice(selection.start, selection.end);
       if (!selectedText.trim()) return;
 
       const snippetId = addSnippet(null, selectedText, atIndex, piece.ideaId);
@@ -360,7 +374,7 @@ export function PieceCard({
       labelSnip(snippetId, selectedText, { noteId: null, ideaId: piece.ideaId });
 
       updatePiece(piece.id, {
-        body: body.slice(0, selectionStart) + body.slice(selectionEnd),
+        body: body.slice(0, selection.start) + body.slice(selection.end),
       });
       // Show where it went. Cutting text out of the page and dropping it into
       // a panel that is closed (the bar auto-hides) is what made this read as
@@ -401,7 +415,10 @@ export function PieceCard({
 
       const start = el.selectionStart;
       const end = el.selectionEnd;
-      const text = (piece.body ?? "").slice(start, end);
+      const dragStartBody = useContentStore.getState().pieces[piece.id]?.body ?? piece.body ?? "";
+      const selection = textareaSelectionRange(dragStartBody, start, end);
+      if (!selection) return;
+      const text = dragStartBody.slice(selection.start, selection.end);
       if (!text.trim()) return;
 
       // Hold the selection and suppress the native drag ghost.
@@ -451,35 +468,40 @@ export function PieceCard({
 
         const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
         const over = document.elementFromPoint(ev.clientX, ev.clientY);
-        if (dropZone && (dropZone === over || dropZone.contains(over))) {
+        const destination = selectionDragDestination(el, dropZone, over);
+        if (destination === "snip-bar" && dropZone) {
           const idxAttr = dropZone.getAttribute("data-drop-index");
           const dropIdx = idxAttr ? parseInt(idxAttr, 10) : NaN;
-          snipOutRef.current(start, end, Number.isFinite(dropIdx) ? dropIdx : undefined);
-        } else {
-          const rect = el.getBoundingClientRect();
-          const isOverTextarea =
-            ev.clientX >= rect.left &&
-            ev.clientX <= rect.right &&
-            ev.clientY >= rect.top &&
-            ev.clientY <= rect.bottom;
-          if (isOverTextarea) {
-            const dropOffset = offsetAtPoint(
-              mirrorRef.current,
-              ev.clientX,
-              ev.clientY,
-              el,
+          snipOutRef.current(
+            start,
+            end,
+            Number.isFinite(dropIdx) ? dropIdx : undefined,
+            dragStartBody,
+          );
+        } else if (destination === "source") {
+          const dropOffset = offsetAtPoint(
+            mirrorRef.current,
+            ev.clientX,
+            ev.clientY,
+            el,
+          );
+          if (dropOffset !== null) {
+            const currentBody = useContentStore.getState().pieces[piece.id]?.body ?? "";
+            const moved = moveTextareaSelection(
+              currentBody,
+              dragStartBody,
+              start,
+              end,
+              dropOffset,
             );
-            if (dropOffset !== null) {
-              const moved = moveTextSelection(piece.body ?? "", start, end, dropOffset);
-              if (moved) {
-                updatePiece(piece.id, { body: moved.value });
-                requestAnimationFrame(() => {
-                  const textarea = textareaRef.current;
-                  if (!textarea) return;
-                  textarea.focus();
-                  textarea.setSelectionRange(moved.selectionStart, moved.selectionEnd);
-                });
-              }
+            if (moved) {
+              updatePiece(piece.id, { body: moved.value });
+              requestAnimationFrame(() => {
+                const textarea = textareaRef.current;
+                if (!textarea) return;
+                textarea.focus();
+                textarea.setSelectionRange(moved.selectionStart, moved.selectionEnd);
+              });
             }
           }
         }
