@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { rangeForOffsets } from "@/lib/textarea-selection";
+import { Schema } from "@tiptap/pm/model";
+import { EditorState, TextSelection } from "@tiptap/pm/state";
+import {
+  moveEditorSelection,
+  moveTextSelection,
+  rangeForOffsets,
+} from "@/lib/textarea-selection";
 import { highlightMarkdown } from "@/lib/markdown-highlight";
 
 /**
@@ -51,5 +57,76 @@ describe("rangeForOffsets", () => {
   it("returns null when the offsets run past the text", () => {
     const el = mirrorFor("short");
     expect(rangeForOffsets(el, 2, 99)).toBeNull();
+  });
+});
+
+describe("moving a dragged selection", () => {
+  it("moves exact textarea text backward and reports its new selection", () => {
+    expect(moveTextSelection("alpha beta gamma", 6, 11, 0)).toEqual({
+      value: "beta alpha gamma",
+      selectionStart: 0,
+      selectionEnd: 5,
+    });
+  });
+
+  it("adjusts a forward textarea drop after removing the source", () => {
+    expect(moveTextSelection("alpha beta gamma", 0, 6, 11)).toEqual({
+      value: "beta alpha gamma",
+      selectionStart: 5,
+      selectionEnd: 11,
+    });
+  });
+
+  it("does nothing when textarea text is dropped inside its original selection", () => {
+    expect(moveTextSelection("alpha beta gamma", 6, 10, 8)).toBeNull();
+  });
+
+  it("moves a ProseMirror slice with its formatting intact", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "paragraph+" },
+        paragraph: { content: "inline*", group: "block" },
+        text: { group: "inline" },
+      },
+      marks: { strong: {} },
+    });
+    const strong = schema.marks.strong.create();
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, [
+        schema.text("alpha", [strong]),
+        schema.text(" beta gamma"),
+      ]),
+    ]);
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, 1, 7),
+    });
+
+    const tr = moveEditorSelection(state, { from: 1, to: 7 }, 12);
+    expect(tr?.doc.textContent).toBe("beta alpha gamma");
+    expect(tr?.doc.textBetween(tr.selection.from, tr.selection.to)).toBe("alpha ");
+    expect(tr?.getMeta("uiEvent")).toBe("drop");
+
+    const markedText: string[] = [];
+    tr?.doc.descendants((node) => {
+      if (node.isText && node.marks.some((mark) => mark.type === schema.marks.strong)) {
+        markedText.push(node.text ?? "");
+      }
+    });
+    expect(markedText.join("")).toBe("alpha");
+  });
+
+  it("does not move an editor selection onto itself", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "paragraph+" },
+        paragraph: { content: "text*" },
+        text: {},
+      },
+    });
+    const doc = schema.node("doc", null, [schema.node("paragraph", null, schema.text("alpha beta"))]);
+    const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 6) });
+
+    expect(moveEditorSelection(state, { from: 1, to: 6 }, 4)).toBeNull();
   });
 });

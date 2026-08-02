@@ -41,6 +41,7 @@ import { postLabel } from "@/lib/ai-client";
 import { getProviderKey } from "@/lib/ai/provider-runtime";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { debounce, type DebouncedFn } from "@/lib/utils";
+import { moveEditorSelection } from "@/lib/textarea-selection";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
@@ -336,6 +337,19 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
                   // Keep the Snip Bar open after a successful drop
                   useAppStore.getState().pinHelperBar();
+                }
+              } else if (el && view.dom.contains(el)) {
+                // This custom drag used to own the gesture and then ignore a
+                // release back over the editor. Move the original Slice so
+                // marks and block structure survive the reorder.
+                const range = customDragRangeRef.current;
+                const drop = view.posAtCoords({ left: e.clientX, top: e.clientY });
+                if (range && drop) {
+                  const tr = moveEditorSelection(view.state, range, drop.pos);
+                  if (tr) {
+                    view.dispatch(tr);
+                    view.focus();
+                  }
                 }
               }
 

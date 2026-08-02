@@ -1,3 +1,6 @@
+import { TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
+import { dropPoint } from "@tiptap/pm/transform";
+
 /**
  * Where a textarea's selection actually sits on screen.
  *
@@ -10,6 +13,80 @@
  * the same grid cell, precisely so the caret lands on the glyphs. That makes
  * the mirror a faithful ruler for the textarea's own selection.
  */
+
+export interface MovedTextSelection {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+/**
+ * Moves [start, end) to the character boundary where it was dropped.
+ *
+ * `dropOffset` belongs to the original value, so a forward move has to map it
+ * through the source deletion before inserting. Nothing is synthesized or
+ * trimmed: markdown markers, spaces, and newlines move exactly as selected.
+ */
+export function moveTextSelection(
+  value: string,
+  start: number,
+  end: number,
+  dropOffset: number,
+): MovedTextSelection | null {
+  if (start < 0 || end > value.length || start >= end) return null;
+  if (dropOffset < 0 || dropOffset > value.length) return null;
+  if (dropOffset >= start && dropOffset <= end) return null;
+
+  const selected = value.slice(start, end);
+  const withoutSelection = value.slice(0, start) + value.slice(end);
+  const insertAt = dropOffset > end ? dropOffset - selected.length : dropOffset;
+  return {
+    value:
+      withoutSelection.slice(0, insertAt) +
+      selected +
+      withoutSelection.slice(insertAt),
+    selectionStart: insertAt,
+    selectionEnd: insertAt + selected.length,
+  };
+}
+
+/**
+ * Builds one ProseMirror transaction that moves a selected slice in-place.
+ * Using a Slice rather than textBetween preserves marks and block structure;
+ * the transaction mapping accounts for the source deletion on forward drops.
+ */
+export function moveEditorSelection(
+  state: EditorState,
+  range: { from: number; to: number },
+  dropPos: number,
+): Transaction | null {
+  const { from, to } = range;
+  const docSize = state.doc.content.size;
+  if (from < 0 || to > docSize || from >= to) return null;
+  if (dropPos < 0 || dropPos > docSize) return null;
+  if (dropPos >= from && dropPos <= to) return null;
+
+  // Match ProseMirror's native drag path: retain the selected nodes' parent
+  // context and find a schema-valid insertion point before deleting source.
+  const slice = state.doc.slice(from, to, true);
+  const insertPos = dropPoint(state.doc, dropPos, slice) ?? dropPos;
+  const tr = state.tr.delete(from, to);
+  const insertAt = tr.mapping.map(insertPos);
+  const beforeInsert = tr.doc;
+  tr.replaceRange(insertAt, insertAt, slice);
+  if (tr.doc.eq(beforeInsert)) return null;
+
+  // Keep the moved content selected, as native editor drag-and-drop does.
+  let selectionEnd = tr.mapping.map(insertPos);
+  tr.mapping.maps[tr.mapping.maps.length - 1]?.forEach(
+    (_from, _to, _newFrom, newTo) => {
+      selectionEnd = newTo;
+    },
+  );
+  return tr
+    .setSelection(TextSelection.between(tr.doc.resolve(insertAt), tr.doc.resolve(selectionEnd)))
+    .setMeta("uiEvent", "drop");
+}
 
 /** Builds a DOM Range over [start, end) of `root`'s text content. */
 export function rangeForOffsets(root: Node, start: number, end: number): Range | null {

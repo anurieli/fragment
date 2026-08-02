@@ -18,7 +18,11 @@ import {
   findLinkedNoteContent,
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
-import { offsetAtPoint, pointInTextareaSelection } from "@/lib/textarea-selection";
+import {
+  moveTextSelection,
+  offsetAtPoint,
+  pointInTextareaSelection,
+} from "@/lib/textarea-selection";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
@@ -451,6 +455,33 @@ export function PieceCard({
           const idxAttr = dropZone.getAttribute("data-drop-index");
           const dropIdx = idxAttr ? parseInt(idxAttr, 10) : NaN;
           snipOutRef.current(start, end, Number.isFinite(dropIdx) ? dropIdx : undefined);
+        } else {
+          const rect = el.getBoundingClientRect();
+          const isOverTextarea =
+            ev.clientX >= rect.left &&
+            ev.clientX <= rect.right &&
+            ev.clientY >= rect.top &&
+            ev.clientY <= rect.bottom;
+          if (isOverTextarea) {
+            const dropOffset = offsetAtPoint(
+              mirrorRef.current,
+              ev.clientX,
+              ev.clientY,
+              el,
+            );
+            if (dropOffset !== null) {
+              const moved = moveTextSelection(piece.body ?? "", start, end, dropOffset);
+              if (moved) {
+                updatePiece(piece.id, { body: moved.value });
+                requestAnimationFrame(() => {
+                  const textarea = textareaRef.current;
+                  if (!textarea) return;
+                  textarea.focus();
+                  textarea.setSelectionRange(moved.selectionStart, moved.selectionEnd);
+                });
+              }
+            }
+          }
         }
 
         useAppStore.getState().setDraggingToHelper(false);
@@ -460,7 +491,7 @@ export function PieceCard({
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     },
-    [flowGenerating, piece.body],
+    [flowGenerating, piece.body, piece.id, updatePiece],
   );
 
   const footer = charFooter(piece);
