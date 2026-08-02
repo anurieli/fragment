@@ -65,6 +65,8 @@ Highlight any text in the editor and a floating toolbar appears:
 - **Elaborate** — AI adds more detail
 - **Edit** — Type your own instruction (e.g., "make this funnier", "rewrite as a question")
 
+The toolbar stays beside the highlighted text and flips above or below it as needed to remain inside the visible editor.
+
 All edits are context-aware — the AI sees the surrounding text and your note's goal/audience/tone. Undo with `Cmd+Z` if you don't like the result.
 
 ## Keyboard shortcuts
