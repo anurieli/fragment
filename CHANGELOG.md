@@ -4,7 +4,7 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 ## 2026-08-02 10:19 - Make Snip Bar movements undo as one operation (b7b78f9)
 
-**Commit**: `b7b78f9` on `cody/ari-273-undoing-an-editor-to-snip-bar-move-must-re`, pending review
+**Commit**: `b7b78f9`
 
 **Summary**: Moving selected editor text into the Snip Bar changed two stores, ProseMirror's document and Fragment's persisted snippets, but only the text lived in the editor's real undo history. The snippet half was tracked separately in maps keyed by the current undo depth. That key is not an event identity: edits can group at one depth, old events are pruned when history fills, and undo plus redo reuse depths. A snippet side effect could therefore detach from the text movement it belonged to, which is why Command-Z could put the text back while leaving the created snip behind. Each movement now adds a no-op `SnippetMovementStep` to the same ProseMirror transaction as its text insertion or deletion. ProseMirror owns, groups, maps, prunes, inverts, and replays the marker with the document step, while the editor applies the marker's explicit remove or restore effect to the snippet store during undo and redo. The same contract covers editor-to-Snip-Bar and Snip-Bar-to-editor movements, including the pending-drop cancellation path, rather than special-casing the reported direction.
 
