@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-03 - Add privacy policy and terms of service pages (5d4c4eb)
+
+**Commit**: `5d4c4eb`
+
+**Summary**: The hosted edition had no legal pages. `/privacy` and `/terms` now serve standard, general-purpose documents matching what the app actually does: local-first storage by default, optional accounts and cloud sync, share links, user-connected AI providers, essential cookies only, and error reporting. Both pages are static routes under a shared `(legal)` layout that provides its own scroll container (the root layout locks the body to the viewport), branded header and footer, and cross-links. The landing page footer links to both.
+
+**Files**: `src/app/(legal)/layout.tsx` (new), `src/app/(legal)/privacy/page.tsx` (new), `src/app/(legal)/terms/page.tsx` (new), `src/components/landing/landing-page.tsx`
+
+**Verification**: `npx tsc --noEmit` clean; production build passes with `/privacy` and `/terms` prerendered as static content.
+
 ## 2026-08-02 10:28 - Drag selected text to reorder it within a piece (c23cb3b)
 
 **Commit**: `c23cb3b`
