@@ -78,38 +78,49 @@ export function InlineEditMenu({ editor, onSnip, onEdit }: InlineEditMenuProps) 
     setVisible(true);
   }, [editor, mode]);
 
-  // Listen to selection changes
+  // Selection can already exist when this component mounts or when the editor
+  // regains focus without changing the ProseMirror range. Check immediately and
+  // listen at both the editor and DOM boundaries so mouse, keyboard, and focus
+  // selection paths all reveal the toolbar.
   useEffect(() => {
+    const reset = () => {
+      setVisible(false);
+      setMode("idle");
+      setCustomPrompt("");
+    };
     const handleSelectionUpdate = () => {
       if (activeEditRef.current) return;
 
       const { from, to } = editor.state.selection;
       if (from === to) {
-        setVisible(false);
-        setMode("idle");
-        setCustomPrompt("");
+        reset();
         return;
       }
       updatePosition();
     };
-
     const handleBlur = () => {
-      // Small delay to allow clicking the menu itself
+      // Small delay to allow clicking the menu itself.
       setTimeout(() => {
         if (!menuRef.current?.contains(document.activeElement) && !activeEditRef.current) {
-          setVisible(false);
-          setMode("idle");
-          setCustomPrompt("");
+          reset();
         }
       }, 150);
     };
+    const handleDomSelection = () => requestAnimationFrame(handleSelectionUpdate);
 
     editor.on("selectionUpdate", handleSelectionUpdate);
+    editor.on("focus", handleSelectionUpdate);
     editor.on("blur", handleBlur);
+    editor.view.dom.addEventListener("mouseup", handleDomSelection);
+    editor.view.dom.addEventListener("keyup", handleDomSelection);
+    handleSelectionUpdate();
 
     return () => {
       editor.off("selectionUpdate", handleSelectionUpdate);
+      editor.off("focus", handleSelectionUpdate);
       editor.off("blur", handleBlur);
+      editor.view.dom.removeEventListener("mouseup", handleDomSelection);
+      editor.view.dom.removeEventListener("keyup", handleDomSelection);
     };
   }, [editor, updatePosition]);
 

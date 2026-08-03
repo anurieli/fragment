@@ -193,6 +193,19 @@ export async function copyAsHtml(html: string): Promise<void> {
   ]);
 }
 
+/** Prefer the editor's per-keystroke snapshot over the debounced note store
+ * when exporting the note currently open in the editor. */
+export function latestNoteContentForExport(
+  noteId: string,
+  savedContent: string,
+  liveEditorNoteId: string | null,
+  liveEditorContent: string | null,
+): string {
+  return liveEditorNoteId === noteId && typeof liveEditorContent === "string"
+    ? liveEditorContent
+    : savedContent;
+}
+
 export function downloadAsMarkdown(content: string, title: string): string {
   const filename = sanitizeFilename(title) + ".md";
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });

@@ -89,4 +89,35 @@ describe("editor snippet movement history", () => {
     await waitFor(() => expect(editor).toHaveTextContent("One three"));
     expect(useDataStore.getState().snippets[snippetId]).toBeDefined();
   });
+
+  it("does not consume a snippet insertion when no note is open", async () => {
+    const snippetId = "idea-snippet";
+    useDataStore.setState({
+      snippets: {
+        [snippetId]: {
+          id: snippetId,
+          noteId: null,
+          ideaId: "idea-1",
+          content: "Keep this text",
+          label: null,
+          labelStatus: "done",
+          createdAt: 1,
+          order: 0,
+        },
+      },
+    });
+    render(<Editor />);
+
+    act(() => {
+      useAppStore.getState().setPendingSnippetInsert({
+        snippetId,
+        content: "Keep this text",
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().pendingSnippetInsert).toBeNull();
+    });
+    expect(useDataStore.getState().snippets[snippetId]).toBeDefined();
+  });
 });

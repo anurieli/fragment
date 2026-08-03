@@ -28,8 +28,10 @@ interface PendingEditorDeletion {
 interface PendingSnippetInsert {
   snippetId: string;
   content: string;
-  clientX: number;
-  clientY: number;
+  /** Pointer coordinates for drag/drop. Omitted by the context-menu action,
+   * which inserts at the editor's current selection. */
+  clientX?: number;
+  clientY?: number;
 }
 
 /** Which writing space a note-editor toolbar shows for the active idea. */
