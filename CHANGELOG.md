@@ -23,6 +23,15 @@ While closing this out, also fixed a real bug the split surfaced: `buildChatRequ
 **Files**: `src/lib/session-cookie.ts`, `src/lib/library-backup.ts`, `src/hooks/use-cloud-session.ts`, `src/components/settings/account-section.tsx` (new); `src/app/api/{generate,edit,analyze-voice,label}/route.ts`, `src/lib/ai/provider-runtime.ts` (auth-status fix); `README.md`, `.env.example`, `package.json`, `src/components/app-shell.tsx`, `src/components/settings/settings-nav.tsx`, `src/components/sidebar/sidebar.tsx`, plus deletion of `src/lib/server/*`, the DB-backed `src/app/api/v1/*` routes and `src/app/r/*`, `db/migrations/*`, `scripts/db-migrate.mjs`, `scripts/verify-sync.mjs`, and related tests.
 
 **Verification**: `tsc --noEmit` clean, 628/628 tests passing (this includes fixing the 2 that were failing from the status-code mismatch above). Production endpoints on thinkinginpieces.com verified live after redeploying from fragment-cloud: landing page 200, `/api/v1/auth/google/start` 307 to Google with correct client_id/redirect_uri/PKCE, `/api/v1/auth/session` returns `{"user":null}`. Olympus's own instance (`https://olympus.tailf278e9.ts.net:8444/`) rebuilt from fragment-cloud and verified against the same production Neon DB.
+## 2026-08-03 05:18 - Add Fragment context menus and restore selection actions (c61fbd1)
+
+**Commit**: `c61fbd1`
+
+**Summary**: Editor selections, Snip Bar cards, and standalone sidebar notes now expose warm dark Fragment context menus instead of relying on generic browser actions. Selected editor text offers cut, copy, paste, Snip Bar movement, AI generation, the upcoming image-generation affordance, and Settings while right-clicks outside a Fragment-specific target remain native. Clipboard actions use ProseMirror's rich serializer and paste parser so marks, links, and block structure survive. Snippet cards can insert at the current editor selection, copy, re-label, or delete; when no draft is open, insertion leaves the snippet intact and explains what is needed. Note cards can open, export Markdown from the latest per-keystroke editor snapshot, or delete. The inline Snip, Concise, Elaborate, and Edit toolbar now checks an existing focused selection immediately and follows mouse, keyboard, and editor-focus selection paths without regressing its viewport-aware placement.
+
+**Files**: `src/components/ui/context-menu.tsx` (new), `src/components/editor/editor.tsx`, `src/components/editor/inline-edit-menu.tsx`, `src/components/helper-bar/snippet-card.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/app-shell.tsx`, `src/stores/app-store.ts`, `src/lib/editor/context-menu-clipboard.ts` (new), `src/lib/export.ts`, `src/__tests__/context-menu.test.tsx` (new), `src/__tests__/context-menu-actions.test.ts` (new), `src/__tests__/inline-edit-menu.test.tsx`, `src/__tests__/editor-snippet-movement-history.test.tsx`
+
+**Verification**: 688 tests pass with 17 opt-in integration tests skipped; `npm run lint` exits with 0 errors and 31 existing warnings; `npx tsc --noEmit` is clean.
 
 ## 2026-08-03 - Add privacy policy and terms of service pages (5d4c4eb)
 

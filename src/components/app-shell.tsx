@@ -450,6 +450,7 @@ export function AppShell() {
             ) : (
               <Editor
                 onOpenAISettings={() => { setSettingsSection("ai"); setShowSettings(true); }}
+                onOpenSettings={() => setShowSettings(true)}
                 leftToolbarSlot={
                   activeIdeaId ? (
                     <>

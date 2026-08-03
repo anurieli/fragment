@@ -19,6 +19,13 @@ import {
   Check,
   Loader2,
   Square,
+  Clipboard,
+  Copy,
+  ClipboardPaste,
+  Scissors,
+  Sparkles,
+  ImageIcon,
+  Settings,
 } from "lucide-react";
 import { SlashBlockExtension } from "@/lib/slash-block-extension";
 import { useAppStore } from "@/stores/app-store";
@@ -32,6 +39,7 @@ import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice } from "@/lib/voice-context";
+import { useToastStore } from "@/hooks/use-toast";
 import { useLabelSnippet } from "@/hooks/use-label-snippet";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
@@ -49,6 +57,17 @@ import {
   addSnippetMovementToHistory,
   snippetMovementEffects,
 } from "@/lib/editor/snippet-movement-history";
+import {
+  pasteEditorClipboard,
+  writeEditorSelection,
+} from "@/lib/editor/context-menu-clipboard";
+import type { EditorView } from "@tiptap/pm/view";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  type Point,
+} from "@/components/ui/context-menu";
 
 /**
  * Encode empty paragraphs as NBSP lines so they survive the markdown round-trip.
@@ -85,9 +104,38 @@ function cleanupNbspParagraphs(ed: TiptapEditor) {
   }
 }
 
+function insertSlashBlock(view: EditorView): boolean {
+  const { state } = view;
+  const { $from } = state.selection;
+  const slashBlockType = state.schema.nodes.slashBlock;
+  if (!slashBlockType) return false;
+
+  const paraStart = $from.before($from.depth);
+  const paraEnd = $from.after($from.depth);
+  const isEmptyLine = $from.parent.textContent === "";
+  const tr = state.tr;
+
+  if (isEmptyLine) {
+    tr.replaceWith(
+      paraStart,
+      paraEnd,
+      slashBlockType.create({ replacedEmpty: true }),
+    );
+  } else {
+    tr.insert(
+      paraStart,
+      slashBlockType.create({ replacedEmpty: false }),
+    );
+  }
+
+  view.dispatch(tr);
+  return true;
+}
+
 
 interface EditorProps {
   onOpenAISettings?: () => void;
+  onOpenSettings?: () => void;
   /** Rendered as the first item in the toolbar row (before the sidebar-toggle
    * button) — how app-shell.tsx places the ARI-154 Write/Pieces SpaceToggle
    * at the left of the center-panel toolbar when an idea is active, without
@@ -95,7 +143,7 @@ interface EditorProps {
   leftToolbarSlot?: React.ReactNode;
 }
 
-export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
+export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: EditorProps) {
   const {
     activeNoteId,
     sidebarOpen,
@@ -168,6 +216,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
   // Goal overlay state
   const [goalOpen, setGoalOpen] = useState(false);
+  const [editorContextMenu, setEditorContextMenu] = useState<{
+    position: Point;
+    from: number;
+    to: number;
+  } | null>(null);
   const goalCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openGoal = () => {
     if (goalCloseTimer.current) clearTimeout(goalCloseTimer.current);
@@ -388,6 +441,22 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           }
           return false;
         },
+        contextmenu: (view, event) => {
+          const { from, to } = view.state.selection;
+          if (from === to) return false;
+
+          const mouseEvent = event as MouseEvent;
+          const pos = view.posAtCoords({ left: mouseEvent.clientX, top: mouseEvent.clientY });
+          if (!pos || pos.pos < from || pos.pos > to) return false;
+
+          mouseEvent.preventDefault();
+          setEditorContextMenu({
+            position: { x: mouseEvent.clientX, y: mouseEvent.clientY },
+            from,
+            to,
+          });
+          return true;
+        },
         dragstart: () => {
           // Only fires for pending-return drags (native DnD).
           // Custom drag prevented native drag via preventDefault in mousedown.
@@ -404,35 +473,12 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           const isStartOfLine = $from.parentOffset === 0;
 
           if (isEmptyLine || isStartOfLine) {
-            const slashBlockType = state.schema.nodes.slashBlock;
-            if (!slashBlockType) return false;
-
             event.preventDefault();
-
-            const paraStart = $from.before($from.depth);
-            const paraEnd = $from.after($from.depth);
-            const tr = state.tr;
-
-            if (isEmptyLine) {
-              // Replace the empty paragraph with the slash block
-              tr.replaceWith(
-                paraStart,
-                paraEnd,
-                slashBlockType.create({ replacedEmpty: true }),
-              );
-            } else {
-              // Insert the slash block before the current non-empty paragraph
-              tr.insert(
-                paraStart,
-                slashBlockType.create({ replacedEmpty: false }),
-              );
-            }
-
-            // Suppress save while this transient node is in the document
+            // Suppress save while this transient node is in the document.
             isInternalUpdate.current = true;
-            _view.dispatch(tr);
+            const inserted = insertSlashBlock(_view);
             isInternalUpdate.current = false;
-            return true;
+            return inserted;
           }
         }
         return false;
@@ -513,6 +559,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       },
     },
     onSelectionUpdate: () => {
+      setEditorContextMenu(null);
       // If there's a pending snippet drop and user clicked elsewhere, commit it
       const pending = useAppStore.getState().pendingSnippetDrop;
       if (!pending || pending.cancelled) return;
@@ -743,10 +790,17 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const pendingSnippetInsert = useAppStore((s) => s.pendingSnippetInsert);
   useEffect(() => {
     if (!pendingSnippetInsert || !editor) return;
+    if (!activeNoteId || !note) {
+      useAppStore.getState().setPendingSnippetInsert(null);
+      useToastStore.getState().showToast("Open or create a draft before inserting a snippet.");
+      return;
+    }
     const { snippetId, content, clientX, clientY } = pendingSnippetInsert;
     useAppStore.getState().setPendingSnippetInsert(null);
 
-    const dropPos = editor.view.posAtCoords({ left: clientX, top: clientY });
+    const dropPos = clientX === undefined || clientY === undefined
+      ? { pos: editor.state.selection.from }
+      : editor.view.posAtCoords({ left: clientX, top: clientY });
     if (!dropPos) return;
 
     const lines = content.split("\n");
@@ -981,6 +1035,73 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     [editor, note, inlineEdit, inlineEditEnabled],
   );
 
+  const closeEditorContextMenu = useCallback(() => setEditorContextMenu(null), []);
+
+  const restoreEditorContextSelection = useCallback(() => {
+    if (!editor || !editorContextMenu) return null;
+    const { from, to } = editorContextMenu;
+    editor.chain().setTextSelection({ from, to }).run();
+    return { from, to };
+  }, [editor, editorContextMenu]);
+
+  const handleEditorClipboard = useCallback(async (cut: boolean) => {
+    if (!editor || !editorContextMenu) return;
+    const { from, to } = editorContextMenu;
+    editor.chain().focus().setTextSelection({ from, to }).run();
+    closeEditorContextMenu();
+
+    // Prefer the browser's native command so ProseMirror owns clipboard
+    // serialization and preserves marks, links, and block structure.
+    if (typeof document.execCommand === "function" && document.execCommand(cut ? "cut" : "copy")) {
+      return;
+    }
+
+    try {
+      await writeEditorSelection(editor.view);
+      if (cut) {
+        editor.chain().focus().deleteRange({ from, to }).run();
+      }
+    } catch {
+      useToastStore.getState().showToast(`Couldn't ${cut ? "cut" : "copy"} the selection.`);
+    }
+  }, [editor, editorContextMenu, closeEditorContextMenu]);
+
+  const handleEditorPaste = useCallback(async () => {
+    if (!editor || !editorContextMenu) return;
+    const { from, to } = editorContextMenu;
+    editor.chain().focus().setTextSelection({ from, to }).run();
+    closeEditorContextMenu();
+
+    // Let ProseMirror's native paste pipeline run first. It handles HTML and
+    // schema-aware parsing better than a custom text insertion path.
+    if (typeof document.execCommand === "function" && document.execCommand("paste")) {
+      return;
+    }
+
+    try {
+      await pasteEditorClipboard(editor.view);
+    } catch {
+      useToastStore.getState().showToast("Couldn't read the clipboard.");
+    }
+  }, [editor, editorContextMenu, closeEditorContextMenu]);
+
+  const handleEditorContextSnip = useCallback(() => {
+    if (!restoreEditorContextSelection()) return;
+    closeEditorContextMenu();
+    handleAddToSnippets();
+  }, [restoreEditorContextSelection, closeEditorContextMenu, handleAddToSnippets]);
+
+  const handleEditorContextGenerate = useCallback(() => {
+    if (!editor || !restoreEditorContextSelection()) return;
+    closeEditorContextMenu();
+    if (!slashEnabled) {
+      onOpenAISettings?.();
+      return;
+    }
+    isInternalUpdate.current = true;
+    insertSlashBlock(editor.view);
+    isInternalUpdate.current = false;
+  }, [editor, restoreEditorContextSelection, closeEditorContextMenu, slashEnabled, onOpenAISettings]);
   // Keep stable refs current for use inside Tiptap handleDOMEvents closures
   labelSnippetRef.current = labelSnippet;
 
@@ -1340,6 +1461,61 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           }}
         />
         <EditorContent editor={editor} />
+        {editorContextMenu && (
+          <ContextMenu
+            position={editorContextMenu.position}
+            onClose={closeEditorContextMenu}
+            ariaLabel="Editor actions"
+          >
+            <ContextMenuItem
+              label="Cut"
+              shortcut="⌘X"
+              icon={<Scissors size={13} />}
+              onSelect={() => void handleEditorClipboard(true)}
+            />
+            <ContextMenuItem
+              label="Copy"
+              shortcut="⌘C"
+              icon={<Copy size={13} />}
+              onSelect={() => void handleEditorClipboard(false)}
+            />
+            <ContextMenuItem
+              label="Paste"
+              shortcut="⌘V"
+              icon={<ClipboardPaste size={13} />}
+              onSelect={() => void handleEditorPaste()}
+            />
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              label="Snip to Helper Bar"
+              icon={<Clipboard size={13} />}
+              onSelect={handleEditorContextSnip}
+            />
+            <ContextMenuItem
+              label="Generate with AI..."
+              shortcut="/"
+              icon={<Sparkles size={13} />}
+              onSelect={handleEditorContextGenerate}
+            />
+            <ContextMenuItem
+              label="Image Generation"
+              badge="Coming Soon"
+              icon={<ImageIcon size={13} />}
+              disabled
+              onSelect={() => {}}
+            />
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              label="Settings..."
+              shortcut="⌘,"
+              icon={<Settings size={13} />}
+              onSelect={() => {
+                closeEditorContextMenu();
+                onOpenSettings?.();
+              }}
+            />
+          </ContextMenu>
+        )}
         {editor && editor.isEmpty && !timelinePreviewVersionId && !isGenerating && (
           <EmptyNoteActions
             noteId={note.id}

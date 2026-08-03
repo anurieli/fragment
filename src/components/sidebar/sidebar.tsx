@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
   Sparkles,
   Monitor,
+  Download,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
@@ -36,6 +37,13 @@ import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
 import type { Idea, Priority } from "@/lib/content-engine";
+import { downloadAsMarkdown, latestNoteContentForExport } from "@/lib/export";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  type Point,
+} from "@/components/ui/context-menu";
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -190,6 +198,10 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // default here is the shortest list that still shows every idea you have.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [noteContextMenu, setNoteContextMenu] = useState<{
+    noteId: string;
+    position: Point;
+  } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -284,12 +296,41 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     startRename(id, "Untitled idea");
   }
 
-  function handleDelete(e: React.MouseEvent, noteId: string) {
-    e.stopPropagation();
+  function deleteStandaloneNote(noteId: string) {
     const nextId = deleteNote(noteId);
     if (activeNoteId === noteId) {
       setActiveNote(nextId);
     }
+  }
+
+  function handleDelete(e: React.MouseEvent, noteId: string) {
+    e.stopPropagation();
+    deleteStandaloneNote(noteId);
+  }
+
+  function handleOpenNoteFromMenu(noteId: string) {
+    setNoteContextMenu(null);
+    setActiveIdea(null);
+    setActiveNote(noteId);
+  }
+
+  function handleExportNote(noteId: string) {
+    const note = notes[noteId];
+    setNoteContextMenu(null);
+    if (!note) return;
+    const app = useAppStore.getState();
+    const content = latestNoteContentForExport(
+      noteId,
+      note.content,
+      app.liveEditorNoteId,
+      app.liveEditorContent,
+    );
+    downloadAsMarkdown(content, note.title || "Untitled");
+  }
+
+  function handleDeleteNoteFromMenu(noteId: string) {
+    setNoteContextMenu(null);
+    deleteStandaloneNote(noteId);
   }
 
   /** Select an idea, and with it a draft to write in: the one asked for, else
@@ -637,6 +678,14 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                       role="button"
                       tabIndex={0}
                       onClick={() => { setActiveIdea(null); setActiveNote(note.id); }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setNoteContextMenu({
+                          noteId: note.id,
+                          position: { x: event.clientX, y: event.clientY },
+                        });
+                      }}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveIdea(null); setActiveNote(note.id); } }}
                       className={`group relative flex flex-col w-full text-left px-4 py-3.5 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
                         ${
@@ -675,6 +724,32 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               </div>
             )}
           </div>
+
+          {noteContextMenu && notes[noteContextMenu.noteId] && (
+            <ContextMenu
+              position={noteContextMenu.position}
+              onClose={() => setNoteContextMenu(null)}
+              ariaLabel="Note actions"
+            >
+              <ContextMenuItem
+                label="Open"
+                icon={<FileText size={13} />}
+                onSelect={() => handleOpenNoteFromMenu(noteContextMenu.noteId)}
+              />
+              <ContextMenuItem
+                label="Export as Markdown..."
+                icon={<Download size={13} />}
+                onSelect={() => handleExportNote(noteContextMenu.noteId)}
+              />
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                label="Delete Note"
+                icon={<Trash2 size={13} />}
+                destructive
+                onSelect={() => handleDeleteNoteFromMenu(noteContextMenu.noteId)}
+              />
+            </ContextMenu>
+          )}
 
           {/* Compact recording bar */}
           {showCompactBar && (
