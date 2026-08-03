@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { X, Loader2, AlertCircle, GripVertical, RotateCcw } from "lucide-react";
+import { X, Loader2, AlertCircle, GripVertical, RotateCcw, FileInput, Copy, Tags, Trash2 } from "lucide-react";
 import type { Snippet } from "@/lib/types";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
@@ -9,6 +9,13 @@ import { useContentStore } from "@/stores/content-store";
 import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import { visibleSnippets } from "@/lib/snip-scope";
 import { formatSnippetPreview } from "@/lib/utils";
+import { useToastStore } from "@/hooks/use-toast";
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  type Point,
+} from "@/components/ui/context-menu";
 
 interface SnippetCardProps {
   snippet: Snippet;
@@ -21,6 +28,7 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
   const labelSnip = useSnipLabeler();
   const [showHover, setShowHover] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState<Point | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +40,36 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
     updateSnippetLabel(snippet.id, null, "loading");
     labelSnip(snippet.id, snippet.content, { noteId: snippet.noteId, ideaId: snippet.ideaId });
   }, [snippet, updateSnippetLabel, labelSnip]);
+
+  const handleInsertIntoEditor = useCallback(() => {
+    setContextMenuPosition(null);
+    const app = useAppStore.getState();
+    app.setPendingSnippetInsert({
+      snippetId: snippet.id,
+      content: snippet.content,
+    });
+    if (app.activeIdeaId) app.setIdeaSpace(app.activeIdeaId, "write");
+  }, [snippet]);
+
+  const handleCopyText = useCallback(async () => {
+    setContextMenuPosition(null);
+    try {
+      await navigator.clipboard.writeText(snippet.content);
+      useToastStore.getState().showToast("Snippet copied.");
+    } catch {
+      useToastStore.getState().showToast("Couldn't copy the snippet.");
+    }
+  }, [snippet.content]);
+
+  const handleRelabel = useCallback(() => {
+    setContextMenuPosition(null);
+    handleRetryLabel();
+  }, [handleRetryLabel]);
+
+  const handleDeleteFromMenu = useCallback(() => {
+    setContextMenuPosition(null);
+    removeSnippet(snippet.id);
+  }, [removeSnippet, snippet.id]);
 
   // Custom mouse-based drag (replaces native DnD which fails in Tauri/WKWebView)
   const handleMouseDown = useCallback(
@@ -172,6 +210,12 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
     <div className="relative" ref={cardRef}>
       <div
         onMouseDown={handleMouseDown}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setShowHover(false);
+          setContextMenuPosition({ x: event.clientX, y: event.clientY });
+        }}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={`group relative rounded-[var(--radius-default)] bg-surface-3 border border-border-strong
@@ -230,6 +274,38 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
           </p>
         </div>
       </div>
+
+      {contextMenuPosition && (
+        <ContextMenu
+          position={contextMenuPosition}
+          onClose={() => setContextMenuPosition(null)}
+          ariaLabel="Snippet actions"
+        >
+          <ContextMenuItem
+            label="Insert into Editor"
+            icon={<FileInput size={13} />}
+            onSelect={handleInsertIntoEditor}
+          />
+          <ContextMenuItem
+            label="Copy Text"
+            shortcut="⌘C"
+            icon={<Copy size={13} />}
+            onSelect={() => void handleCopyText()}
+          />
+          <ContextMenuItem
+            label="Re-label"
+            icon={<Tags size={13} />}
+            onSelect={handleRelabel}
+          />
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            label="Delete Snippet"
+            icon={<Trash2 size={13} />}
+            destructive
+            onSelect={handleDeleteFromMenu}
+          />
+        </ContextMenu>
+      )}
 
       {/* Hover popup for full content */}
       {showHover && isLong && !isDragging && (

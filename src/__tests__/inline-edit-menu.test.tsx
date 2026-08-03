@@ -96,4 +96,55 @@ describe("InlineEditMenu", () => {
     expect(restoredInput).toHaveValue("Keep this direct");
     await waitFor(() => expect(restoredInput).toHaveFocus());
   });
+
+  it("shows immediately when it mounts over an existing focused selection", () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+
+    const scrollContainer = document.createElement("div");
+    scrollContainer.className = "overflow-y-auto";
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 800,
+      bottom: 600,
+      width: 800,
+      height: 600,
+      toJSON: () => ({}),
+    });
+
+    const editorDom = document.createElement("div");
+    scrollContainer.appendChild(editorDom);
+    document.body.appendChild(scrollContainer);
+
+    const editor = {
+      isFocused: true,
+      state: { selection: { from: 1, to: 8 } },
+      view: {
+        dom: editorDom,
+        coordsAtPos: (position: number) => ({
+          top: 100,
+          bottom: 120,
+          left: 100 + position * 5,
+          right: 105 + position * 5,
+        }),
+      },
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(
+      <InlineEditMenu
+        editor={editor as unknown as TiptapEditor}
+        onSnip={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Snip" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Concise" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Elaborate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  });
 });
