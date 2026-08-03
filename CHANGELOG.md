@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-03 05:35 - Fixed eslint linting agent worktrees' full .next builds as source (68cd16e)
+
+**Commit**: `68cd16e` on `agent/offline-cloud-accounts`, pushed for PR #9
+
+**Summary**: While verifying the fragment-cloud split, `npx eslint .` reported 115,480 problems (4,324 errors). The `.next/**`, `out/**`, `build/**`, and `node_modules/**` ignore patterns were anchored to the repo root, so they never matched the same directories one level down inside `.worktrees/` and `.claude/worktrees/` — each a full checkout Cody's bridge uses for isolated per-issue work, compiled `.next` output included. Prefixed the four patterns with `**/` so they match at any depth, and added `.worktrees/**` / `.claude/worktrees/**` explicitly. True count: 0 errors, 34 warnings, all pre-existing and already documented in this file's own comments as accepted debt.
+
+**Files**: `eslint.config.mjs`.
+
+**Verification**: `npx eslint .` exits 0 with 34 pre-existing warnings and no new errors.
+
 ## 2026-08-03 05:20 - Moved accounts/sync/sharing out of this repo, into private fragment-cloud (0a2ee9b)
 
 **Commit**: `0a2ee9b` on `agent/offline-cloud-accounts`, pushed for PR
