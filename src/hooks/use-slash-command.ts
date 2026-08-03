@@ -6,9 +6,8 @@ import { useVoiceStore } from "@/stores/voice-store";
 import { useAppStore } from "@/stores/app-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { postGenerateStream } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
 import { resolveVoice, composeVoiceContext } from "@/lib/voice-context";
-import { hasWorkingProvider } from "@/lib/ai/connection-status";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { parseSSEStreamWithUsage } from "@/lib/sse-parser";
 import { logApiCall } from "@/lib/api-logger";
 import { captureEvent } from "@/lib/posthog";
@@ -54,7 +53,8 @@ export function useSlashCommand() {
       }
 
       const app = useAppStore.getState();
-      if (!hasWorkingProvider(settings, app.badProviders, "slashCommand")) {
+      const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "slashCommand");
+      if (!auth) {
         app.openAiGate("no-provider");
         callbacks.onError("No AI provider connected");
         return;
@@ -70,10 +70,10 @@ export function useSlashCommand() {
       abortRef.current = new AbortController();
       const signal = abortRef.current.signal;
 
-      const { provider, model } = settings.featureProviders.slashCommand;
+      const { provider, model } = auth;
       const { maxContextAbove, maxContextBelow, promptTemplate } =
         settings.slashCommand;
-      const apiKey = getProviderKey(provider, settings.providerCredentials) || undefined;
+      const apiKey = auth.apiKey || undefined;
       const promptLength =
         contextAbove.slice(-maxContextAbove).length
         + contextBelow.slice(0, maxContextBelow).length
@@ -128,7 +128,7 @@ export function useSlashCommand() {
 
         if (!res.ok || !res.body) {
           const durationMs = Date.now() - startTime;
-          const isAuthFailure = res.status === 401;
+          const isAuthFailure = isAiAuthFailureStatus(res.status);
           const message = isAuthFailure
             ? (provider === "codex" ? "ChatGPT disconnected." : "API key invalid.")
             : "Generation failed. Check your AI settings.";

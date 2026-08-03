@@ -279,7 +279,7 @@ export function buildChatRequest(opts: BuildChatOptions): ChatRequest | ChatRequ
 
     case "anthropic-messages": {
       const key = normalizeApiKey(opts.apiKey ?? undefined);
-      if (!key) return { error: "No API key configured", status: 400 };
+      if (!key) return { error: "No API key configured", status: 401 };
       return {
         url: config.chatEndpoint,
         headers: buildAnthropicHeaders(key, browserDirect),
@@ -290,7 +290,7 @@ export function buildChatRequest(opts: BuildChatOptions): ChatRequest | ChatRequ
     case "openai-chat":
     default: {
       const key = normalizeApiKey(opts.apiKey ?? undefined);
-      if (!key) return { error: "No API key configured", status: 400 };
+      if (!key) return { error: "No API key configured", status: 401 };
       return {
         url: config.chatEndpoint,
         headers: buildApiKeyHeaders(provider, key),

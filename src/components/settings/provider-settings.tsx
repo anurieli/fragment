@@ -1,39 +1,32 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Eye, EyeOff, LogIn, Check, Loader2, Zap, Sparkles, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, LogIn, Check, Loader2, Zap, RotateCcw } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useAppStore } from "@/stores/app-store";
 import { PROVIDER_REGISTRY } from "@/lib/providers";
 import { getProviderKey, getProviderKeyField } from "@/lib/ai/provider-runtime";
 import { hasAnyProviderPresent } from "@/lib/ai/connection-status";
-import { isHosted } from "@/lib/edition";
 import { openExternal } from "@/lib/ai-client";
-import { useCodexSignIn } from "@/hooks/use-codex-signin";
+import { useProviderConnect } from "@/hooks/use-provider-connect";
 import { clearCodexSession } from "@/lib/codex-token-manager";
 import { useProviderModels } from "@/hooks/use-provider-models";
 import { CodexDeviceFlow } from "@/components/settings/codex-device-flow";
 import type { AIProvider } from "@/lib/providers";
 
-/** Card title for the ChatGPT (Codex) sign-in — the flagship, no-API-key option. */
-const CODEX_CARD_TITLE = "ChatGPT Pro";
+const CODEX_CARD_TITLE = "ChatGPT (Codex)";
 
 export function ProviderSettings() {
   const { settings } = useSettingsStore();
   const hasAnyProvider = hasAnyProviderPresent(settings);
-  const hosted = isHosted();
 
   return (
     <div className="space-y-8">
-      {/* Hosted SaaS: AI works out of the box; BYO keys are optional. */}
-      {hosted && <HostedManagedBanner />}
-
-      {/* Onboarding banner — self-host, shown when no provider is connected */}
-      {!hosted && !hasAnyProvider && <ProviderOnboarding />}
+      {!hasAnyProvider && <ProviderOnboarding />}
 
       {/* ChatGPT first — the flagship: sign in with your ChatGPT account, no API key */}
       <div className="space-y-3">
-        <SectionLabel>Recommended — sign in with ChatGPT</SectionLabel>
+        <SectionLabel>Sign in with ChatGPT</SectionLabel>
         <CodexAuthCard />
       </div>
 
@@ -71,27 +64,6 @@ function BetaBadge() {
   );
 }
 
-function HostedManagedBanner() {
-  return (
-    <div className="rounded-[var(--radius-default)] border border-gold/30 bg-gold/5 p-5 space-y-2">
-      <div className="flex items-start gap-3">
-        <div className="w-7 h-7 rounded-full bg-gold/15 flex items-center justify-center shrink-0 mt-0.5">
-          <Sparkles size={14} className="text-gold" />
-        </div>
-        <div className="space-y-1">
-          <h4 className="text-sm font-medium text-text-primary">
-            Fragment AI is included on your plan
-          </h4>
-          <p className="text-[11px] text-text-muted leading-relaxed">
-            Snip, Flow, and Refine work out of the box — no setup, no API keys. Prefer to use your
-            own account? Add a provider key below and Fragment will use it instead.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ProviderOnboarding() {
   return (
     <div className="rounded-[var(--radius-default)] border border-gold/30 bg-gold/5 p-5 space-y-4">
@@ -116,8 +88,8 @@ function ProviderOnboarding() {
             Easiest: Sign in with ChatGPT
           </p>
           <p className="text-[10px] text-text-muted leading-relaxed">
-            Already pay for ChatGPT? Sign in with your ChatGPT account below — no API key needed,
-            and Fragment uses your existing subscription (any paid plan, from $20/month).
+            Try your eligible ChatGPT account below — no API key needed. Availability and usage
+            limits depend on the account and workspace. If it is unavailable, connect an API key.
           </p>
         </div>
 
@@ -153,11 +125,13 @@ function ProviderOnboarding() {
 
 /** Generic API-key card — drives OpenRouter, OpenAI, Anthropic, Perplexity from the registry. */
 function ApiKeyAuthCard({ providerId }: { providerId: AIProvider }) {
-  const { settings, updateProviderCredentials } = useSettingsStore();
+  const { settings } = useSettingsStore();
   const [showKey, setShowKey] = useState(false);
   const def = PROVIDER_REGISTRY[providerId];
   const field = getProviderKeyField(providerId);
   const value = getProviderKey(providerId, settings.providerCredentials);
+  const [draft, setDraft] = useState(value);
+  const connect = useProviderConnect();
   const hasKey = value.length > 0;
   const Icon = def.icon;
 
@@ -177,8 +151,9 @@ function ApiKeyAuthCard({ providerId }: { providerId: AIProvider }) {
       <div className="relative">
         <input
           type={showKey ? "text" : "password"}
-          value={value}
-          onChange={(e) => updateProviderCredentials({ [field]: e.target.value })}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void connect.connectKeyProvider(providerId, draft); }}
           placeholder={def.keyPlaceholder ?? "Paste your API key here"}
           className="w-full bg-surface border border-border-strong rounded-[var(--radius-sm)] px-3 py-2 text-xs text-text-primary placeholder:text-text-faint outline-none focus:border-border-active transition-colors duration-150 pr-9"
         />
@@ -187,6 +162,17 @@ function ApiKeyAuthCard({ providerId }: { providerId: AIProvider }) {
           className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-text-secondary transition-colors duration-150"
         >
           {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        {connect.error ? <p className="text-[10px] text-red">{connect.error}</p> : <span />}
+        <button
+          onClick={() => void connect.connectKeyProvider(providerId, draft)}
+          disabled={!draft.trim() || connect.state === "validating"}
+          className="flex items-center gap-1.5 rounded-[var(--radius-sm)] bg-gold/15 px-3 py-1.5 text-[10px] font-medium text-gold disabled:opacity-50"
+        >
+          {connect.state === "validating" ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+          Validate & use everywhere
         </button>
       </div>
       {def.getKeyUrl && (
@@ -208,7 +194,8 @@ function CodexAuthCard() {
   const { settings, updateProviderCredentials } = useSettingsStore();
   const setCodexConnection = useAppStore((s) => s.setCodexConnection);
   const isConnected = !!settings.providerCredentials.codexAccessToken;
-  const signIn = useCodexSignIn();
+  const connect = useProviderConnect();
+  const signIn = connect.codex;
   const { phase, error, start, cancel } = signIn;
   const Icon = PROVIDER_REGISTRY.codex.icon;
 
@@ -245,7 +232,7 @@ function CodexAuthCard() {
           </div>
         </div>
         <p className="text-[10px] text-text-muted leading-relaxed">
-          Your ChatGPT account is connected. OpenAI&apos;s latest models are ready to use.
+          Your ChatGPT connection is active. Account and workspace usage limits still apply.
         </p>
         <CodexModelManager />
       </div>
@@ -303,8 +290,8 @@ function CodexAuthCard() {
         </div>
       </div>
       <p className="text-[10px] text-text-muted leading-relaxed">
-        Use your ChatGPT account to run OpenAI&apos;s latest models — no API key needed.
-        Works with any paid ChatGPT plan, starting at $20/month.
+        Connect an eligible ChatGPT account without an API key. This integration is experimental;
+        plan and workspace limits still apply, and some accounts may need an OpenAI API key instead.
       </p>
       {error && <p className="text-[10px] text-red-400">{error}</p>}
     </div>

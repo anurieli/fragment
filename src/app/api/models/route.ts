@@ -40,11 +40,15 @@ export async function GET(req: NextRequest) {
 
   if (!modelsRequest) {
     const error = provider === "codex" ? "Not authenticated with Codex" : "Missing API key";
-    return NextResponse.json({
-      models: [],
-      error,
-      _meta: { durationMs: Date.now() - startTime, statusCode: 401, error },
-    });
+    return NextResponse.json(
+      {
+        models: [],
+        error,
+        code: "AI_AUTH_REQUIRED",
+        _meta: { durationMs: Date.now() - startTime, statusCode: 401, error },
+      },
+      { status: 401 },
+    );
   }
 
   try {

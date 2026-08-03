@@ -38,7 +38,7 @@ import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
 import { logApiCall } from "@/lib/api-logger";
 import { postLabel } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { debounce, type DebouncedFn } from "@/lib/utils";
 import { useSaveStatus } from "@/hooks/use-save-status";
@@ -973,7 +973,13 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         return;
       }
       try {
-        const { provider, model } = settings.featureProviders.snippetLabeling;
+        const app = useAppStore.getState();
+        const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "snippetLabeling");
+        if (!auth) {
+          updateFloatingCardLabel(null, "idle" as "done");
+          return;
+        }
+        const { provider, model } = auth;
         const { promptTemplate, maxEssayContext } = settings.snippetLabeling;
         const truncatedEssayContent =
           maxEssayContext > 0 ? (note?.content ?? "").slice(0, maxEssayContext) : "";
@@ -986,7 +992,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
             promptTemplate,
             model,
             provider,
-            apiKey: getProviderKey(provider, settings.providerCredentials) || undefined,
+            apiKey: auth.apiKey || undefined,
             codexToken,
           });
 
@@ -999,6 +1005,8 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
             updateProviderCredentials,
           );
           if (!token) {
+            app.markProviderBad("codex");
+            app.openAiGate("auth-failed", "codex");
             useToastStore.getState().showToast("ChatGPT disconnected. Reconnect in Settings.");
             updateFloatingCardLabel(null, "error");
             return;
@@ -1022,7 +1030,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           logApiCall("label", "snip-drag-preview", provider, modelUsed, data._meta, activeNoteId ?? undefined).catch(() => {});
         }
         if (!res.ok) {
-          if (res.status === 401) {
+          if (isAiAuthFailureStatus(res.status)) {
+            app.markProviderBad(provider);
+            app.openAiGate("auth-failed", provider);
             const toast = provider === "codex" ? "ChatGPT disconnected. Reconnect in Settings." : "API key invalid. Check Settings.";
             useToastStore.getState().showToast(toast);
           }

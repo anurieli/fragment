@@ -25,6 +25,18 @@
       "source": "get-convex/agent-skills",
       "sourceType": "github",
       "computedHash": "92a5c170cf238f45f08439d9d5d7947af490b880ee8f15306183240483cbed02"
+    },
+    "neon": {
+      "source": "neondatabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/neon/SKILL.md",
+      "computedHash": "34714c04b6ab06adc728df602131f8c23fcbf79bf6a54c4b82e9021ad138cb72"
+    },
+    "neon-postgres": {
+      "source": "neondatabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/neon-postgres/SKILL.md",
+      "computedHash": "7985b983f8ae5e36d88b82bcc2f3353726d22ced9be97d438681b308afed509e"
     }
   }
 }

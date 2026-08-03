@@ -31,6 +31,7 @@ import { ImageGenerationSection } from "./settings/image-generation-section";
 import { AiSection } from "./settings/ai-section";
 import { IntegrationsSection } from "./settings/integrations-section";
 import { ApiLogsSection } from "./settings/api-logs-section";
+import { AccountSection } from "./settings/account-section";
 import { GlobalSearch } from "./search/global-search";
 import { ToastContainer } from "./ui/toast";
 import { HelpOverlay } from "./help/help-overlay";
@@ -410,6 +411,8 @@ export function AppShell() {
             ) : (
               <Sidebar
                 onOpenSettings={() => setShowSettings(true)}
+                onOpenAccount={() => { setSettingsSection("account"); setShowSettings(true); }}
+                onOpenAI={() => { setSettingsSection("ai"); setShowSettings(true); }}
                 onOpenHelp={() => setShowHelp(true)}
                 onOpenLogs={() => { setSettingsSection("logs"); setShowSettings(true); }}
               />
@@ -434,6 +437,7 @@ export function AppShell() {
           <main className="flex-1 min-w-0 flex flex-col bg-surface rounded-[var(--radius-xl)] overflow-hidden">
             {showSettings ? (
               <>
+                {settingsSection === "account" && <AccountSection />}
                 {settingsSection === "profile" && <UserProfileSection />}
                 {settingsSection === "writing" && <BrandVoiceSection />}
                 {settingsSection === "photos" && <ImageGenerationSection />}

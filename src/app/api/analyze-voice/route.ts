@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
 
   if (isChatRequestError(chatRequest)) {
     const durationMs = Date.now() - startTime;
-    const errorLabel = chatRequest.status === 401 ? "Provider not authenticated" : "No API key configured";
+    const errorLabel = chatRequest.error;
     logAnalyze("warn", "request:failed", { requestId, provider, modelToRun, statusCode: chatRequest.status, durationMs, failureReason: chatRequest.error });
     return NextResponse.json(
       { error: errorLabel, _meta: { durationMs, statusCode: chatRequest.status, error: chatRequest.error, promptLength: prompt.length, responseLength: 0, modelRequested: requestedModel, modelUsed: modelToRun, request: requestSnapshot } },

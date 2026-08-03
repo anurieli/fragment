@@ -112,7 +112,7 @@ describe("POST /api/label", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("localhost:11434");
   });
 
-  it("returns fallback when no API key for openrouter", async () => {
+  it("returns an auth error when no API key for openrouter", async () => {
     // No env key, no client key
     delete process.env.OPENROUTER_API_KEY;
 
@@ -125,9 +125,9 @@ describe("POST /api/label", () => {
       provider: "openrouter",
     });
 
-    const res = (await POST(req)) as { body: { label: string }; status: number };
-    expect(res.body.label).toBe("AI labeling unavailable");
-    expect(res.status).toBe(200);
+    const res = (await POST(req)) as { body: { error: string }; status: number };
+    expect(res.body.error).toBe("No API key configured");
+    expect(res.status).toBe(401);
   });
 
   it("routes Codex labeling to the ChatGPT Codex responses endpoint", async () => {
