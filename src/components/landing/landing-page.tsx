@@ -149,14 +149,22 @@ export function LandingPage() {
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-8 text-sm text-text-faint">
           <span>Fragment</span>
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition-colors hover:text-text-secondary"
-          >
-            GitHub
-          </a>
+          <div className="flex items-center gap-4">
+            <a href="/privacy" className="transition-colors hover:text-text-secondary">
+              Privacy
+            </a>
+            <a href="/terms" className="transition-colors hover:text-text-secondary">
+              Terms
+            </a>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition-colors hover:text-text-secondary"
+            >
+              GitHub
+            </a>
+          </div>
         </div>
       </footer>
     </div>
