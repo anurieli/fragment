@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-03 12:33 - Preserve valid mixed-block editor reorders (ARI-274)
+
+**Summary**: Follow-up validation of same-editor selection reordering found that deleting a raw ProseMirror range could leave a moved heading and adjacent paragraph with the wrong destination block type. Reorders now require the editor's live selection to match the captured drag range, copy that selection's native slice, and remove it through ProseMirror's selection-replacement semantics before mapping the drop point. Moving a whole heading through the start of the following paragraph into paragraph text therefore produces a valid paragraph structure instead of promoting the destination to a heading, while stale selection changes cancel safely.
+
+**Files**: `src/lib/textarea-selection.ts`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
+
+**Verification**: 690 tests pass with 17 opt-in integration tests skipped, including focused coverage for mixed heading-to-paragraph movement and stale selection rejection; `npm run lint` exits with 0 errors and 31 existing warnings; `npx tsc --noEmit` and the production build are clean.
+
 ## 2026-08-03 05:18 - Add Fragment context menus and restore selection actions (c61fbd1)
 
 **Commit**: `c61fbd1`

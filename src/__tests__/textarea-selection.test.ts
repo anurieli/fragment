@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Schema } from "@tiptap/pm/model";
-import { EditorState, TextSelection } from "@tiptap/pm/state";
+import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import {
   moveEditorSelection,
   moveTextareaSelection,
@@ -163,13 +163,72 @@ describe("moving a dragged selection", () => {
     const first = schema.node("paragraph", null, schema.text("alpha"));
     const second = schema.node("paragraph", null, schema.text("beta"));
     const doc = schema.node("doc", null, [first, second]);
-    const state = EditorState.create({ doc });
+    const state = EditorState.create({
+      doc,
+      selection: NodeSelection.create(doc, 0),
+    });
 
     const tr = moveEditorSelection(state, { from: 0, to: first.nodeSize }, doc.content.size);
     expect(tr?.doc.toJSON()).toEqual(
       schema.node("doc", null, [second, first]).toJSON(),
     );
     expect(tr?.getMeta("uiEvent")).toBe("drop");
+  });
+
+  it("uses native selection replacement semantics across a heading and paragraph", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { content: "inline*", group: "block" },
+        heading: {
+          attrs: { level: { default: 1 } },
+          content: "inline*",
+          group: "block",
+        },
+        text: { group: "inline" },
+      },
+    });
+    const doc = schema.node("doc", null, [
+      schema.node("heading", { level: 1 }, schema.text("Heading")),
+      schema.node("paragraph", null, schema.text("Paragraph tail")),
+    ]);
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, 1, 10),
+    });
+
+    const tr = moveEditorSelection(state, { from: 1, to: 10 }, 11);
+
+    expect(tr?.doc.toJSON()).toEqual(
+      schema.node("doc", null, [
+        schema.node("paragraph", null, schema.text("PHeading")),
+        schema.node("paragraph", null, schema.text("aragraph tail")),
+      ]).toJSON(),
+    );
+  });
+
+  it("does not delete a different selection when only the editor selection changed", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "paragraph+" },
+        paragraph: { content: "text*" },
+        text: {},
+      },
+    });
+    const doc = schema.node("doc", null, [
+      schema.node("paragraph", null, schema.text("alpha beta gamma")),
+    ]);
+    const dragState = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, 1, 6),
+    });
+    const changedSelectionState = dragState.apply(
+      dragState.tr.setSelection(TextSelection.create(doc, 7, 11)),
+    );
+
+    expect(
+      moveEditorSelection(changedSelectionState, { from: 1, to: 6 }, 12, doc),
+    ).toBeNull();
   });
 
   it("does not apply positions captured from an older editor document", () => {
