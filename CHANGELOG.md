@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-03 05:18 - Add Fragment context menus and restore selection actions (c61fbd1)
+
+**Commit**: `c61fbd1`
+
+**Summary**: Editor selections, Snip Bar cards, and standalone sidebar notes now expose warm dark Fragment context menus instead of relying on generic browser actions. Selected editor text offers cut, copy, paste, Snip Bar movement, AI generation, the upcoming image-generation affordance, and Settings while right-clicks outside a Fragment-specific target remain native. Snippet cards can insert at the current editor selection, copy, re-label, or delete, and note cards can open, export Markdown, or delete. The inline Snip, Concise, Elaborate, and Edit toolbar now checks an existing focused selection immediately and follows mouse, keyboard, and editor-focus selection paths without regressing its viewport-aware placement.
+
+**Files**: `src/components/ui/context-menu.tsx` (new), `src/components/editor/editor.tsx`, `src/components/editor/inline-edit-menu.tsx`, `src/components/helper-bar/snippet-card.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/app-shell.tsx`, `src/stores/app-store.ts`, `src/__tests__/context-menu.test.tsx` (new), `src/__tests__/inline-edit-menu.test.tsx`
+
+**Verification**: 14 focused context-menu, inline-toolbar, placement, and Snip Bar movement tests pass; `npm run lint -- --quiet` and `npx tsc --noEmit` are clean.
+
 ## 2026-08-03 - Add privacy policy and terms of service pages (5d4c4eb)
 
 **Commit**: `5d4c4eb`
