@@ -18,14 +18,19 @@ import nextTypeScript from "eslint-config-next/typescript";
 export default [
   {
     ignores: [
-      ".next/**",
-      "out/**",
-      "build/**",
-      "node_modules/**",
+      // `**/` prefixes so these match regardless of nesting depth, since
+      // agent worktrees (.worktrees/, .claude/worktrees/) each carry their
+      // own full checkout with its own .next/node_modules/out/build.
+      "**/.next/**",
+      "**/out/**",
+      "**/build/**",
+      "**/node_modules/**",
       "next-env.d.ts",
       "src-tauri/target/**",
       "packages/**/dist/**",
       "public/**",
+      ".worktrees/**",
+      ".claude/worktrees/**",
     ],
   },
   ...nextCoreWebVitals,
