@@ -31,7 +31,7 @@ import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
 import type { Idea, Priority } from "@/lib/content-engine";
-import { downloadAsMarkdown } from "@/lib/export";
+import { downloadAsMarkdown, latestNoteContentForExport } from "@/lib/export";
 import {
   ContextMenu,
   ContextMenuItem,
@@ -306,7 +306,14 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
     const note = notes[noteId];
     setNoteContextMenu(null);
     if (!note) return;
-    downloadAsMarkdown(note.content, note.title || "Untitled");
+    const app = useAppStore.getState();
+    const content = latestNoteContentForExport(
+      noteId,
+      note.content,
+      app.liveEditorNoteId,
+      app.liveEditorContent,
+    );
+    downloadAsMarkdown(content, note.title || "Untitled");
   }
 
   function handleDeleteNoteFromMenu(noteId: string) {

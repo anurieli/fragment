@@ -57,6 +57,10 @@ import {
   addSnippetMovementToHistory,
   snippetMovementEffects,
 } from "@/lib/editor/snippet-movement-history";
+import {
+  pasteEditorClipboard,
+  writeEditorSelection,
+} from "@/lib/editor/context-menu-clipboard";
 import type { EditorView } from "@tiptap/pm/view";
 import {
   ContextMenu,
@@ -786,6 +790,11 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
   const pendingSnippetInsert = useAppStore((s) => s.pendingSnippetInsert);
   useEffect(() => {
     if (!pendingSnippetInsert || !editor) return;
+    if (!activeNoteId || !note) {
+      useAppStore.getState().setPendingSnippetInsert(null);
+      useToastStore.getState().showToast("Open or create a draft before inserting a snippet.");
+      return;
+    }
     const { snippetId, content, clientX, clientY } = pendingSnippetInsert;
     useAppStore.getState().setPendingSnippetInsert(null);
 
@@ -1038,11 +1047,17 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
   const handleEditorClipboard = useCallback(async (cut: boolean) => {
     if (!editor || !editorContextMenu) return;
     const { from, to } = editorContextMenu;
-    const selectedText = editor.state.doc.textBetween(from, to, "\n");
+    editor.chain().focus().setTextSelection({ from, to }).run();
     closeEditorContextMenu();
 
+    // Prefer the browser's native command so ProseMirror owns clipboard
+    // serialization and preserves marks, links, and block structure.
+    if (typeof document.execCommand === "function" && document.execCommand(cut ? "cut" : "copy")) {
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(selectedText);
+      await writeEditorSelection(editor.view);
       if (cut) {
         editor.chain().focus().deleteRange({ from, to }).run();
       }
@@ -1054,12 +1069,17 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
   const handleEditorPaste = useCallback(async () => {
     if (!editor || !editorContextMenu) return;
     const { from, to } = editorContextMenu;
+    editor.chain().focus().setTextSelection({ from, to }).run();
     closeEditorContextMenu();
 
+    // Let ProseMirror's native paste pipeline run first. It handles HTML and
+    // schema-aware parsing better than a custom text insertion path.
+    if (typeof document.execCommand === "function" && document.execCommand("paste")) {
+      return;
+    }
+
     try {
-      const text = await navigator.clipboard.readText();
-      if (!text) return;
-      editor.chain().focus().insertContentAt({ from, to }, text).run();
+      await pasteEditorClipboard(editor.view);
     } catch {
       useToastStore.getState().showToast("Couldn't read the clipboard.");
     }

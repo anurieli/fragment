@@ -44,6 +44,10 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
   const handleInsertIntoEditor = useCallback(() => {
     setContextMenuPosition(null);
     const app = useAppStore.getState();
+    if (!app.activeNoteId) {
+      useToastStore.getState().showToast("Open or create a draft before inserting a snippet.");
+      return;
+    }
     app.setPendingSnippetInsert({
       snippetId: snippet.id,
       content: snippet.content,
