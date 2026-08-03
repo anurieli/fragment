@@ -9,7 +9,7 @@ import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { TextSelection } from "@tiptap/pm/state";
 import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
-import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
+import { isHistoryTransaction } from "@tiptap/pm/history";
 import {
   PanelLeftOpen,
   PanelRightOpen,
@@ -32,20 +32,23 @@ import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice } from "@/lib/voice-context";
-import { useToastStore } from "@/hooks/use-toast";
 import { useLabelSnippet } from "@/hooks/use-label-snippet";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
-import { logApiCall } from "@/lib/api-logger";
-import { postLabel } from "@/lib/ai-client";
-import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
-import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { debounce, type DebouncedFn } from "@/lib/utils";
+import {
+  moveEditorSelection,
+  selectionDragDestination,
+} from "@/lib/textarea-selection";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
 import { NoteUsageFooter } from "./note-usage-footer";
 import type { Editor as TiptapEditor } from "@tiptap/core";
+import {
+  addSnippetMovementToHistory,
+  snippetMovementEffects,
+} from "@/lib/editor/snippet-movement-history";
 
 /**
  * Encode empty paragraphs as NBSP lines so they survive the markdown round-trip.
@@ -112,7 +115,6 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     pendingEditorDeletion,
     setPendingEditorDeletion,
     setFloatingDragCard,
-    updateFloatingCardLabel,
     setLiveEditorContent,
     generatingNoteId,
     streamingContent,
@@ -135,7 +137,6 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     restoreSnippet,
   } = useDataStore();
   const settings = useSettingsStore((s) => s.settings);
-  const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
   const { labelSnippet } = useLabelSnippet();
   const { enabled: slashEnabled } = useSlashCommand();
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
@@ -144,18 +145,12 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const { generateTitle, isGenerating: generatingTitle } = useGenerateTitle();
   const isGenerating = generatingNoteId === activeNoteId && generatingNoteId !== null;
 
-  const floatingLabelAbortRef = useRef<AbortController | null>(null);
   const dragClickPosRef = useRef<number | null>(null);
   const customDragRangeRef = useRef<{ from: number; to: number } | null>(null);
   // Stable refs for functions used inside Tiptap handleDOMEvents closures
-  const prefetchLabelRef = useRef<((text: string, signal: AbortSignal) => Promise<void>) | null>(null);
   const labelSnippetRef = useRef(labelSnippet);
   // Refs for snippet undo/redo tracking
   const editorRef = useRef<TiptapEditor | null>(null);
-  const snippetInsertMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
-  const snippetRemoveMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
-  const prevUndoDepthRef = useRef(0);
-  const pendingSnippetRecordRef = useRef<{ snapshot: import("@/lib/types").Snippet; isOutward?: boolean } | null>(null);
   const isCancellingDropRef = useRef(false);
 
   const note = activeNoteId ? notes[activeNoteId] : null;
@@ -248,6 +243,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           // Prevents native text drag ghost that WebKit/Tauri can't override.
           event.preventDefault();
 
+          const dragStartDoc = view.state.doc;
+          const dragStartNoteId = useAppStore.getState().activeNoteId;
+          const draggedText = dragStartDoc.textBetween(from, to, "\n");
           const startX = event.clientX;
           const startY = event.clientY;
           let dragging = false;
@@ -258,20 +256,14 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
               dragging = true;
               dragClickPosRef.current = null;
 
-              const txt = view.state.doc.textBetween(from, to, "\n");
-              if (!txt.trim()) { cleanup(); return; }
+              if (!draggedText.trim()) { cleanup(); return; }
 
               customDragRangeRef.current = { from, to };
               useAppStore.getState().setDraggingToHelper(true);
               useAppStore.getState().setFloatingDragCard({
-                content: txt, label: null, labelStatus: "loading",
+                content: draggedText, label: null, labelStatus: "idle",
               });
               view.dom.classList.add("is-snippet-dragging-out");
-
-              // Prefetch label
-              floatingLabelAbortRef.current?.abort();
-              floatingLabelAbortRef.current = new AbortController();
-              prefetchLabelRef.current?.(txt, floatingLabelAbortRef.current.signal);
             }
 
             // Position floating card directly on the DOM (no React re-renders)
@@ -287,18 +279,34 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
             document.removeEventListener("mouseup", onUp);
           };
 
+          const resetDragState = () => {
+            customDragRangeRef.current = null;
+            useAppStore.getState().setDraggingToHelper(false);
+            useAppStore.getState().setFloatingDragCard(null);
+            view.dom.classList.remove("is-snippet-dragging-out");
+          };
+
           const onUp = (e: MouseEvent) => {
             cleanup();
 
             if (dragging) {
+              if (
+                view.isDestroyed ||
+                useAppStore.getState().activeNoteId !== dragStartNoteId ||
+                !view.state.doc.eq(dragStartDoc)
+              ) {
+                resetDragState();
+                return;
+              }
+
               // Check if mouse is over the Snip Bar drop zone
               const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
               const el = document.elementFromPoint(e.clientX, e.clientY);
-              const isOverSnipBar = dropZone && (dropZone.contains(el) || el === dropZone);
+              const destination = selectionDragDestination(view.dom, dropZone, el);
 
-              if (isOverSnipBar) {
+              if (destination === "snip-bar" && dropZone) {
                 const range = customDragRangeRef.current;
-                const noteId = useAppStore.getState().activeNoteId;
+                const noteId = dragStartNoteId;
                 const card = useAppStore.getState().floatingDragCard;
                 if (range && noteId && card) {
                   const idxAttr = dropZone.getAttribute("data-drop-index");
@@ -312,19 +320,24 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                     useAppStore.getState().activeIdeaId ?? undefined,
                   );
 
-                  // Build snippet snapshot for undo tracking
                   const createdSnippet = useDataStore.getState().snippets[snippetId];
-                  if (createdSnippet) {
-                    pendingSnippetRecordRef.current = { snapshot: { ...createdSnippet }, isOutward: true };
-                  }
 
-                  // Delete source text from editor (this transaction triggers onUpdate
-                  // which records the snippet in snippetRemoveMapRef for undo)
+                  // Deleting the source and creating the snippet are one movement.
+                  // Metadata binds the persisted half to this exact editor transaction.
                   const tr = view.state.tr;
                   const docSize = tr.doc.content.size;
                   const sf = Math.min(range.from, docSize);
                   const st = Math.min(range.to, docSize);
-                  if (sf < st) { tr.delete(sf, st); view.dispatch(tr); }
+                  if (sf < st) {
+                    if (createdSnippet) {
+                      addSnippetMovementToHistory(tr, {
+                        direction: "to-snip-bar",
+                        snippet: createdSnippet,
+                      });
+                    }
+                    tr.delete(sf, st);
+                    view.dispatch(tr);
+                  }
 
                   // Apply label
                   if (card.labelStatus === "done" && card.label) {
@@ -337,14 +350,22 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                   // Keep the Snip Bar open after a successful drop
                   useAppStore.getState().pinHelperBar();
                 }
+              } else if (destination === "source") {
+                // This custom drag used to own the gesture and then ignore a
+                // release back over the editor. Move the original Slice so
+                // marks and block structure survive the reorder.
+                const range = customDragRangeRef.current;
+                const drop = view.posAtCoords({ left: e.clientX, top: e.clientY });
+                if (range && drop) {
+                  const tr = moveEditorSelection(view.state, range, drop.pos, dragStartDoc);
+                  if (tr) {
+                    view.dispatch(tr);
+                    view.focus();
+                  }
+                }
               }
 
-              // Clean up all drag state
-              customDragRangeRef.current = null;
-              useAppStore.getState().setDraggingToHelper(false);
-              floatingLabelAbortRef.current?.abort();
-              useAppStore.getState().setFloatingDragCard(null);
-              view.dom.classList.remove("is-snippet-dragging-out");
+              resetDragState();
             }
             // Click-only (no drag): Tiptap mouseup handler places cursor
           };
@@ -446,14 +467,21 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
           const sizeBefore = editorInstance.state.doc.content.size;
 
-          // Tag this update so onUpdate can record it for undo tracking
-          if (snippetObj) {
-            pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
-          }
-
           // Insert via Tiptap's insertContentAt which correctly handles
-          // multi-paragraph content at any document position
-          editorInstance.chain().insertContentAt(dropPos.pos, contentNodes).run();
+          // multi-paragraph content at any document position. Keep the snippet
+          // removal attached to the same history event as the insertion.
+          const insertChain = editorInstance.chain();
+          if (snippetObj) {
+            insertChain
+              .command(({ tr }) => {
+                addSnippetMovementToHistory(tr, {
+                  direction: "to-editor",
+                  snippet: snippetObj,
+                });
+                return true;
+              });
+          }
+          insertChain.insertContentAt(dropPos.pos, contentNodes).run();
 
           const sizeAfter = editorInstance.state.doc.content.size;
           const insertedSize = sizeAfter - sizeBefore;
@@ -478,10 +506,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
           // Focus the editor so the selection highlight is visible
           setTimeout(() => view.focus(), 0);
-        } catch {
-          pendingSnippetRecordRef.current = null;
-          return false;
-        }
+        } catch { return false; }
 
         setDraggingToHelper(false);
         return true;
@@ -502,29 +527,17 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     onUpdate: ({ editor: ed, transaction }) => {
       if (isInternalUpdate.current) return;
 
-      const currentUD = undoDepth(ed.state);
-      const prevUD = prevUndoDepthRef.current;
-
       if (isHistoryTransaction(transaction)) {
-        // Undo or redo — sync snippet state with editor history
-        if (currentUD < prevUD) {
-          // UNDO: reverse the step at depth prevUD
-          if (!isCancellingDropRef.current) {
-            // Restore snippet that was removed by a snippet-drop
-            const inserted = snippetInsertMapRef.current.get(prevUD);
-            if (inserted) restoreSnippet(inserted);
-            // Remove snippet that was created by a text-to-snippet drag
-            const removed = snippetRemoveMapRef.current.get(prevUD);
-            if (removed) removeSnippet(removed.id);
+        // The non-document half travels inside the same ProseMirror history
+        // event as the text edit, so grouping and history pruning cannot detach it.
+        if (!isCancellingDropRef.current) {
+          for (const effect of snippetMovementEffects(transaction.steps)) {
+            if (effect.action === "restore") restoreSnippet(effect.snippet);
+            else removeSnippet(effect.snippet.id);
           }
-          isCancellingDropRef.current = false;
-        } else if (currentUD > prevUD) {
-          // REDO: re-apply the step at depth currentUD
-          const inserted = snippetInsertMapRef.current.get(currentUD);
-          if (inserted) removeSnippet(inserted.id);
-          const removed = snippetRemoveMapRef.current.get(currentUD);
-          if (removed) restoreSnippet(removed);
         }
+        isCancellingDropRef.current = false;
+
         // Clear pending-drop visual state on any history event
         const pending = useAppStore.getState().pendingSnippetDrop;
         if (pending && !pending.cancelled) commitPendingDrop();
@@ -532,28 +545,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         // Normal edit — commit pending drop and invalidate redo snippet entries
         const pending = useAppStore.getState().pendingSnippetDrop;
         if (pending && !pending.cancelled) commitPendingDrop();
-
-        // Any new edit after an undo clears the redo stack; prune stale entries
-        for (const depth of snippetInsertMapRef.current.keys()) {
-          if (depth > currentUD) snippetInsertMapRef.current.delete(depth);
-        }
-        for (const depth of snippetRemoveMapRef.current.keys()) {
-          if (depth > currentUD) snippetRemoveMapRef.current.delete(depth);
-        }
       }
-
-      // Record a snippet drop or text-to-snippet operation for future undo/redo
-      if (pendingSnippetRecordRef.current) {
-        const { snapshot, isOutward } = pendingSnippetRecordRef.current;
-        if (isOutward) {
-          snippetRemoveMapRef.current.set(currentUD, snapshot);
-        } else {
-          snippetInsertMapRef.current.set(currentUD, snapshot);
-        }
-        pendingSnippetRecordRef.current = null;
-      }
-
-      prevUndoDepthRef.current = currentUD;
 
       // Skip serialization while a transient slashBlock node is in the document
       // (the markdown serializer doesn't know how to handle it)
@@ -723,15 +715,19 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
     const { from, to, snippetId } = pendingEditorDeletion;
 
-    // Tag for undo tracking: undoing this deletion should remove the created snippet
+    const { tr } = editor.state;
+
+    // Tag the editor transaction with the persisted half of the movement.
     if (snippetId) {
       const snippet = useDataStore.getState().snippets[snippetId];
       if (snippet) {
-        pendingSnippetRecordRef.current = { snapshot: { ...snippet }, isOutward: true };
+        addSnippetMovementToHistory(tr, {
+          direction: "to-snip-bar",
+          snippet,
+        });
       }
     }
 
-    const { tr } = editor.state;
     const docSize = editor.state.doc.content.size;
     const safeFrom = Math.min(from, docSize);
     const safeTo = Math.min(to, docSize);
@@ -760,12 +756,20 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     }));
 
     const snippetObj = useDataStore.getState().snippets[snippetId];
-    if (snippetObj) {
-      pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
-    }
 
     const sizeBefore = editor.state.doc.content.size;
-    editor.chain().insertContentAt(dropPos.pos, contentNodes).run();
+    const insertChain = editor.chain();
+    if (snippetObj) {
+      insertChain
+        .command(({ tr }) => {
+          addSnippetMovementToHistory(tr, {
+            direction: "to-editor",
+            snippet: snippetObj,
+          });
+          return true;
+        });
+    }
+    insertChain.insertContentAt(dropPos.pos, contentNodes).run();
     const sizeAfter = editor.state.doc.content.size;
     const insertedSize = sizeAfter - sizeBefore;
     const from = dropPos.pos;
@@ -918,8 +922,20 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     if (!snippetId) return;
     labelSnippet(snippetId, selectedText, note.content, note.goal, activeNoteId);
 
-    // Remove the snipped text from the editor
-    editor.chain().focus().deleteRange({ from, to }).run();
+    const createdSnippet = useDataStore.getState().snippets[snippetId];
+    const deleteChain = editor.chain().focus();
+    if (createdSnippet) {
+      deleteChain.command(({ tr }) => {
+        addSnippetMovementToHistory(tr, {
+          direction: "to-snip-bar",
+          snippet: createdSnippet,
+        });
+        return true;
+      });
+    }
+
+    // Remove the snipped text from the editor as the document half of the move.
+    deleteChain.deleteRange({ from, to }).run();
 
     if (!helperBarOpen) toggleHelperBar();
   }, [
@@ -965,92 +981,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     [editor, note, inlineEdit, inlineEditEnabled],
   );
 
-  // Prefetch a label for the floating drag card
-  const prefetchLabel = useCallback(
-    async (content: string, signal: AbortSignal) => {
-      if (!settings.snippetLabeling.enabled) {
-        updateFloatingCardLabel(null, "idle" as "done");
-        return;
-      }
-      try {
-        const app = useAppStore.getState();
-        const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "snippetLabeling");
-        if (!auth) {
-          updateFloatingCardLabel(null, "idle" as "done");
-          return;
-        }
-        const { provider, model } = auth;
-        const { promptTemplate, maxEssayContext } = settings.snippetLabeling;
-        const truncatedEssayContent =
-          maxEssayContext > 0 ? (note?.content ?? "").slice(0, maxEssayContext) : "";
-
-        const buildBody = (codexToken: string | undefined) =>
-          JSON.stringify({
-            snippetContent: content,
-            essayContent: truncatedEssayContent,
-            goal: note?.goal ?? "",
-            promptTemplate,
-            model,
-            provider,
-            apiKey: auth.apiKey || undefined,
-            codexToken,
-          });
-
-        // Proactive token validation
-        let codexToken: string | undefined;
-        if (provider === "codex") {
-          const token = await ensureValidCodexToken(
-            settings.providerCredentials.codexAccessToken,
-            settings.providerCredentials.codexRefreshToken,
-            updateProviderCredentials,
-          );
-          if (!token) {
-            app.markProviderBad("codex");
-            app.openAiGate("auth-failed", "codex");
-            useToastStore.getState().showToast("ChatGPT disconnected. Reconnect in Settings.");
-            updateFloatingCardLabel(null, "error");
-            return;
-          }
-          codexToken = token;
-        }
-
-        let res = await postLabel(buildBody(codexToken), { signal });
-
-        // Fallback: force refresh on 401
-        if (res.status === 401 && provider === "codex") {
-          const fresh = await forceRefreshCodexToken(updateProviderCredentials);
-          if (fresh) {
-            res = await postLabel(buildBody(fresh), { signal });
-          }
-        }
-
-        const data = await res.json();
-        if (data._meta) {
-          const modelUsed = (data._meta.modelUsed as string | undefined) || model;
-          logApiCall("label", "snip-drag-preview", provider, modelUsed, data._meta, activeNoteId ?? undefined).catch(() => {});
-        }
-        if (!res.ok) {
-          if (isAiAuthFailureStatus(res.status)) {
-            app.markProviderBad(provider);
-            app.openAiGate("auth-failed", provider);
-            const toast = provider === "codex" ? "ChatGPT disconnected. Reconnect in Settings." : "API key invalid. Check Settings.";
-            useToastStore.getState().showToast(toast);
-          }
-          updateFloatingCardLabel(null, "error");
-          return;
-        }
-        updateFloatingCardLabel(data.label, "done");
-      } catch (err) {
-        if ((err as Error).name !== "AbortError") {
-          updateFloatingCardLabel(null, "error");
-        }
-      }
-    },
-    [settings, note?.content, note?.goal, updateFloatingCardLabel, updateProviderCredentials],
-  );
-
   // Keep stable refs current for use inside Tiptap handleDOMEvents closures
-  prefetchLabelRef.current = prefetchLabel;
   labelSnippetRef.current = labelSnippet;
 
   // Only used for pending-return drags (native DnD).
@@ -1126,12 +1057,18 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         }));
 
         const sizeBefore = editor.state.doc.content.size;
-
+        const insertChain = editor.chain();
         if (snippetObj) {
-          pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
+          insertChain
+            .command(({ tr }) => {
+              addSnippetMovementToHistory(tr, {
+                direction: "to-editor",
+                snippet: snippetObj,
+              });
+              return true;
+            });
         }
-
-        editor.chain().insertContentAt(dropPos.pos, contentNodes).run();
+        insertChain.insertContentAt(dropPos.pos, contentNodes).run();
 
         const sizeAfter = editor.state.doc.content.size;
         const insertedSize = sizeAfter - sizeBefore;
@@ -1150,9 +1087,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
         useAppStore.getState().setDraggingToEditor(false);
         setTimeout(() => editor.view.focus(), 0);
-      } catch {
-        pendingSnippetRecordRef.current = null;
-      }
+      } catch {}
       setDraggingToHelper(false);
     },
     [editor, removeSnippet, setDraggingToHelper, setPendingSnippetDrop],

@@ -22,9 +22,45 @@ While closing this out, also fixed a real bug the split surfaced: `buildChatRequ
 
 **Files**: `src/lib/session-cookie.ts`, `src/lib/library-backup.ts`, `src/hooks/use-cloud-session.ts`, `src/components/settings/account-section.tsx` (new); `src/app/api/{generate,edit,analyze-voice,label}/route.ts`, `src/lib/ai/provider-runtime.ts` (auth-status fix); `README.md`, `.env.example`, `package.json`, `src/components/app-shell.tsx`, `src/components/settings/settings-nav.tsx`, `src/components/sidebar/sidebar.tsx`, plus deletion of `src/lib/server/*`, the DB-backed `src/app/api/v1/*` routes and `src/app/r/*`, `db/migrations/*`, `scripts/db-migrate.mjs`, `scripts/verify-sync.mjs`, and related tests.
 
-**Verification**: `tsc --noEmit` clean, 628/628 tests passing (fixed the 2 that were failing from the status-code mismatch above).
+**Verification**: `tsc --noEmit` clean, 628/628 tests passing (this includes fixing the 2 that were failing from the status-code mismatch above). Production endpoints on thinkinginpieces.com verified live after redeploying from fragment-cloud: landing page 200, `/api/v1/auth/google/start` 307 to Google with correct client_id/redirect_uri/PKCE, `/api/v1/auth/session` returns `{"user":null}`. Olympus's own instance (`https://olympus.tailf278e9.ts.net:8444/`) rebuilt from fragment-cloud and verified against the same production Neon DB.
 
-**Verification**: `tsc --noEmit` clean after the deletions, 626/628 tests passing (the 2 failures are a pre-existing, unrelated error-label bug in `generate`/`label` routes). Production endpoints on thinkinginpieces.com verified live after redeploying from fragment-cloud: landing page 200, `/api/v1/auth/google/start` 307 to Google with correct client_id/redirect_uri/PKCE, `/api/v1/auth/session` returns `{"user":null}`. Olympus's own instance (`https://olympus.tailf278e9.ts.net:8444/`) rebuilt from fragment-cloud and verified against the same production Neon DB.
+## 2026-08-03 - Add privacy policy and terms of service pages (5d4c4eb)
+
+**Commit**: `5d4c4eb`
+
+**Summary**: The hosted edition had no legal pages. `/privacy` and `/terms` now serve standard, general-purpose documents matching what the app actually does: local-first storage by default, optional accounts and cloud sync, share links, user-connected AI providers, essential cookies only, and error reporting. Both pages are static routes under a shared `(legal)` layout that provides its own scroll container (the root layout locks the body to the viewport), branded header and footer, and cross-links. The landing page footer links to both.
+
+**Files**: `src/app/(legal)/layout.tsx` (new), `src/app/(legal)/privacy/page.tsx` (new), `src/app/(legal)/terms/page.tsx` (new), `src/components/landing/landing-page.tsx`
+
+**Verification**: `npx tsc --noEmit` clean; production build passes with `/privacy` and `/terms` prerendered as static content.
+
+## 2026-08-02 10:28 - Drag selected text to reorder it within a piece (c23cb3b)
+
+**Commit**: `c23cb3b`
+
+**Summary**: Fragment already took over selection drags with custom mouse handling so editor text could move into the Snip Bar without WebKit's native drag ghost. That custom path only handled the Snip Bar destination, so releasing the same drag back over the source editor discarded it. Long-form editor drops now move the selected ProseMirror slice through a schema-valid transaction, preserving formatting and selecting the moved range. Local long-form reorders no longer run the Snip Bar label prefetch, so selected text reaches the configured labeling provider only after a confirmed snippet drop. Short-form piece drops map the textarea's LF-normalized offsets back to the persisted source, preserving CRLF line endings, markdown markers, and whitespace exactly. A note or piece body that changes after mousedown invalidates the drag instead of being overwritten through stale positions or closures. Shared hit-target routing keeps nested Snip Bar drops distinct from source-editor reorders.
+
+**Files**: `src/lib/textarea-selection.ts`, `src/components/editor/editor.tsx`, `src/components/shortform/piece-card.tsx`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
+
+**Verification**: 679 tests passed with 17 opt-in integration tests skipped; focused coverage verifies backward and forward textarea moves, CRLF offset mapping, stale-drag rejection in both editor types, Snip Bar versus source routing, ProseMirror mark and block preservation, valid transaction selection, and no-op editor self-drops. `npm run lint` exits with 0 errors and 31 existing warnings, `npx tsc --noEmit` is clean, and the production build is clean.
+
+## 2026-08-02 - Keep the inline selection toolbar adjacent and inside the viewport (ARI-276)
+
+**Summary**: The Refine toolbar mixed Tiptap's viewport-relative selection coordinates with an absolute position inside the editor's scrolling content. Once the editor had scrolled, the missing scroll offset pushed the toolbar above the highlighted text and eventually outside the visible page. Placement now translates through the editor's live scroll offsets, measures the rendered toolbar, flips above or below based on available space, clamps to the editor and viewport edges, follows nested scroll and resize events, and hides while the selection itself is off-screen. A custom edit in progress keeps its prompt and regains focus when the selection returns to view.
+
+**Files**: `src/components/editor/inline-edit-menu.tsx`, `src/lib/inline-menu-placement.ts` (new), `src/__tests__/inline-edit-menu.test.tsx` (new), `src/__tests__/inline-menu-placement.test.ts` (new), `docs/ONBOARDING.md`
+
+**Verification**: 6 regression tests cover scrolled coordinates, vertical flipping, horizontal and vertical clamping, off-screen selections, and custom-input restoration. The reconciled task branch passes 669 tests with 17 opt-in integration tests skipped; ESLint exits clean with the same 33 existing warnings; `tsc --noEmit` and the production build pass.
+
+## 2026-08-02 10:19 - Make Snip Bar movements undo as one operation (b7b78f9)
+
+**Commit**: `b7b78f9`
+
+**Summary**: Moving selected editor text into the Snip Bar changed two stores, ProseMirror's document and Fragment's persisted snippets, but only the text lived in the editor's real undo history. The snippet half was tracked separately in maps keyed by the current undo depth. That key is not an event identity: edits can group at one depth, old events are pruned when history fills, and undo plus redo reuse depths. A snippet side effect could therefore detach from the text movement it belonged to, which is why Command-Z could put the text back while leaving the created snip behind. Each movement now adds a no-op `SnippetMovementStep` to the same ProseMirror transaction as its text insertion or deletion. ProseMirror owns, groups, maps, prunes, inverts, and replays the marker with the document step, while the editor applies the marker's explicit remove or restore effect to the snippet store during undo and redo. The same contract covers editor-to-Snip-Bar and Snip-Bar-to-editor movements, including the pending-drop cancellation path, rather than special-casing the reported direction.
+
+**Files**: `src/lib/editor/snippet-movement-history.ts` (new), `src/components/editor/editor.tsx`, `src/__tests__/snippet-movement-history.test.ts` (new), `src/__tests__/editor-snippet-movement-history.test.tsx` (new), `PRD.md`
+
+**Verification**: 663 tests passed with 17 opt-in integration tests skipped; focused history coverage fills and prunes the editor history before undo and redo, and the editor integration test verifies that one undo restores the text and removes the created snippet. `npm run lint` exits with 0 errors and 33 warnings, `npx tsc --noEmit` is clean, and the production build is clean.
 
 ## 2026-08-01 14:52 - Collapse the share/review menu to one entry on hosted, fix landing page's dead sign-in promise (d8827d5)
 

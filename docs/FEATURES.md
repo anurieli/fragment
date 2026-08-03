@@ -73,6 +73,8 @@ Fragment's three headline features have user-facing names used on the website an
 ### How it works
 The editor uses Tiptap 3 with `tiptap-markdown` for live rendering. As you type markdown syntax, it renders immediately — no preview pane needed.
 
+Selected text is movable in place: drag a highlight to another point in the same editor to reorder it, or continue into the Snip Bar to turn it into a snippet. In-editor moves preserve the selected ProseMirror slice, including its formatting and block structure, and stay local. AI labeling starts only after a Snip Bar drop has created the snippet.
+
 Supported markdown:
 - `# Heading 1` / `## Heading 2` / `### Heading 3` — rendered in DM Serif Display font
 - `**bold**` — rendered bold
@@ -90,6 +92,7 @@ Supported markdown:
 4. Type `> quote` — should render with gold left border
 5. Type `- item 1` then Enter — should continue the list
 6. Select text and check the gold selection highlight
+7. Drag the selection to another paragraph; it should move there with its formatting intact
 
 ### QA checklist
 - [ ] `##` + space triggers heading (H2 in display font)
@@ -100,6 +103,7 @@ Supported markdown:
 - [ ] Links render as gold underlined text
 - [ ] Gold caret visible
 - [ ] Gold selection highlight on text select
+- [ ] Dragging selected text within the editor moves it to the drop point without flattening its formatting
 - [ ] Placeholder text "Start writing..." shows when editor is empty
 - [ ] Bottom padding provides breathing room (writing line not at screen bottom)
 
@@ -113,21 +117,21 @@ Two methods:
 **Method A — Snip button:**
 1. Select text in the editor
 2. A "Snip" button appears in the toolbar (scissors icon)
-3. Click it — text is copied to the Snip Bar as a snippet
-4. Original text stays in the editor
+3. Click it: text is cut into the Snip Bar as a snippet
+4. The original selection is removed from the editor
 
 **Method B — Drag and drop:**
 1. Select text in the editor
 2. Drag the selection toward the right panel
 3. Snip Bar shows gold drop feedback
-4. Release — snippet is created at the drop position
-5. Original text stays in the editor
+4. Release: the snippet is created at the drop position
+5. The original selection is removed from the editor
 
 ### How to test
-1. Write a paragraph, select a sentence, click "Snip" — snippet should appear in the Snip Bar
-2. Verify the text is still in the editor (not removed)
-3. Write more text, select it, drag toward the Snip Bar — gold background should appear
-4. Drop it — snippet card should animate in
+1. Write a paragraph, select a sentence, click "Snip": the snippet should appear in the Snip Bar
+2. Verify the selected text was removed from the editor
+3. Write more text, select it, drag toward the Snip Bar: gold background should appear
+4. Drop it: the snippet card should animate in
 5. If the Snip Bar was closed, clicking "Snip" should open it automatically
 6. Create multiple snippets — they should stack vertically
 
@@ -136,11 +140,11 @@ Two methods:
 - [ ] Snip button disappears when selection is cleared
 - [ ] Snip button has fadeIn animation
 - [ ] Clicking Snip creates a snippet card in the helper bar
-- [ ] Text remains in editor after snipping (copy, not cut)
+- [ ] Text is removed from the editor after snipping (cut, not copy)
 - [ ] Dragging selected text to helper bar shows gold drop feedback
 - [ ] Dropping creates a snippet at the dropped position (not always at end)
 - [ ] Snip Bar opens automatically if it was closed
-- [ ] AI labeling fires immediately (loading spinner visible)
+- [ ] AI labeling starts after the snippet is created
 
 ---
 
@@ -802,6 +806,8 @@ The triage row only exists while a piece's status is `inbox`; once triaged, the 
 1. **The text is never touched.** `highlightMarkdown` only wraps spans; stripping them returns the source character for character. It is a highlighter, not a renderer.
 2. **No style may change a glyph's width.** The textarea on top is transparent (`-webkit-text-fill-color: transparent`) and still owns the caret, the selection, undo, spellcheck and IME. If the mirror behind it laid out one pixel differently, the caret would drift off the glyphs. So every `.md-*` rule in `globals.css` is restricted to colour, opacity, background, text-decoration and text-shadow. Faux bold is a `text-shadow`, never `font-weight`. Measured across a mixed-markdown fixture, no character moves more than 0.15px horizontally or at all vertically.
 
+Selected text can also be dragged to a new point within the same piece. The raw substring moves byte-for-byte, including markdown markers, spaces, CRLF line endings, and newlines; dropping over the Snip Bar keeps the existing behavior and cuts that selection into an idea-scoped snippet instead. If the piece changes while a drag is in flight, the stale drop is ignored rather than overwriting newer text.
+
 This is the reason short-form doesn't use Tiptap: a document model round-trips the text on every save, and "line one.\n\n\n\nline two" comes back as "line one.\n\nline two". For a tweet spaced on purpose, that's a rewrite. Long-form pieces that *want* a document model have **Make it a draft**, which moves them into the Tiptap editor.
 
 **Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment it takes focus (click, `J`/`K`, or a jump from the idea workspace), since a focused card is readable without editing it.
@@ -873,6 +879,7 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 - [ ] Typing `## x`, `**x**`, `*x*`, `` `x` ``, `[a](b)`, `- x`, `> x` styles them live, with the markers dimmed but still visible
 - [ ] The caret stays exactly on the glyphs while typing markdown (no drift on a long wrapped line with bold and headings)
 - [ ] Undo (⌘Z), spellcheck and text selection still work inside a piece
+- [ ] Dragging selected text within a piece reorders the exact substring; dragging it to the Snip Bar still creates a snippet
 - [ ] The workspace row for the focused piece shows the gold rail; hovering a card lights its row
 - [ ] Draft with Flow shows a Stop button while generating; Stop keeps the partial text and leaves the piece editable
 - [ ] A failed, cancelled or stalled generation never leaves a piece stuck read-only (no reload needed)
