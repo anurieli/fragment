@@ -114,7 +114,7 @@ describe("POST /api/generate", () => {
     expect(prompt).toContain("(end of document)");
   });
 
-  it("returns 400 when no API key for openrouter", async () => {
+  it("returns 401 when no API key for openrouter", async () => {
     delete process.env.OPENROUTER_API_KEY;
 
     const req = makeReq({
@@ -128,7 +128,7 @@ describe("POST /api/generate", () => {
     });
 
     const res = (await POST(req)) as { body: { error: string }; status: number };
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
     expect(res.body.error).toBe("No API key configured");
   });
 

@@ -157,8 +157,8 @@ function CodexConnectRow({
         </button>
       </div>
       <p className="text-[10px] text-text-muted leading-relaxed">
-        Use OpenAI&apos;s latest models with your ChatGPT account — no API key needed. Works with any
-        paid ChatGPT plan, starting at $20/month.
+        Try an eligible ChatGPT account without an API key. This connection is experimental;
+        account and workspace limits apply, and some accounts may need an OpenAI API key.
       </p>
       {error && (
         <p className="text-[10px] text-red flex items-center gap-1">

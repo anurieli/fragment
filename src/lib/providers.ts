@@ -84,7 +84,7 @@ export const PROVIDER_REGISTRY: Record<AIProvider, ProviderDefinition> = {
     icon: Sparkles,
     authType: "oauth",
     description:
-      "Sign in with your ChatGPT account to use OpenAI's latest models — no API key needed. Works with any paid ChatGPT plan, starting at $20/month.",
+      "Experimental ChatGPT connection for Codex-capable accounts. No API key is needed when the account is eligible; plan and workspace limits apply.",
     defaultModel: "gpt-5.4-mini",
     chatEndpoint: getProviderConfig("codex").chatEndpoint,
   },

@@ -2,6 +2,27 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-03 05:35 - Fixed eslint linting agent worktrees' full .next builds as source (68cd16e)
+
+**Commit**: `68cd16e` on `agent/offline-cloud-accounts`, pushed for PR #9
+
+**Summary**: While verifying the fragment-cloud split, `npx eslint .` reported 115,480 problems (4,324 errors). The `.next/**`, `out/**`, `build/**`, and `node_modules/**` ignore patterns were anchored to the repo root, so they never matched the same directories one level down inside `.worktrees/` and `.claude/worktrees/` — each a full checkout Cody's bridge uses for isolated per-issue work, compiled `.next` output included. Prefixed the four patterns with `**/` so they match at any depth, and added `.worktrees/**` / `.claude/worktrees/**` explicitly. True count: 0 errors, 34 warnings, all pre-existing and already documented in this file's own comments as accepted debt.
+
+**Files**: `eslint.config.mjs`.
+
+**Verification**: `npx eslint .` exits 0 with 34 pre-existing warnings and no new errors.
+
+## 2026-08-03 05:20 - Moved accounts/sync/sharing out of this repo, into private fragment-cloud (0a2ee9b)
+
+**Commit**: `0a2ee9b` on `agent/offline-cloud-accounts`, pushed for PR
+
+**Summary**: Production Google sign-in got wired end-to-end today (Vercel project, thinkinginpieces.com domain, Neon Postgres, migrations), and only after it was live did it surface that the account/session/identity/sync/sharing server code had been built directly in this public repo instead of the private `fragment-cloud` repo that was supposed to hold it (that repo existed but was still an empty README stub). Nothing had been pushed to this repo's git history yet, so nothing leaked; it was a relocation, not a breach. Moved `src/lib/server/*` (db, google-auth, identity, session, sync-store, shares, csrf, blob-store), the DB-backed routes under `src/app/api/v1/*` (auth/google/*, auth/session, sync, shares/*, review/[token]/*, feedback, identify, logs), `src/app/r/[token]/*`, `db/migrations/*`, `scripts/db-migrate.mjs`, `scripts/verify-sync.mjs`, their tests, `CLOUD.md`, and the real landing page copy to `anurieli/fragment-cloud` (private), which now deploys to thinkinginpieces.com and is what Olympus's `fragment-app` service builds from. This repo goes back to a pure local-first client: no accounts, no cloud storage, no sync, matching `fragment-cloud`'s own README boundary. Added a client-only replacement for the "get my data out" need behind ARI-186: `src/lib/library-backup.ts` exports/imports the whole Dexie library (ideas, pieces, resources, relationships intact) as one JSON file, wired into a new Settings > Account & Sync section (`account-section.tsx`, `use-cloud-session.ts`) alongside cloud sign-in/sync status. Extracted `SESSION_COOKIE` into a new public `src/lib/session-cookie.ts` so `src/app/page.tsx` (which only checks cookie presence, never validity) doesn't need the now-private session module. Trimmed `.env.example`, `README.md`, and `package.json` (`db:migrate`/`verify:sync` scripts, the `pg`/`@types/pg` deps) of claims/tooling that no longer apply here.
+
+While closing this out, also fixed a real bug the split surfaced: `buildChatRequest()` started returning 401 (not 400) for "no API key configured", but `generate`/`edit`/`analyze-voice` routes still branched `status === 401 ? "Provider not authenticated" : "No API key configured"` — since that status is now always 401 for both cases, they always showed the wrong, generic label instead of the specific one `buildChatRequest` already produced. `label/route.ts` had the mirror bug: it branched on the old 400 to trigger a silent 200 "unavailable" fallback that could no longer fire, so a missing key surfaced as a response body with no `error` field at all. All four now pass `buildChatRequest`'s own error straight through instead of re-deriving a label from status code.
+
+**Files**: `src/lib/session-cookie.ts`, `src/lib/library-backup.ts`, `src/hooks/use-cloud-session.ts`, `src/components/settings/account-section.tsx` (new); `src/app/api/{generate,edit,analyze-voice,label}/route.ts`, `src/lib/ai/provider-runtime.ts` (auth-status fix); `README.md`, `.env.example`, `package.json`, `src/components/app-shell.tsx`, `src/components/settings/settings-nav.tsx`, `src/components/sidebar/sidebar.tsx`, plus deletion of `src/lib/server/*`, the DB-backed `src/app/api/v1/*` routes and `src/app/r/*`, `db/migrations/*`, `scripts/db-migrate.mjs`, `scripts/verify-sync.mjs`, and related tests.
+
+**Verification**: `tsc --noEmit` clean, 628/628 tests passing (this includes fixing the 2 that were failing from the status-code mismatch above). Production endpoints on thinkinginpieces.com verified live after redeploying from fragment-cloud: landing page 200, `/api/v1/auth/google/start` 307 to Google with correct client_id/redirect_uri/PKCE, `/api/v1/auth/session` returns `{"user":null}`. Olympus's own instance (`https://olympus.tailf278e9.ts.net:8444/`) rebuilt from fragment-cloud and verified against the same production Neon DB.
 ## 2026-08-03 05:18 - Add Fragment context menus and restore selection actions (c61fbd1)
 
 **Commit**: `c61fbd1`

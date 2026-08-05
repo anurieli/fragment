@@ -2,9 +2,8 @@
  * Deployment edition.
  *
  * Fragment ships as one codebase in two shapes:
- *   - "hosted"     — the managed SaaS. AI is included (powered by our OpenRouter
- *                    key on the server), so it works with zero configuration.
- *                    Users may still bring their own keys for any provider.
+ *   - "hosted"     — the web SaaS with accounts and opt-in cloud sync. Hosting
+ *                    alone does not grant AI access; users connect a provider.
  *   - "self-host"  — open source / desktop. There is no managed AI; users bring
  *                    their own provider keys (or run Ollama locally). This is the
  *                    default when the flag is unset.

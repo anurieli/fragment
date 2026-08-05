@@ -24,6 +24,7 @@ import {
   isCloudReachable,
   postSync,
 } from "./api";
+import { removeNoteBackupArtifacts } from "@/lib/persistence";
 
 /**
  * The client half of sync: drain the outbox, apply what comes back, repeat.
@@ -206,6 +207,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
 
   const tables = SYNCED_COLLECTIONS.map((c) => tableFor(c));
   let applied = 0;
+  const deletedNoteIds: string[] = [];
 
   await db.transaction("rw", [...tables, db.outbox], async () => {
     markTransactionAsRemoteApply(Dexie.currentTransaction);
@@ -222,6 +224,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
 
       if (change.deleted) {
         await table.delete(change.id);
+        if (collection === "notes") deletedNoteIds.push(change.id);
         applied++;
         continue;
       }
@@ -236,6 +239,8 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
       applied++;
     }
   });
+
+  await Promise.all(deletedNoteIds.map((id) => removeNoteBackupArtifacts(id)));
 
   return applied;
 }

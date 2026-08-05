@@ -9,9 +9,13 @@
 
 import type { AppSettings, AIProvider } from "@/lib/types";
 import { PROVIDER_IDS, getProviderKey } from "@/lib/ai/provider-runtime";
-import { isHosted } from "@/lib/edition";
+import { getProvider } from "@/lib/providers";
 
 export type FeatureKey = "snippetLabeling" | "slashCommand" | "inlineEdit";
+
+export function isAiAuthFailureStatus(status: number): boolean {
+  return status === 401 || status === 403;
+}
 
 export interface ResolvedAuth {
   provider: AIProvider;
@@ -24,11 +28,16 @@ export interface ResolvedAuth {
 
 /** True when a credential/token exists for this provider (says nothing about validity). */
 function isProviderPresent(provider: AIProvider, settings: AppSettings): boolean {
-  if (provider === "codex") return settings.providerCredentials.codexAccessToken.length > 0;
+  if (provider === "codex") {
+    return Boolean(
+      settings.providerCredentials.codexAccessToken.trim() ||
+      settings.providerCredentials.codexRefreshToken.trim(),
+    );
+  }
   // Can't cheaply prove the Ollama daemon is up — presence is assumed; a real
   // failure during use is caught reactively (see hooks' 401/unreachable handling).
   if (provider === "ollama") return true;
-  return getProviderKey(provider, settings.providerCredentials).length > 0;
+  return getProviderKey(provider, settings.providerCredentials).trim().length > 0;
 }
 
 /** Resolve which provider a feature uses and whether a credential is present. */
@@ -44,7 +53,6 @@ export function resolveFeatureAuth(feature: FeatureKey, settings: AppSettings): 
 
 /**
  * True when the feature's active provider is usable:
- *   - hosted edition → always true (managed AI), OR
  *   - a present provider (see `isProviderPresent`) that hasn't been marked
  *     bad this session (a live 401 / Codex `invalid_grant`).
  *
@@ -55,9 +63,44 @@ export function hasWorkingProvider(
   badProviders: ReadonlySet<AIProvider>,
   feature: FeatureKey,
 ): boolean {
-  if (isHosted()) return true;
-  const auth = resolveFeatureAuth(feature, settings);
-  return auth.present && !badProviders.has(auth.provider);
+  return resolveWorkingFeatureAuth(settings, badProviders, feature) !== null;
+}
+
+/** Resolve the selected provider, or the sole connected provider as fallback. */
+export function resolveWorkingFeatureAuth(
+  settings: AppSettings,
+  badProviders: ReadonlySet<AIProvider>,
+  feature: FeatureKey,
+): ResolvedAuth | null {
+  const selected = resolveFeatureAuth(feature, settings);
+  if (selected.present && !badProviders.has(selected.provider)) return selected;
+
+  const candidates = PROVIDER_IDS.filter(
+    (provider) => provider !== "ollama" && !badProviders.has(provider) && isProviderPresent(provider, settings),
+  );
+  if (candidates.length !== 1) return null;
+
+  const provider = candidates[0];
+  const config = settings.featureProviders[feature];
+  return {
+    provider,
+    model: config.modelsByProvider?.[provider] ?? getProvider(provider).defaultModel,
+    apiKey: getProviderKey(provider, settings.providerCredentials),
+    present: true,
+  };
+}
+
+export function hasAnyWorkingProvider(
+  settings: AppSettings,
+  badProviders: ReadonlySet<AIProvider>,
+): boolean {
+  return PROVIDER_IDS.some((provider) => {
+    if (badProviders.has(provider)) return false;
+    if (provider === "ollama") {
+      return Object.values(settings.featureProviders).some((config) => config.provider === "ollama");
+    }
+    return isProviderPresent(provider, settings);
+  });
 }
 
 /**

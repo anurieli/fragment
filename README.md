@@ -7,8 +7,7 @@
 Snip your ideas into cards, rearrange them like puzzle pieces, and weave them back
 into the draft. Built for long-form writing: essays, blog posts, articles.
 
-Local-first. Your writing lives in your browser. Nothing leaves your machine unless
-you connect an AI provider.
+Local-first. Your writing lives in your browser. Cloud sync and AI are both opt-in.
 
 </div>
 
@@ -28,8 +27,8 @@ pieces, generating a line where you're stuck, or tightening a sentence, but **yo
 the author** — it never writes the essay for you or moves things behind your back.
 
 It's built for people doing real long-form work (essays, blog posts, articles), and
-it's **local-first**: your writing lives on your machine, and nothing leaves it unless
-you choose to connect an AI provider. Own your words, own your process.
+it's **local-first**: your writing lives on your machine. Data leaves it only when
+you choose cloud sync, AI, publishing, or sharing. Own your words, own your process.
 
 ## What is Fragment?
 
@@ -78,9 +77,9 @@ no server setup: everything is configured in the app and stored locally.
 ### Sign in with ChatGPT (Codex)
 
 The zero-key option. In **Settings > AI > Providers**, click **Sign in** on the
-**Codex (OpenAI)** card and authorize with your ChatGPT account. It works out of the
-box on your local machine: no API key to paste, no server secret to configure. Pick a
-model for each feature and you're writing.
+**ChatGPT (Codex)** card and authorize with an eligible ChatGPT account. This path is
+experimental and subject to OpenAI plan and workspace limits; a provider API key is
+the dependable production option. No API key is stored for the ChatGPT connection.
 
 ### Bring your own API key
 
@@ -90,7 +89,18 @@ Paste a key into the matching provider card in **Settings > AI > Providers**:
   Get a key at [openrouter.ai](https://openrouter.ai).
 - **OpenAI**, **Anthropic**, **Perplexity** — connect each provider directly.
 
-Keys are stored locally in your browser and sent only to that provider.
+Keys are stored locally in your browser, excluded from Fragment cloud sync, and sent
+through Fragment's generation endpoint only to the selected provider.
+
+## Backups
+
+This repo has no accounts, no cloud storage, and no sync - Fragment's hosted
+version (accounts, cross-device sync via Postgres) is a separate, closed-source
+service. Everything here stays on your machine in IndexedDB.
+
+**Settings > Account & Sync** can still export or import a complete local
+library as a JSON file (articles and Brand Voices, excluding AI and publishing
+credentials), so you can move a library between browsers or take a backup by hand.
 
 ### Run models locally (Ollama)
 

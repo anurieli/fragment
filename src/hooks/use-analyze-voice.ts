@@ -5,8 +5,7 @@ import { useVoiceStore } from "@/stores/voice-store";
 import { useAppStore } from "@/stores/app-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { postAnalyzeVoice } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
-import { hasWorkingProvider } from "@/lib/ai/connection-status";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { loadSamplesForVoice } from "@/lib/persistence";
 import { parseVoiceProfile, prepareSamplesForAnalysis } from "@/lib/voice-context";
 import { logApiCall } from "@/lib/api-logger";
@@ -35,18 +34,19 @@ export async function analyzeVoice(voiceId: string): Promise<boolean> {
   const snapshotUpdatedAt = voice.updatedAt;
 
   const settings = useSettingsStore.getState();
-  const { provider, model } = settings.settings.featureProviders.slashCommand;
   const { analysisPromptTemplate } = settings.settings.brandVoice;
 
   // Voice analysis reuses the slashCommand provider. Gate it on a working
   // provider like every other AI feature, so a no-provider / expired-key user
   // gets the connection gate instead of a silent toast-and-fail.
-  if (!hasWorkingProvider(settings.settings, app.badProviders, "slashCommand")) {
+  const auth = resolveWorkingFeatureAuth(settings.settings, app.badProviders, "slashCommand");
+  if (!auth) {
     app.openAiGate("no-provider");
     useToastStore.getState().showToast("Connect an AI provider to analyze your voice.");
     app.setVoiceAnalysisStatus(voiceId, "error");
     return false;
   }
+  const { provider, model } = auth;
 
   app.setVoiceAnalysisStatus(voiceId, "analyzing");
 
@@ -67,7 +67,7 @@ export async function analyzeVoice(voiceId: string): Promise<boolean> {
         promptTemplate: analysisPromptTemplate,
         model,
         provider,
-        apiKey: getProviderKey(provider, settings.settings.providerCredentials) || undefined,
+        apiKey: auth.apiKey || undefined,
         codexToken,
       });
 
@@ -101,11 +101,11 @@ export async function analyzeVoice(voiceId: string): Promise<boolean> {
     }
 
     if (!res.ok) {
-      if (res.status === 401) {
+      if (isAiAuthFailureStatus(res.status)) {
         app.markProviderBad(provider);
         app.openAiGate("auth-failed", provider);
       }
-      const toast = res.status === 401
+      const toast = isAiAuthFailureStatus(res.status)
         ? (provider === "codex" ? "ChatGPT disconnected. Reconnect in Settings." : "API key invalid. Check Settings.")
         : "Voice analysis failed. Check your AI settings.";
       useToastStore.getState().showToast(toast);

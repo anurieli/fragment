@@ -18,6 +18,7 @@ interface VoiceState {
 
   setHydrated: (v: boolean) => void;
   setVoices: (voices: BrandVoice[]) => void;
+  replaceVoices: (voices: BrandVoice[]) => void;
 
   /** Create a new voice. Returns its id, or null if at the cap. */
   addBrandVoice: (opts?: { name?: string; description?: string }) => string | null;
@@ -84,6 +85,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     // must survive. On a normal reload the in-memory map is empty, so this is
     // equivalent to a plain replace.
     set((s) => ({ voices: { ...loaded, ...s.voices } }));
+  },
+
+  replaceVoices: (voices) => {
+    const loaded: Record<string, BrandVoice> = {};
+    for (const voice of voices) loaded[voice.id] = voice;
+    set({ voices: loaded });
   },
 
   addBrandVoice: (opts) => {

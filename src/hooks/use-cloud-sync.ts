@@ -3,6 +3,9 @@
 import { useEffect } from "react";
 import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
+import { useAppStore } from "@/stores/app-store";
+import { useVoiceStore } from "@/stores/voice-store";
+import { refreshSettingsFromDatabase } from "@/stores/settings-store";
 import { useSyncStore } from "@/stores/sync-store";
 import {
   startSyncEngine,
@@ -14,6 +17,10 @@ import {
   loadAllIdeas,
   loadAllContentPieces,
   loadAllResources,
+  loadAllVoices,
+  loadSnippetsForIdea,
+  loadSnippetsForNote,
+  loadVersionsForNote,
 } from "@/lib/persistence";
 
 /**
@@ -47,18 +54,31 @@ export function useCloudSync(): void {
 
     async function refresh() {
       try {
-        const [notes, ideas, pieces, resources] = await Promise.all([
+        const activeNoteId = useAppStore.getState().activeNoteId;
+        const activeIdeaId = useAppStore.getState().activeIdeaId;
+        const [notes, ideas, pieces, resources, voices, noteSnippets, ideaSnippets, versions] = await Promise.all([
           loadAllNotes(),
           loadAllIdeas(),
           loadAllContentPieces(),
           loadAllResources(),
+          loadAllVoices(),
+          activeNoteId ? loadSnippetsForNote(activeNoteId) : Promise.resolve([]),
+          activeIdeaId ? loadSnippetsForIdea(activeIdeaId) : Promise.resolve([]),
+          activeNoteId ? loadVersionsForNote(activeNoteId) : Promise.resolve([]),
         ]);
+        await refreshSettingsFromDatabase();
         if (cancelled) return;
 
         useDataStore.getState().setNotes(notes);
         useContentStore.getState().setIdeas(ideas);
         useContentStore.getState().setPieces(pieces);
         useContentStore.getState().setResources(resources);
+        const snippets = [...noteSnippets, ...ideaSnippets].filter(
+          (snippet, index, all) => all.findIndex((candidate) => candidate.id === snippet.id) === index,
+        );
+        useDataStore.getState().setSnippets(snippets);
+        useDataStore.getState().setVersions(versions);
+        useVoiceStore.getState().replaceVoices(voices);
       } catch {
         // The next sync bumps the revision again; a missed refresh is a stale
         // screen for a few seconds, never lost data.
