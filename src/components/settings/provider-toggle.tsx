@@ -4,7 +4,6 @@ import { getProvider } from "@/lib/providers";
 import type { AIProvider } from "@/lib/providers";
 import { getProviderKey } from "@/lib/ai/provider-runtime";
 import { useSettingsStore } from "@/stores/settings-store";
-import { isHosted } from "@/lib/edition";
 
 interface ProviderToggleProps {
   value: AIProvider;
@@ -22,12 +21,9 @@ const BETA_PROVIDERS = new Set<AIProvider>(["ollama"]);
 /** Whether a provider is ready to use (has a key / is signed in / is local). */
 function useProviderReady(): (id: AIProvider) => boolean {
   const creds = useSettingsStore((s) => s.settings.providerCredentials);
-  const hosted = isHosted();
   return (id: AIProvider) => {
     if (id === "ollama") return true;
-    if (id === "codex") return !!creds.codexAccessToken;
-    // Hosted SaaS provides managed AI, so cloud providers always work.
-    if (hosted) return true;
+    if (id === "codex") return !!(creds.codexAccessToken || creds.codexRefreshToken);
     return getProviderKey(id, creds).length > 0;
   };
 }

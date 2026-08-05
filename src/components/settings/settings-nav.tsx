@@ -1,14 +1,15 @@
 "use client";
 
-import { ArrowLeft, Mic, ImageIcon, Sparkles, ScrollText, User, Plug } from "lucide-react";
+import { ArrowLeft, Mic, ImageIcon, Sparkles, ScrollText, User, Plug, Cloud } from "lucide-react";
 
-export type SettingsSection = "profile" | "writing" | "photos" | "ai" | "integrations" | "logs";
+export type SettingsSection = "account" | "profile" | "writing" | "photos" | "ai" | "integrations" | "logs";
 
 const NAV_ITEMS: {
   id: SettingsSection;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
 }[] = [
+  { id: "account", label: "Account & Sync", icon: Cloud },
   { id: "profile", label: "Profile", icon: User },
   { id: "writing", label: "Brand Voice", icon: Mic },
   { id: "photos", label: "Photo Generation", icon: ImageIcon },

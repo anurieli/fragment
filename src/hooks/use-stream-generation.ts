@@ -9,8 +9,7 @@ import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice, composeVoiceContext } from "@/lib/voice-context";
 import { useToastStore } from "@/hooks/use-toast";
 import { postGenerateStream } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
-import { hasWorkingProvider } from "@/lib/ai/connection-status";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { parseSSEStreamWithUsage } from "@/lib/sse-parser";
 import { logApiCall } from "@/lib/api-logger";
@@ -24,13 +23,14 @@ function extractH1(markdown: string): { title: string; content: string } {
 }
 
 
-function getAIConfig() {
+function getAIConfig(badProviders: ReadonlySet<import("@/lib/types").AIProvider>) {
   const s = useSettingsStore.getState().settings;
-  const provider = s.featureProviders.slashCommand.provider;
+  const auth = resolveWorkingFeatureAuth(s, badProviders, "slashCommand");
+  if (!auth) return null;
   return {
-    provider,
-    model: s.featureProviders.slashCommand.model,
-    apiKey: getProviderKey(provider, s.providerCredentials) || undefined,
+    provider: auth.provider,
+    model: auth.model,
+    apiKey: auth.apiKey || undefined,
     codexToken: s.providerCredentials.codexAccessToken || undefined,
     codexRefreshToken: s.providerCredentials.codexRefreshToken || undefined,
   };
@@ -116,9 +116,9 @@ export function useStreamGeneration() {
 
     // 2. Build request and start streaming
     await waitForSettingsHydration();
-    const ai = getAIConfig();
     const app = useAppStore.getState();
-    if (!hasWorkingProvider(useSettingsStore.getState().settings, app.badProviders, "slashCommand")) {
+    const ai = getAIConfig(app.badProviders);
+    if (!ai) {
       app.openAiGate("no-provider");
       setStreamingError("No AI provider connected");
       setGeneratingNote(null);
@@ -204,7 +204,7 @@ export function useStreamGeneration() {
         setStreamingError(errorText);
         setGeneratingNote(null);
         setStreamingContent(null);
-        const isAuthFailure = res.status === 401;
+        const isAuthFailure = isAiAuthFailureStatus(res.status);
         if (isAuthFailure) {
           app.markProviderBad(ai.provider);
           app.openAiGate("auth-failed", ai.provider);

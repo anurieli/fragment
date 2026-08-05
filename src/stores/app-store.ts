@@ -2,7 +2,6 @@
 
 import { create } from "zustand";
 import type { Snippet, AIProvider } from "@/lib/types";
-import { isHosted } from "@/lib/edition";
 
 interface PendingSnippetDrop {
   snippet: Snippet;
@@ -167,8 +166,6 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   setCodexConnection: (status) => set({ codexConnection: status }),
   openAiGate: (reason, provider) => {
-    // Managed AI (hosted edition) always works — the gate never fires there.
-    if (isHosted()) return;
     set({ aiGate: { reason, provider } });
   },
   closeAiGate: () => set({ aiGate: null }),

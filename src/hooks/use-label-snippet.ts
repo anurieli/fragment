@@ -7,8 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { logApiCall } from "@/lib/api-logger";
 import { useToastStore } from "@/hooks/use-toast";
 import { postLabel } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
-import { hasWorkingProvider } from "@/lib/ai/connection-status";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 
 export function useLabelSnippet() {
@@ -33,13 +32,14 @@ export function useLabelSnippet() {
       // missing provider fails silently (no gate spam on every snippet). A
       // live auth failure below still opens the gate once.
       const app = useAppStore.getState();
-      if (!hasWorkingProvider(settings, app.badProviders, "snippetLabeling")) {
+      const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "snippetLabeling");
+      if (!auth) {
         updateSnippetLabel(snippetId, null, "idle");
         return;
       }
 
       try {
-        const { provider, model } = settings.featureProviders.snippetLabeling;
+        const { provider, model } = auth;
         const { promptTemplate, maxEssayContext } = settings.snippetLabeling;
         const truncatedEssayContent =
           maxEssayContext > 0 ? essayContent.slice(0, maxEssayContext) : "";
@@ -52,7 +52,7 @@ export function useLabelSnippet() {
             promptTemplate,
             model,
             provider,
-            apiKey: getProviderKey(provider, settings.providerCredentials) || undefined,
+            apiKey: auth.apiKey || undefined,
             codexToken,
           });
 
@@ -91,7 +91,7 @@ export function useLabelSnippet() {
         }
 
         if (!res.ok) {
-          if (res.status === 401) {
+          if (isAiAuthFailureStatus(res.status)) {
             app.markProviderBad(provider);
             app.openAiGate("auth-failed", provider);
           } else {

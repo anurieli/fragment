@@ -6,8 +6,7 @@ import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { postGenerate } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
-import { hasWorkingProvider } from "@/lib/ai/connection-status";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { DEFAULT_TITLE_PROMPT } from "@/lib/defaults";
 import { cleanGeneratedTitle, titleContext } from "@/lib/note-title";
 import { logApiCall } from "@/lib/api-logger";
@@ -43,13 +42,14 @@ export function useGenerateTitle() {
     const settingsStore = useSettingsStore.getState();
     const settings = settingsStore.settings;
 
-    if (!hasWorkingProvider(settings, app.badProviders, "slashCommand")) {
+    const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "slashCommand");
+    if (!auth) {
       app.openAiGate("no-provider");
       useToastStore.getState().showToast("Connect an AI provider to generate a title.");
       return;
     }
 
-    const { provider, model } = settings.featureProviders.slashCommand;
+    const { provider, model } = auth;
     const buildBody = (codexToken: string | undefined) =>
       JSON.stringify({
         contextAbove: draft,
@@ -60,7 +60,7 @@ export function useGenerateTitle() {
         promptTemplate: DEFAULT_TITLE_PROMPT,
         model,
         provider,
-        apiKey: getProviderKey(provider, settings.providerCredentials) || undefined,
+        apiKey: auth.apiKey || undefined,
         codexToken,
       });
 
@@ -95,12 +95,12 @@ export function useGenerateTitle() {
       }
 
       if (!res.ok) {
-        if (res.status === 401) {
+        if (isAiAuthFailureStatus(res.status)) {
           app.markProviderBad(provider);
           app.openAiGate("auth-failed", provider);
         }
         useToastStore.getState().showToast(
-          res.status === 401
+          isAiAuthFailureStatus(res.status)
             ? (provider === "codex" ? "ChatGPT disconnected. Reconnect in Settings." : "API key invalid. Check Settings.")
             : "Couldn't generate a title. Check your AI settings.",
         );

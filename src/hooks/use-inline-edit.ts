@@ -8,9 +8,8 @@ import { logApiCall } from "@/lib/api-logger";
 import { captureEvent } from "@/lib/posthog";
 import { useToastStore } from "@/hooks/use-toast";
 import { postEdit } from "@/lib/ai-client";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
 import { resolveVoice, composeVoiceContext } from "@/lib/voice-context";
-import { hasWorkingProvider } from "@/lib/ai/connection-status";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 
 export function useInlineEdit() {
@@ -33,14 +32,15 @@ export function useInlineEdit() {
       if (!settings.inlineEdit.enabled) return null;
 
       const app = useAppStore.getState();
-      if (!hasWorkingProvider(settings, app.badProviders, "inlineEdit")) {
+      const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "inlineEdit");
+      if (!auth) {
         app.openAiGate("no-provider");
         return null;
       }
 
-      const { provider, model } = settings.featureProviders.inlineEdit;
+      const { provider, model } = auth;
       const { maxContextChars, promptTemplate } = settings.inlineEdit;
-      const apiKey = getProviderKey(provider, settings.providerCredentials) || undefined;
+      const apiKey = auth.apiKey || undefined;
 
       const { voices } = useVoiceStore.getState();
       const voiceContext = composeVoiceContext(
@@ -100,7 +100,7 @@ export function useInlineEdit() {
         }
 
         if (!res.ok) {
-          if (res.status === 401) {
+          if (isAiAuthFailureStatus(res.status)) {
             app.markProviderBad(provider);
             app.openAiGate("auth-failed", provider);
           } else {

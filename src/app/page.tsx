@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { AppShell } from "@/components/app-shell";
 import { LandingPage } from "@/components/landing/landing-page";
 import { isHosted } from "@/lib/edition";
-import { SESSION_COOKIE } from "@/lib/server/session";
+import { SESSION_COOKIE } from "@/lib/session-cookie";
 
 /**
  * The front door.

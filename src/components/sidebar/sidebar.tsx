@@ -17,6 +17,8 @@ import {
   ChevronDown,
   Pin,
   MoreHorizontal,
+  Sparkles,
+  Monitor,
   Download,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
@@ -26,6 +28,10 @@ import { draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/conte
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useToastStore } from "@/hooks/use-toast";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useSyncStore } from "@/stores/sync-store";
+import { hasAnyWorkingProvider } from "@/lib/ai/connection-status";
+import { isTauri } from "@/lib/ai-client";
 import { formatDate } from "@/lib/utils";
 import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
@@ -41,6 +47,8 @@ import {
 
 interface SidebarProps {
   onOpenSettings: () => void;
+  onOpenAccount: () => void;
+  onOpenAI: () => void;
   onOpenHelp: () => void;
   onOpenLogs: () => void;
 }
@@ -161,7 +169,7 @@ function IdeaMenuItem({
   );
 }
 
-export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs }: SidebarProps) {
   const { activeNoteId, setActiveNote, toggleSidebar } = useAppStore();
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
@@ -179,6 +187,10 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
   const restoreIdeaCascade = useContentStore((s) => s.restoreIdeaCascade);
   const showToast = useToastStore((s) => s.showToast);
   const isOnline = useOnlineStatus();
+  const settings = useSettingsStore((s) => s.settings);
+  const badProviders = useAppStore((s) => s.badProviders);
+  const syncStatus = useSyncStore((s) => s.snapshot.status);
+  const aiConnected = hasAnyWorkingProvider(settings, badProviders);
   const [searchQuery, setSearchQuery] = useState("");
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
   // Sub-ideas start collapsed. The sidebar is a list of ideas to move
@@ -541,6 +553,18 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
                 </span>
               </div>
               <button
+                onClick={onOpenAI}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
+                  aiConnected ? "text-green" : "text-gold bg-gold/5"
+                }`}
+                title={aiConnected ? "AI provider configured" : "No AI provider connected"}
+              >
+                <Sparkles size={12} />
+                <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">
+                  {aiConnected ? "AI connected" : "AI not connected"}
+                </span>
+              </button>
+              <button
                 onClick={toggleSidebar}
                 className="p-2 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
               >
@@ -737,6 +761,16 @@ export function Sidebar({ onOpenSettings, onOpenHelp, onOpenLogs }: SidebarProps
 
           {/* Bottom buttons */}
           <div className="px-5 py-5 space-y-1">
+            <div className="mb-2 px-1">
+              <button
+                onClick={onOpenAccount}
+                className="flex w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-surface-2 px-2 py-1.5 text-[9px] text-text-faint hover:text-text-muted"
+                title={`${isTauri() ? "Desktop app" : "Browser"}; sync ${syncStatus}`}
+              >
+                <Monitor size={10} className="shrink-0" />
+                <span className="truncate">{isTauri() ? "Desktop" : "Browser"} · {syncStatus === "idle" || syncStatus === "syncing" ? "Cloud" : "Local"}</span>
+              </button>
+            </div>
             <FeedbackButton onClick={openFeedback} />
             <button
               onClick={onOpenHelp}

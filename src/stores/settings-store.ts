@@ -576,6 +576,24 @@ export const useSettingsStore = create<SettingsState>()(
   ),
 );
 
+/** Apply a settings row pulled by cloud sync while retaining device-only secrets. */
+export async function refreshSettingsFromDatabase(): Promise<void> {
+  const row = await db.settings.get("default") as (AppSettings & { __savedAt?: number }) | undefined;
+  if (!row) return;
+  const incoming = mergePersistedSettings(row);
+  const current = useSettingsStore.getState().settings;
+  useSettingsStore.getState().setSettings({
+    ...incoming,
+    providerCredentials: current.providerCredentials,
+    userProfile: {
+      ...incoming.userProfile,
+      kitApiKey: current.userProfile.kitApiKey,
+      composioApiKey: current.userProfile.composioApiKey,
+      linkedInConnectedAccountId: current.userProfile.linkedInConnectedAccountId,
+    },
+  });
+}
+
 /** Wait for the settings store to finish loading from IndexedDB / Stronghold. */
 export async function waitForSettingsHydration(): Promise<void> {
   const persist = (useSettingsStore as unknown as {

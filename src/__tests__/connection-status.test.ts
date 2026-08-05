@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   resolveFeatureAuth,
+  resolveWorkingFeatureAuth,
   hasWorkingProvider,
   hasAnyProviderPresent,
 } from "@/lib/ai/connection-status";
@@ -20,12 +21,12 @@ describe("connection-status", () => {
     process.env.NEXT_PUBLIC_FRAGMENT_HOSTED = originalHosted;
   });
 
-  it("hosted edition: hasWorkingProvider is always true, even with zero credentials", () => {
+  it("hosted edition still requires a real AI connection", () => {
     process.env.NEXT_PUBLIC_FRAGMENT_HOSTED = "true";
     const settings = structuredClone(DEFAULT_SETTINGS);
-    expect(hasWorkingProvider(settings, NO_BAD, "slashCommand")).toBe(true);
-    expect(hasWorkingProvider(settings, NO_BAD, "snippetLabeling")).toBe(true);
-    expect(hasWorkingProvider(settings, NO_BAD, "inlineEdit")).toBe(true);
+    expect(hasWorkingProvider(settings, NO_BAD, "slashCommand")).toBe(false);
+    expect(hasWorkingProvider(settings, NO_BAD, "snippetLabeling")).toBe(false);
+    expect(hasWorkingProvider(settings, NO_BAD, "inlineEdit")).toBe(false);
   });
 
   it("self-host with no credentials: hasWorkingProvider is false", () => {
@@ -73,6 +74,23 @@ describe("connection-status", () => {
     process.env.NEXT_PUBLIC_FRAGMENT_HOSTED = "false";
     const settings = structuredClone(DEFAULT_SETTINGS);
     expect(resolveFeatureAuth("slashCommand", settings).present).toBe(false);
+    expect(hasWorkingProvider(settings, NO_BAD, "slashCommand")).toBe(false);
+  });
+
+  it("a sole connected key automatically powers a feature pointed elsewhere", () => {
+    const settings = settingsWith({
+      providerCredentials: { ...DEFAULT_SETTINGS.providerCredentials, anthropicApiKey: "sk-ant-only" },
+    });
+    const auth = resolveWorkingFeatureAuth(settings, NO_BAD, "slashCommand");
+    expect(auth?.provider).toBe("anthropic");
+    expect(auth?.apiKey).toBe("sk-ant-only");
+    expect(hasWorkingProvider(settings, NO_BAD, "slashCommand")).toBe(true);
+  });
+
+  it("whitespace-only credentials do not count as connected", () => {
+    const settings = settingsWith({
+      providerCredentials: { ...DEFAULT_SETTINGS.providerCredentials, openRouterApiKey: "   " },
+    });
     expect(hasWorkingProvider(settings, NO_BAD, "slashCommand")).toBe(false);
   });
 

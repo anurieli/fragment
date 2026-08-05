@@ -112,20 +112,9 @@ export async function POST(req: NextRequest) {
 
   if (isChatRequestError(chatRequest)) {
     const durationMs = Date.now() - startTime;
-    // Missing API key → labeling is a non-blocking convenience; return 200 so
-    // the snippet just stays unlabeled instead of surfacing an error toast.
-    if (chatRequest.status === 400) {
-      const failureReason = `No API key configured for ${provider}`;
-      logLabel("warn", "request:failed", { requestId, provider, modelToRun, statusCode: 200, durationMs, failureReason });
-      return NextResponse.json(
-        { label: "AI labeling unavailable", _meta: { durationMs, statusCode: 200, error: failureReason, promptLength: prompt.length, responseLength: 0, modelRequested: requestedModel, modelUsed: modelToRun, request: requestSnapshot } },
-        { status: 200 },
-      );
-    }
-    // e.g. Codex not authenticated (401)
     logLabel("warn", "request:failed", { requestId, provider, modelToRun, statusCode: chatRequest.status, durationMs, failureReason: chatRequest.error });
     return NextResponse.json(
-      { label: chatRequest.error, _meta: { durationMs, statusCode: chatRequest.status, error: chatRequest.error, promptLength: prompt.length, responseLength: 0, modelRequested: requestedModel, modelUsed: modelToRun, request: requestSnapshot } },
+      { error: chatRequest.error, _meta: { durationMs, statusCode: chatRequest.status, error: chatRequest.error, promptLength: prompt.length, responseLength: 0, modelRequested: requestedModel, modelUsed: modelToRun, request: requestSnapshot } },
       { status: chatRequest.status },
     );
   }

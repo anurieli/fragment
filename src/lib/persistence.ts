@@ -48,6 +48,12 @@ function removeNoteBackup(noteId: string): void {
   }
 }
 
+/** Remove recovery copies when cloud sync applies a note tombstone. */
+export async function removeNoteBackupArtifacts(noteId: string): Promise<void> {
+  removeNoteBackup(noteId);
+  await removeNoteFromFs(noteId);
+}
+
 /** Load the index of backed-up note IDs from localStorage. */
 function loadNoteIndex(): string[] {
   try {
@@ -214,8 +220,7 @@ export async function saveNote(note: Note): Promise<void> {
 
 export async function deleteNoteAndSnippets(noteId: string): Promise<void> {
   logPersistence("note_delete", { noteId });
-  removeNoteBackup(noteId);
-  removeNoteFromFs(noteId);
+  void removeNoteBackupArtifacts(noteId);
 
   try {
     await db.transaction(

@@ -13,7 +13,9 @@ import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
-import { getProviderKey } from "@/lib/ai/provider-runtime";
+import { postGenerate } from "@/lib/ai-client";
+import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
+import { DEFAULT_NOTE_CREATION_PROMPT } from "@/lib/defaults";
 import { generateId } from "@/lib/utils";
 import { saveSamples } from "@/lib/persistence";
 import { extractSampleText, SAMPLE_ACCEPT } from "@/lib/sample-extract";
@@ -22,8 +24,7 @@ import { useDeviceId } from "@/hooks/use-device-id";
 import { useToastStore } from "@/hooks/use-toast";
 import { identify } from "@/lib/cloud-client";
 import type { VoiceSample } from "@/lib/types";
-import { hasWorkingProvider, hasAnyProviderPresent } from "@/lib/ai/connection-status";
-import { isHosted } from "@/lib/edition";
+import { hasWorkingProvider, hasAnyProviderPresent, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { ConnectPanel } from "@/components/ai-connect/connect-panel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -701,6 +702,7 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
   const updateNoteContent = useDataStore((s) => s.updateNoteContent);
   const updateNoteTitle = useDataStore((s) => s.updateNoteTitle);
   const settings = useSettingsStore((s) => s.settings);
+  const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
   const badProviders = useAppStore((s) => s.badProviders);
   const openAiGate = useAppStore((s) => s.openAiGate);
 
@@ -744,47 +746,58 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
     setIsGenerating(true);
     setGenerateError(null);
     try {
-      const provider = settings.featureProviders.slashCommand.provider;
-      const model = settings.featureProviders.slashCommand.model;
-      const apiKey = getProviderKey(provider, settings.providerCredentials);
+      const app = useAppStore.getState();
+      const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "slashCommand");
+      if (!auth) {
+        app.openAiGate("no-provider");
+        setGenerateError("Connect ChatGPT or add an API key first.");
+        return;
+      }
 
-      let content = "";
-
-      if (provider === "ollama") {
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: generatePrompt,
-            context: "",
-            goal: "",
-            model,
-            provider: "ollama",
-          }),
-        });
-        if (!res.ok) throw new Error("Generation failed");
-        content = await res.text();
-      } else {
-        if (!apiKey) {
-          setGenerateError("No API key — set one in Settings first.");
-          setIsGenerating(false);
+      let codexToken: string | undefined;
+      if (auth.provider === "codex") {
+        codexToken = await ensureValidCodexToken(
+          settings.providerCredentials.codexAccessToken,
+          settings.providerCredentials.codexRefreshToken,
+          updateProviderCredentials,
+        ) ?? undefined;
+        if (!codexToken) {
+          app.markProviderBad("codex");
+          app.openAiGate("auth-failed", "codex");
+          setGenerateError("Reconnect ChatGPT to continue.");
           return;
         }
-        const res = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: generatePrompt,
-            context: "",
-            goal: "",
-            model,
-            provider,
-            apiKey,
-          }),
-        });
-        if (!res.ok) throw new Error("Generation failed");
-        content = await res.text();
       }
+
+      const body = (token: string | undefined) => JSON.stringify({
+        contextAbove: "",
+        contextBelow: "",
+        goal: "",
+        audience: "",
+        tone: "",
+        remember: "",
+        userInstruction: generatePrompt,
+        promptTemplate: DEFAULT_NOTE_CREATION_PROMPT,
+        model: auth.model,
+        provider: auth.provider,
+        apiKey: auth.apiKey || undefined,
+        codexToken: token,
+      });
+
+      let res = await postGenerate(body(codexToken));
+      if (res.status === 401 && auth.provider === "codex") {
+        const fresh = await forceRefreshCodexToken(updateProviderCredentials);
+        if (fresh) res = await postGenerate(body(fresh));
+      }
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          app.markProviderBad(auth.provider);
+          app.openAiGate("auth-failed", auth.provider);
+        }
+        throw new Error("Generation failed");
+      }
+      const data = await res.json() as { content?: string };
+      const content = data.content ?? "";
 
       const id = createNote();
       updateNoteTitle(id, generatePrompt.slice(0, 80));
@@ -795,7 +808,7 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
     } finally {
       setIsGenerating(false);
     }
-  }, [generatePrompt, settings, createNote, updateNoteContent, updateNoteTitle, onNoteCreated]);
+  }, [generatePrompt, settings, updateProviderCredentials, createNote, updateNoteContent, updateNoteTitle, onNoteCreated]);
 
   const isAiConfigured = hasWorkingProvider(settings, badProviders, "slashCommand");
 
@@ -1072,7 +1085,7 @@ function ConnectStep({ onDone }: ConnectStepProps) {
 
 /**
  * Step indices as a small enum rather than magic numbers.
- * CONNECT is conditional (skipped when hosted or a provider is already
+ * CONNECT is conditional (skipped when a provider is already
  * connected — see `showConnectStep`), but still occupies index 1.
  * VOICE_SETUP lets the user seed their first Brand Voice from writing samples.
  * FEATURE_START..FEATURE_END covers the 3 feature-intro steps
@@ -1097,9 +1110,9 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const setActiveNote = useAppStore((s) => s.setActiveNote);
   const settings = useSettingsStore((s) => s.settings);
 
-  // Skip the Connect step when AI already works (hosted managed AI, or a
-  // provider is already connected) — don't nag returning/hosted users.
-  const showConnectStep = !isHosted() && !hasAnyProviderPresent(settings);
+  // Skip the Connect step only when this device already has AI access.
+  // Hosting the app does not imply that a managed provider is available.
+  const showConnectStep = !hasAnyProviderPresent(settings);
 
   const overlayRef = useRef<HTMLDivElement>(null);
 
