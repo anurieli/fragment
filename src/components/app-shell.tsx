@@ -21,6 +21,7 @@ import { Sidebar } from "./sidebar/sidebar";
 import { IdeaPanel, IdeaPanelToggle } from "./idea/idea-panel";
 import { Editor } from "./editor/editor";
 import { HelperBar } from "./helper-bar/helper-bar";
+import { CommentsPanel } from "./comments/comments-panel";
 import { SpaceToggle } from "./shortform/space-toggle";
 import { ShortformView } from "./shortform/shortform-view";
 import { TimelinePanel } from "./timeline/timeline-panel";
@@ -118,6 +119,8 @@ export function AppShell() {
   const helperBarOpen = useAppStore((s) => s.helperBarOpen);
   const helperBarPinned = useAppStore((s) => s.helperBarPinned);
   const timelineOpen = useAppStore((s) => s.timelineOpen);
+  const commentsPanelOpen = useAppStore((s) => s.commentsPanelOpen);
+  const closeCommentsPanel = useAppStore((s) => s.closeCommentsPanel);
   const activeNoteId = useAppStore((s) => s.activeNoteId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaSpace = useAppStore((s) => (activeIdeaId ? s.ideaSpaces[activeIdeaId] ?? "write" : "write"));
@@ -339,6 +342,7 @@ export function AppShell() {
         if (previewId) { setTimelinePreviewVersionId(null); return; }
         if (showSettings) { setShowSettings(false); return; }
         if (showGlobalSearch) { setShowGlobalSearch(false); return; }
+        if (commentsPanelOpen) { closeCommentsPanel(); return; }
         if (isCompact && helperBarOpen) { closeHelperBar(); return; }
       }
     },
@@ -349,6 +353,7 @@ export function AppShell() {
       isCompact, helperBarOpen, closeHelperBar,
       isFeedbackOpen, closeFeedback,
       activeIdeaId, setIdeaSpace,
+      commentsPanelOpen, closeCommentsPanel,
     ],
   );
 
@@ -525,6 +530,19 @@ export function AppShell() {
             onClick={pinHelperBar}
           >
             <Puzzle size={13} className="text-text-muted" />
+          </div>
+        )}
+
+        {/* Comments panel: a drawer that pops up from the bottom rather than
+            squeezing the editor like the side panels do — toggled from the
+            sidebar (see sidebar.tsx), independent of helper bar / timeline. */}
+        {!showSettings && (
+          <div
+            className={`absolute left-3 right-3 bottom-3 z-20 h-[320px] overflow-hidden shadow-2xl transition-transform duration-300 ease-out ${
+              commentsPanelOpen ? "translate-y-0" : "translate-y-[calc(100%+0.75rem)]"
+            }`}
+          >
+            <CommentsPanel />
           </div>
         )}
       </div>

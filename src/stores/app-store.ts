@@ -41,6 +41,9 @@ interface AppState {
   helperBarOpen: boolean;
   helperBarPinned: boolean;
   timelineOpen: boolean;
+  /** The bottom Comments panel — pops up over the editor, toggled from the
+   * sidebar. Independent of the side panels above; both can be open at once. */
+  commentsPanelOpen: boolean;
   timelinePreviewVersionId: string | null;
   activeNoteId: string | null;
   /** The idea selected in the sidebar, if any. Independent of activeNoteId — an idea's Write space shows whichever note is linked to it (see sidebar.tsx). */
@@ -92,10 +95,13 @@ interface AppState {
   toggleSidebar: () => void;
   toggleHelperBar: () => void;
   toggleTimeline: () => void;
+  toggleCommentsPanel: () => void;
   setSidebarOpen: (v: boolean) => void;
   setHelperBarOpen: (v: boolean) => void;
   pinHelperBar: () => void;
   closeHelperBar: () => void;
+  setCommentsPanelOpen: (v: boolean) => void;
+  closeCommentsPanel: () => void;
   setTimelineOpen: (v: boolean) => void;
   setTimelinePreviewVersionId: (id: string | null) => void;
   setActiveNote: (id: string | null) => void;
@@ -131,6 +137,7 @@ export const useAppStore = create<AppState>((set) => ({
   helperBarOpen: false,
   helperBarPinned: false,
   timelineOpen: false,
+  commentsPanelOpen: false,
   timelinePreviewVersionId: null,
   activeNoteId: null,
   activeIdeaId: null,
@@ -193,6 +200,9 @@ export const useAppStore = create<AppState>((set) => ({
   pinHelperBar: () => set({ helperBarOpen: true, helperBarPinned: true, timelineOpen: false }),
   closeHelperBar: () => set({ helperBarOpen: false, helperBarPinned: false }),
   toggleTimeline: () => set((s) => ({ timelineOpen: !s.timelineOpen, helperBarOpen: false, helperBarPinned: false })),
+  toggleCommentsPanel: () => set((s) => ({ commentsPanelOpen: !s.commentsPanelOpen })),
+  setCommentsPanelOpen: (v) => set({ commentsPanelOpen: v }),
+  closeCommentsPanel: () => set({ commentsPanelOpen: false }),
   setTimelineOpen: (v) => set({ timelineOpen: v }),
   setTimelinePreviewVersionId: (id) => set({ timelinePreviewVersionId: id }),
   setActiveNote: (id) => set({

@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { Note, Snippet, NoteVersion, VersionTrigger } from "@/lib/types";
+import type { Note, Snippet, NoteVersion, VersionTrigger, Comment } from "@/lib/types";
 import { generateId, wordCount } from "@/lib/utils";
 import { snipHomeKey, snippetHome } from "@/lib/snip-scope";
 import { useAppStore } from "@/stores/app-store";
@@ -13,6 +13,7 @@ import {
   deleteSnippet as deleteSnippetFromDB,
   saveVersion,
   deleteVersion as deleteVersionFromDB,
+  saveComment,
 } from "@/lib/persistence";
 import { useToastStore } from "@/hooks/use-toast";
 import { captureEvent } from "@/lib/posthog";
@@ -28,6 +29,7 @@ interface DataState {
   notes: Record<string, Note>;
   snippets: Record<string, Snippet>;
   versions: Record<string, NoteVersion>;
+  comments: Record<string, Comment>;
   hydrated: boolean;
 
   // Long-form "awaiting confirmation" state for the Substack verified-publish
@@ -45,6 +47,7 @@ interface DataState {
   setNotes: (notes: Note[]) => void;
   setSnippets: (snippets: Snippet[]) => void;
   setVersions: (versions: NoteVersion[]) => void;
+  setComments: (comments: Comment[]) => void;
   markNotePublishPending: (noteId: string) => void;
   clearNotePublishPending: (noteId: string) => void;
 
@@ -70,6 +73,16 @@ interface DataState {
   restoreSnippet: (snippet: Snippet) => void;
   reorderSnippets: (updates: { id: string; order: number }[]) => void;
 
+  /** Adds a comment against whichever home is passed (exactly one of noteId
+   * / ideaId — see commentHome in comment-scope.ts). Empty when neither is
+   * set, mirroring addSnippet's homeless refusal. */
+  addComment: (noteId: string | null, ideaId: string | null, body: string) => string;
+  /** Creates an Idea seeded from the comment's body (via content-store's
+   * createIdea) and stamps the comment's promotedIdeaId with it. The comment
+   * stays put — this is a forward pointer, not a move. Returns the new
+   * idea's id, or "" if the comment is missing or already promoted. */
+  promoteCommentToIdea: (id: string) => string;
+
   createVersion: (noteId: string, name: string, trigger: VersionTrigger) => string;
   removeVersion: (id: string) => void;
   restoreVersion: (versionId: string) => void;
@@ -80,6 +93,7 @@ export const useDataStore = create<DataState>((set, get) => ({
   notes: {},
   snippets: {},
   versions: {},
+  comments: {},
   hydrated: false,
   pendingSubstackPublish: {},
 
@@ -114,6 +128,12 @@ export const useDataStore = create<DataState>((set, get) => ({
     const map: Record<string, NoteVersion> = {};
     for (const v of versions) map[v.id] = v;
     set({ versions: map });
+  },
+
+  setComments: (comments) => {
+    const map: Record<string, Comment> = {};
+    for (const c of comments) map[c.id] = c;
+    set({ comments: map });
   },
 
   createNote: (opts) => {
@@ -336,6 +356,40 @@ export const useDataStore = create<DataState>((set, get) => ({
       }
     }
     set({ snippets: newSnippets });
+  },
+
+  addComment: (noteId, ideaId, body) => {
+    if (!get().hydrated) return "";
+    if (!noteId && !ideaId) return "";
+    const id = generateId();
+    const now = Date.now();
+    const comment: Comment = {
+      id,
+      noteId,
+      ideaId,
+      body,
+      createdAt: now,
+      updatedAt: now,
+      promotedIdeaId: null,
+    };
+    set((s) => ({ comments: { ...s.comments, [id]: comment } }));
+    saveComment(comment);
+    captureEvent("comment_created");
+    return id;
+  },
+
+  promoteCommentToIdea: (id) => {
+    if (!get().hydrated) return "";
+    const comment = get().comments[id];
+    if (!comment || comment.promotedIdeaId) return "";
+    const title = comment.body.trim().slice(0, 80) || "Untitled idea";
+    const ideaId = useContentStore.getState().createIdea({ title, summary: comment.body.trim() });
+    if (!ideaId) return "";
+    const updated: Comment = { ...comment, promotedIdeaId: ideaId, updatedAt: Date.now() };
+    set((s) => ({ comments: { ...s.comments, [id]: updated } }));
+    saveComment(updated);
+    captureEvent("comment_promoted_to_idea");
+    return ideaId;
   },
 
   createVersion: (noteId, _name, trigger) => {

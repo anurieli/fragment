@@ -38,6 +38,26 @@ export interface Snippet {
   ideaId?: string;
 }
 
+/**
+ * A single note-first comment left against a note or an idea. Exactly one of
+ * `noteId` / `ideaId` is set — whichever surface was active when it was
+ * written (see commentHome in comment-scope.ts) — mirroring the two-home shape
+ * of Snippet.noteId/ideaId, but without a snippet's dual-carry: a comment
+ * has one home for its whole life.
+ *
+ * `promotedIdeaId` is set once "Turn into an idea" fires. The comment stays
+ * in place — this is a forward pointer to the Idea it seeded, not a move.
+ */
+export interface Comment {
+  id: string;
+  noteId: string | null;
+  ideaId: string | null;
+  body: string;
+  createdAt: number;
+  updatedAt: number;
+  promotedIdeaId: string | null;
+}
+
 export type VersionTrigger = "manual" | "export-md" | "export-html" | "download-md" | "download-html" | "download-pdf" | "download-docx";
 
 export interface NoteVersion {

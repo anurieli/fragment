@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview, OutboxEntry, SyncStateRow } from "./types";
+import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview, OutboxEntry, SyncStateRow, Comment } from "./types";
 import type { Idea, ContentPiece, Resource } from "./content-engine";
 
 class FragmentDB extends Dexie {
@@ -18,6 +18,7 @@ class FragmentDB extends Dexie {
   reviews!: Table<StoredReview, string>;
   outbox!: Table<OutboxEntry, [string, string]>;
   syncState!: Table<SyncStateRow, string>;
+  comments!: Table<Comment, string>;
 
   constructor() {
     super("fragment");
@@ -319,6 +320,30 @@ class FragmentDB extends Dexie {
       reviews: "id, noteId, receivedAt",
       outbox: "[collection+id], collection, updatedAt",
       syncState: "id",
+    });
+
+    // v20 — comments: note-first commentary units that can be "turned into
+    // an idea" (ARI feedback, see comment-scope.ts). promotedIdeaId is
+    // indexed so the idea view can look up its originating comment directly
+    // rather than scanning every row.
+    this.version(20).stores({
+      notes: "id, updatedAt",
+      snippets: "id, noteId, order, ideaId",
+      settings: "id",
+      noteVersions: "id, noteId, createdAt",
+      images: "id, noteId, createdAt",
+      apiLogs: "id, timestamp, route, provider, status, noteId, synced",
+      feedbackQueue: "id, status, createdAt",
+      voices: "id, updatedAt",
+      voiceSamples: "id, voiceId, createdAt",
+      ideas: "id, parentId, pinnedAt, priority, updatedAt, createdAt",
+      contentPieces:
+        "id, ideaId, noteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
+      resources: "id, ownerId, ownerType, createdAt",
+      reviews: "id, noteId, receivedAt",
+      outbox: "[collection+id], collection, updatedAt",
+      syncState: "id",
+      comments: "id, noteId, ideaId, promotedIdeaId, createdAt",
     });
   }
 }

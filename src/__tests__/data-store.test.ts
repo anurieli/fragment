@@ -1,22 +1,35 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 
-// Mock the persistence layer — stores call these on every mutation
-vi.mock("@/lib/persistence", () => ({
-  saveNote: vi.fn().mockResolvedValue(undefined),
-  deleteNoteAndSnippets: vi.fn(),
-  saveSnippet: vi.fn(),
-  deleteSnippet: vi.fn(),
-  saveVersion: vi.fn(),
-  deleteVersion: vi.fn(),
-}));
+// Mock the persistence layer — stores call these on every mutation.
+// promoteCommentToIdea reaches into content-store's createIdea, which calls
+// saveIdea on this same module, so importActual + override (rather than a
+// bare replacement object) keeps that path from calling undefined.
+vi.mock("@/lib/persistence", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/persistence")>(
+    "@/lib/persistence",
+  );
+  return {
+    ...actual,
+    saveNote: vi.fn().mockResolvedValue(undefined),
+    deleteNoteAndSnippets: vi.fn(),
+    saveSnippet: vi.fn(),
+    deleteSnippet: vi.fn(),
+    saveVersion: vi.fn(),
+    deleteVersion: vi.fn(),
+    saveComment: vi.fn(),
+    saveIdea: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 function resetStore() {
   useDataStore.setState({
     notes: {},
     snippets: {},
     versions: {},
+    comments: {},
     hydrated: true,
   });
   useAppStore.setState({
@@ -25,6 +38,7 @@ function resetStore() {
     liveEditorContent: null,
     timelinePreviewVersionId: null,
   });
+  useContentStore.setState({ ideas: {}, pieces: {}, resources: {}, hydrated: true });
 }
 
 describe("data-store — notes", () => {
@@ -233,6 +247,70 @@ describe("data-store — snippets", () => {
     useDataStore.getState().setSnippets(snippets);
     expect(useDataStore.getState().snippets["x"]).toBeDefined();
     expect(useDataStore.getState().snippets["x"].content).toBe("text");
+  });
+});
+
+describe("data-store — comments", () => {
+  beforeEach(resetStore);
+
+  it("addComment attaches to a note", () => {
+    const noteId = useDataStore.getState().createNote();
+    const id = useDataStore.getState().addComment(noteId, null, "worth digging into");
+
+    const comment = useDataStore.getState().comments[id];
+    expect(comment).toBeDefined();
+    expect(comment.noteId).toBe(noteId);
+    expect(comment.ideaId).toBeNull();
+    expect(comment.promotedIdeaId).toBeNull();
+  });
+
+  it("addComment attaches to an idea", () => {
+    const id = useDataStore.getState().addComment(null, "idea-1", "a piece thought");
+    const comment = useDataStore.getState().comments[id];
+    expect(comment.noteId).toBeNull();
+    expect(comment.ideaId).toBe("idea-1");
+  });
+
+  it("addComment refuses a comment with no home rather than losing it", () => {
+    expect(useDataStore.getState().addComment(null, null, "homeless")).toBe("");
+    expect(Object.keys(useDataStore.getState().comments)).toHaveLength(0);
+  });
+
+  it("promoteCommentToIdea creates an idea seeded from the comment and stamps promotedIdeaId", () => {
+    const noteId = useDataStore.getState().createNote();
+    const commentId = useDataStore.getState().addComment(noteId, null, "This deserves its own idea");
+
+    const ideaId = useDataStore.getState().promoteCommentToIdea(commentId);
+
+    expect(ideaId).not.toBe("");
+    const idea = useContentStore.getState().ideas[ideaId];
+    expect(idea).toBeDefined();
+    expect(idea.title).toBe("This deserves its own idea");
+    expect(idea.summary).toBe("This deserves its own idea");
+
+    const comment = useDataStore.getState().comments[commentId];
+    expect(comment.promotedIdeaId).toBe(ideaId);
+  });
+
+  it("promoteCommentToIdea is a no-op on an already-promoted comment", () => {
+    const noteId = useDataStore.getState().createNote();
+    const commentId = useDataStore.getState().addComment(noteId, null, "one idea only");
+    const firstIdeaId = useDataStore.getState().promoteCommentToIdea(commentId);
+
+    const secondResult = useDataStore.getState().promoteCommentToIdea(commentId);
+
+    expect(secondResult).toBe("");
+    expect(useDataStore.getState().comments[commentId].promotedIdeaId).toBe(firstIdeaId);
+    expect(Object.keys(useContentStore.getState().ideas)).toHaveLength(1);
+  });
+
+  it("setComments hydrates from an array", () => {
+    const comments = [
+      { id: "c1", noteId: "n1", ideaId: null, body: "hello", createdAt: 1, updatedAt: 1, promotedIdeaId: null },
+    ];
+    useDataStore.getState().setComments(comments);
+    expect(useDataStore.getState().comments["c1"]).toBeDefined();
+    expect(useDataStore.getState().comments["c1"].body).toBe("hello");
   });
 });
 
