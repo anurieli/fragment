@@ -73,7 +73,7 @@ Fragment's three headline features have user-facing names used on the website an
 ### How it works
 The editor uses Tiptap 3 with `tiptap-markdown` for live rendering. As you type markdown syntax, it renders immediately — no preview pane needed.
 
-Selected text is movable in place: drag a highlight to another point in the same editor to reorder it, or continue into the Snip Bar to turn it into a snippet. In-editor moves preserve the selected ProseMirror slice, including its formatting and block structure, and stay local. AI labeling starts only after a Snip Bar drop has created the snippet.
+Selected text is movable in place: drag a highlight to another point in the same editor to reorder it, or continue into the Snip Bar to turn it into a snippet. In-editor moves use ProseMirror's native selection-replacement rules, so formatting survives while mixed boundaries such as a full heading moved into a paragraph adopt a schema-valid destination structure. These moves stay local. AI labeling starts only after a Snip Bar drop has created the snippet.
 
 Supported markdown:
 - `# Heading 1` / `## Heading 2` / `### Heading 3` — rendered in DM Serif Display font
@@ -93,6 +93,7 @@ Supported markdown:
 5. Type `- item 1` then Enter — should continue the list
 6. Select text and check the gold selection highlight
 7. Drag the selection to another paragraph; it should move there with its formatting intact
+8. Select a whole heading through the start of the following paragraph, then drag it into paragraph text; the destination should remain a paragraph instead of turning into a heading
 
 ### QA checklist
 - [ ] `##` + space triggers heading (H2 in display font)
@@ -104,6 +105,7 @@ Supported markdown:
 - [ ] Gold caret visible
 - [ ] Gold selection highlight on text select
 - [ ] Dragging selected text within the editor moves it to the drop point without flattening its formatting
+- [ ] Cross-block moves preserve valid heading and paragraph boundaries at the destination
 - [ ] Placeholder text "Start writing..." shows when editor is empty
 - [ ] Bottom padding provides breathing room (writing line not at screen bottom)
 
