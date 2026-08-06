@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-06 12:11 - Add comments: note/idea commentary that can be turned into ideas (2908316)
+
+**Commit**: `2908316`
+
+**Summary**: A new Dexie `comments` table (`id, noteId, ideaId, promotedIdeaId, createdAt`, DB version 20) backs note-first commentary units — exactly one of `noteId`/`ideaId` set, whichever surface was active when the comment was written (`commentHome` in the new `src/lib/comment-scope.ts`, mirroring but simplifying `Snippet`'s two-home pattern: a comment has one home for its whole life, not a dual carry). A bottom Comments panel (`src/components/comments/comments-panel.tsx`) pops up over the editor — toggled by a new "Comments" button in the sidebar's bottom button stack, independent of the Snip Bar / Timeline side panels — listing the active note/idea's comments oldest-first with a textarea to add new ones. Each comment carries a "Turn into an idea" button that calls content-store's existing `createIdea` seeded from the comment's body, stamps the comment's `promotedIdeaId`, and swaps the button for an "Ideized — open idea" link. The idea view (`idea-panel.tsx`) looks up its originating comment via a new indexed query (`findOriginComment`, keyed on `promotedIdeaId`) and shows a "Started from a comment" backlink that jumps back to the source note/idea and opens the panel. `comments` is registered in the sync protocol's `SYNCED_COLLECTIONS` list so outbox hooks and cloud-sync typing stay consistent with `notes`/`snippets`/etc — no server-side sync logic added here (that lives in the private `fragment-cloud` repo).
+
+**Files**: `src/lib/types.ts`, `src/lib/db.ts`, `src/lib/persistence.ts`, `src/lib/sync/protocol.ts`, `src/lib/comment-scope.ts` (new), `src/stores/data-store.ts`, `src/stores/app-store.ts`, `src/hooks/use-persistence.ts`, `src/components/comments/comments-panel.tsx` (new), `src/components/app-shell.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/idea/idea-panel.tsx`, `src/__tests__/comment-scope.test.ts` (new), `src/__tests__/data-store.test.ts`.
+
+**Verification**: `npx tsc --noEmit` clean; `npm run lint` exits 0 errors (32 pre-existing warnings, unchanged by this diff); `npx vitest run` — 47 files, 670 tests passing; `npm run build` succeeds.
+
 ## 2026-08-03 12:33 - Preserve valid mixed-block editor reorders (ARI-274)
 
 **Summary**: Follow-up validation of same-editor selection reordering found that deleting a raw ProseMirror range could leave a moved heading and adjacent paragraph with the wrong destination block type. Reorders now require the editor's live selection to match the captured drag range, copy that selection's native slice, and remove it through ProseMirror's selection-replacement semantics before mapping the drop point. Moving a whole heading through the start of the following paragraph into paragraph text therefore produces a valid paragraph structure instead of promoting the destination to a heading, while stale selection changes cancel safely.

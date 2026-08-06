@@ -20,6 +20,7 @@ import {
   Sparkles,
   Monitor,
   Download,
+  MessageSquare,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
@@ -175,6 +176,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
   const isFeedbackOpen = useAppStore((s) => s.isFeedbackOpen);
   const openFeedback = useAppStore((s) => s.openFeedback);
+  const toggleCommentsPanel = useAppStore((s) => s.toggleCommentsPanel);
   const { notes, createNote, deleteNote } = useDataStore();
   const ideas = useContentStore((s) => s.ideas);
   const pieces = useContentStore((s) => s.pieces);
@@ -772,6 +774,13 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               </button>
             </div>
             <FeedbackButton onClick={openFeedback} />
+            <button
+              onClick={toggleCommentsPanel}
+              className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-lg)] text-[12px] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors duration-150 w-full"
+            >
+              <MessageSquare size={15} />
+              Comments
+            </button>
             <button
               onClick={onOpenHelp}
               className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-lg)] text-[12px] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors duration-150 w-full"

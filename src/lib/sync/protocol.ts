@@ -28,6 +28,7 @@ export const SYNCED_COLLECTIONS = [
   "contentPieces",
   "resources",
   "reviews",
+  "comments",
   "voices",
   "voiceSamples",
   "settings",

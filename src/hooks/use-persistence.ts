@@ -6,7 +6,8 @@ import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore, computeWritingStyleSeed } from "@/stores/voice-store";
 import { useContentStore } from "@/stores/content-store";
-import { loadAllNotes, loadSnippetsForNote, loadSnippetsForIdea, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources } from "@/lib/persistence";
+import { loadAllNotes, loadSnippetsForNote, loadSnippetsForIdea, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources, loadCommentsForNote, loadCommentsForIdea } from "@/lib/persistence";
+import { commentHome } from "@/lib/comment-scope";
 import { recoverFromCrash } from "@/hooks/use-auto-save";
 import { logPersistence } from "@/lib/persistence-logger";
 import { useToastStore } from "@/hooks/use-toast";
@@ -14,8 +15,9 @@ import { useToastStore } from "@/hooks/use-toast";
 export function usePersistence() {
   const activeNoteId = useAppStore((s) => s.activeNoteId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
+  const activeIdeaSpace = useAppStore((s) => (s.activeIdeaId ? s.ideaSpaces[s.activeIdeaId] : undefined));
   const setActiveNote = useAppStore((s) => s.setActiveNote);
-  const { setNotes, setSnippets, setVersions, setHydrated } = useDataStore();
+  const { setNotes, setSnippets, setVersions, setComments, setHydrated } = useDataStore();
   const {
     setIdeas,
     setPieces,
@@ -25,6 +27,7 @@ export function usePersistence() {
   } = useContentStore();
   const prevNoteId = useRef<string | null>(null);
   const prevSnipScope = useRef<{ noteId: string | null; ideaId: string | null }>({ noteId: null, ideaId: null });
+  const prevCommentHomeKey = useRef<string>("");
 
   // Initial hydration + crash recovery
   useEffect(() => {
@@ -180,6 +183,33 @@ export function usePersistence() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNoteId, activeIdeaId]);
+
+  // Load the comments for whichever single home is on screen (see
+  // commentHome in comment-scope.ts) — a comment has one home for its whole
+  // life, unlike a snippet's dual-carry, so this is a single scoped read
+  // rather than the merge above.
+  useEffect(() => {
+    const home = commentHome(activeNoteId, activeIdeaId, activeIdeaSpace);
+    const key = home ? `${home.noteId ?? ""}:${home.ideaId ?? ""}` : "";
+    if (key === prevCommentHomeKey.current) return;
+    prevCommentHomeKey.current = key;
+
+    let cancelled = false;
+    async function load() {
+      if (!home) {
+        setComments([]);
+        return;
+      }
+      const comments = home.noteId
+        ? await loadCommentsForNote(home.noteId)
+        : await loadCommentsForIdea(home.ideaId!);
+      if (cancelled) return;
+      setComments(comments);
+    }
+    load();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId, activeIdeaId, activeIdeaSpace]);
 
   // Save on tab close / visibility change
   useEffect(() => {

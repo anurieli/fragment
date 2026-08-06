@@ -1,5 +1,5 @@
 import { db } from "./db";
-import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample, StoredReview } from "./types";
+import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample, StoredReview, Comment } from "./types";
 import { logPersistence, summarizeNotes } from "./persistence-logger";
 import { backupNoteToFs, removeNoteFromFs, loadNotesFromFs } from "./fs-backup";
 import {
@@ -266,6 +266,47 @@ export async function deleteSnippet(id: string): Promise<void> {
     await db.snippets.delete(id);
   } catch {
     // best-effort
+  }
+}
+
+/** A home's comments, oldest first. See commentHome in comment-scope.ts. */
+export async function loadCommentsForNote(noteId: string): Promise<Comment[]> {
+  try {
+    return await db.comments.where("noteId").equals(noteId).sortBy("createdAt");
+  } catch {
+    return [];
+  }
+}
+
+export async function loadCommentsForIdea(ideaId: string): Promise<Comment[]> {
+  try {
+    return await db.comments.where("ideaId").equals(ideaId).sortBy("createdAt");
+  } catch {
+    return [];
+  }
+}
+
+export async function saveComment(comment: Comment): Promise<void> {
+  try {
+    await db.comments.put(comment);
+  } catch {
+    // Comment persistence failure is non-critical, mirrors saveSnippet.
+  }
+}
+
+/**
+ * The comment that seeded this idea, if any — powers the idea view's
+ * "Started from a comment" backlink. A direct indexed lookup rather than a
+ * scoped in-memory read: the store only ever holds the comments for
+ * whichever note/idea is currently active, and the source comment usually
+ * lives under a different one.
+ */
+export async function findOriginComment(ideaId: string): Promise<Comment | null> {
+  try {
+    const match = await db.comments.where("promotedIdeaId").equals(ideaId).first();
+    return match ?? null;
+  } catch {
+    return null;
   }
 }
 

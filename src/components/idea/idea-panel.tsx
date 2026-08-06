@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
   LayoutList,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -16,6 +17,8 @@ import { draftsForIdea, hierarchyRollup, shortformOnly } from "@/stores/content-
 import { useToastStore } from "@/hooks/use-toast";
 import { markdownToPlainText } from "@/lib/publish";
 import { formatDate, wordCount } from "@/lib/utils";
+import { findOriginComment } from "@/lib/persistence";
+import type { Comment } from "@/lib/types";
 import type { ContentPiece, PieceStatus } from "@/lib/content-engine";
 
 interface IdeaPanelProps {
@@ -69,6 +72,8 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const deleteNote = useDataStore((s) => s.deleteNote);
   const activeNoteId = useAppStore((s) => s.activeNoteId);
   const setActiveNote = useAppStore((s) => s.setActiveNote);
+  const setActiveIdea = useAppStore((s) => s.setActiveIdea);
+  const setCommentsPanelOpen = useAppStore((s) => s.setCommentsPanelOpen);
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
   const space = useAppStore((s) => s.ideaSpaces[ideaId] ?? "write");
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
@@ -78,6 +83,19 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  // The comment that seeded this idea via "Turn into an idea", if any —
+  // looked up directly (not through data-store's comments window, which only
+  // ever holds the active note/idea's comments, and the source is usually a
+  // different one). See findOriginComment in persistence.ts.
+  const [originComment, setOriginComment] = useState<Comment | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    findOriginComment(ideaId).then((comment) => {
+      if (!cancelled) setOriginComment(comment);
+    });
+    return () => { cancelled = true; };
+  }, [ideaId]);
 
   const allPieces = useMemo(() => Object.values(pieces), [pieces]);
   const drafts = useMemo(() => draftsForIdea(ideaId, allPieces), [ideaId, allPieces]);
@@ -108,6 +126,19 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     const next = titleDraft.trim();
     if (next) updateIdea(ideaId, { title: next });
     setEditingTitle(false);
+  }
+
+  /** Jump to wherever the originating comment lives and open the Comments
+   * panel on it — the idea view's "Started from a comment" backlink. */
+  function openOriginComment() {
+    if (!originComment) return;
+    if (originComment.noteId) {
+      setActiveNote(originComment.noteId);
+    } else if (originComment.ideaId) {
+      setActiveIdea(originComment.ideaId);
+      setIdeaSpace(originComment.ideaId, "pieces");
+    }
+    setCommentsPanelOpen(true);
   }
 
   function openDraft(noteId: string) {
@@ -196,6 +227,17 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
           className="mt-2 w-full bg-transparent resize-none outline-none
             text-[11px] leading-relaxed text-text-muted placeholder:text-text-faint"
         />
+
+        {originComment && (
+          <button
+            onClick={openOriginComment}
+            title="Open the comment this idea started from"
+            className="mt-2 flex items-center gap-1.5 text-[10px] text-text-faint hover:text-gold transition-colors duration-150"
+          >
+            <MessageSquare size={10} />
+            Started from a comment
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
