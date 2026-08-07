@@ -191,7 +191,10 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const settings = useSettingsStore((s) => s.settings);
   const badProviders = useAppStore((s) => s.badProviders);
   const syncStatus = useSyncStore((s) => s.snapshot.status);
-  const isSynced = syncStatus === "idle";
+  // "syncing" counts as synced: edits trigger a debounced sync pass every few
+  // seconds while writing, and rendering that as "Not synced" makes the badge
+  // flicker. Only a real problem (signed out, offline, error) breaks the state.
+  const isSynced = syncStatus === "idle" || syncStatus === "syncing";
   const aiConnected = hasAnyWorkingProvider(settings, badProviders);
   const [searchQuery, setSearchQuery] = useState("");
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
