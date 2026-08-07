@@ -197,6 +197,8 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const isSynced = syncStatus === "idle" || syncStatus === "syncing";
   const aiConnected = hasAnyWorkingProvider(settings, badProviders);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
   // Sub-ideas start collapsed. The sidebar is a list of ideas to move
   // between; what's *inside* one is the idea workspace panel's job, so the
@@ -283,6 +285,19 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   }, [notes, notesWithIdea, searchQuery]);
 
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
+
+  function openSearch() {
+    setSearchOpen(true);
+    // Focus once the expand has begun; the input exists from the first frame.
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }
+
+  /** Closing also clears the query: a hidden filter on the list would look
+   * like data loss ("where did my notes go?"), not like a remembered search. */
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }
 
   function handleNewNote() {
     const id = createNote();
@@ -575,38 +590,77 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             </div>
           </div>
 
-          {/* New note/idea + search */}
-          <div className="px-5 pb-3 space-y-2.5">
+          {/* New note + new idea + search, one row. The search is a square
+              button until clicked; open, it grows to fill the row and the two
+              create buttons collapse to zero width under it. Every state
+              change is width/flex/margin only, so the whole swap is one
+              smooth slide. */}
+          <div className="px-5 pb-3">
             <div className="flex items-center gap-2">
               <button
                 onClick={handleNewNote}
-                className="flex-1 flex items-center gap-3 px-4 py-3 rounded-[var(--radius-lg)] text-[13px] font-medium
-                  bg-surface-2 text-text-secondary border border-border-strong
-                  hover:bg-surface-3 hover:text-text-primary hover:border-gold/20 transition-all duration-150"
+                tabIndex={searchOpen ? -1 : 0}
+                className={`flex items-center gap-3 py-3 rounded-[var(--radius-lg)] text-[13px] font-medium
+                  bg-surface-2 text-text-secondary border
+                  hover:bg-surface-3 hover:text-text-primary hover:border-gold/20
+                  transition-all duration-300 overflow-hidden whitespace-nowrap min-w-0
+                  ${searchOpen
+                    ? "flex-[0_1_0%] px-0 opacity-0 border-transparent pointer-events-none"
+                    : "flex-[1_1_0%] px-4 border-border-strong"}`}
               >
-                <Plus size={15} strokeWidth={2} />
+                <Plus size={15} strokeWidth={2} className="shrink-0" />
                 New note
               </button>
               <button
                 onClick={handleNewIdea}
+                tabIndex={searchOpen ? -1 : 0}
                 title="New idea — a home for an idea's long-form draft and its short-form pieces"
-                className="shrink-0 flex items-center justify-center w-11 h-11 rounded-[var(--radius-lg)]
-                  bg-surface-2 text-text-secondary border border-border-strong
-                  hover:bg-surface-3 hover:text-gold hover:border-gold/20 transition-all duration-150"
+                className={`shrink-0 flex items-center justify-center h-11 rounded-[var(--radius-lg)]
+                  bg-surface-2 text-text-secondary border
+                  hover:bg-surface-3 hover:text-gold hover:border-gold/20
+                  transition-all duration-300 overflow-hidden
+                  ${searchOpen
+                    ? "w-0 -ml-2 opacity-0 border-transparent pointer-events-none"
+                    : "w-11 border-border-strong"}`}
               >
-                <Lightbulb size={15} strokeWidth={2} />
+                <Lightbulb size={15} strokeWidth={2} className="shrink-0" />
               </button>
-            </div>
-
-            <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-lg)] bg-surface-2 border border-border text-text-faint focus-within:text-text-muted focus-within:border-border-strong transition-colors duration-150">
-              <Search size={14} className="shrink-0" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search notes & ideas..."
-                className="flex-1 bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
-              />
+              <div
+                role={searchOpen ? undefined : "button"}
+                tabIndex={searchOpen ? undefined : 0}
+                onClick={searchOpen ? undefined : openSearch}
+                onKeyDown={searchOpen ? undefined : (e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSearch(); }
+                }}
+                title={searchOpen ? undefined : "Search notes & ideas"}
+                className={`flex items-center h-11 rounded-[var(--radius-lg)] bg-surface-2 border overflow-hidden
+                  transition-all duration-300
+                  ${searchOpen
+                    ? "flex-[1_1_0%] -ml-2 gap-3 px-4 border-border-strong text-text-muted"
+                    : "w-11 shrink-0 justify-center border-border-strong text-text-secondary hover:bg-surface-3 hover:text-text-primary hover:border-gold/20 cursor-pointer"}`}
+              >
+                <Search size={14} className="shrink-0" />
+                {searchOpen && (
+                  <>
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
+                      placeholder="Search notes & ideas..."
+                      className="flex-1 min-w-0 bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
+                    />
+                    <button
+                      onClick={closeSearch}
+                      title="Close search"
+                      className="shrink-0 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary transition-colors duration-150"
+                    >
+                      <X size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
