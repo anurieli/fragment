@@ -270,6 +270,11 @@ export async function downloadAsPdf(
     (el as HTMLElement).style.borderRadius = "4px";
     (el as HTMLElement).style.overflow = "visible";
   });
+  container.querySelectorAll("hr").forEach((el) => {
+    (el as HTMLElement).style.border = "none";
+    (el as HTMLElement).style.borderTop = "1px solid #c9c4b4";
+    (el as HTMLElement).style.margin = "1.5rem 0";
+  });
 
   document.body.appendChild(container);
 

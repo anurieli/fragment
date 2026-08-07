@@ -13,6 +13,7 @@ import {
   createKitBroadcast,
   deriveKitSubject,
   markdownToCleanHtml,
+  preserveEmptyParagraphs,
 } from "@/lib/publish";
 import {
   copyAsMarkdown,
@@ -82,8 +83,10 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   }, [open]);
 
   const getMarkdown = useCallback((): string => {
+    // Same NBSP-sentinel pass the editor applies at save time: without it,
+    // empty paragraphs collapse to nothing in every copy/share/download.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (editor.storage as any).markdown.getMarkdown() as string;
+    return preserveEmptyParagraphs((editor.storage as any).markdown.getMarkdown() as string);
   }, [editor]);
 
   const getHtml = useCallback((): string => {

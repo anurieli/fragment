@@ -16,6 +16,7 @@ import {
   Clock,
   Undo2,
   Redo2,
+  Minus,
   Check,
   Loader2,
   Square,
@@ -48,6 +49,7 @@ import {
   moveEditorSelection,
   selectionDragDestination,
 } from "@/lib/textarea-selection";
+import { preserveEmptyParagraphs } from "@/lib/publish/whitespace";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
@@ -68,19 +70,6 @@ import {
   ContextMenuSeparator,
   type Point,
 } from "@/components/ui/context-menu";
-
-/**
- * Encode empty paragraphs as NBSP lines so they survive the markdown round-trip.
- * prosemirror-markdown serializes N empty paragraphs as 2*(N+1) newlines;
- * markdown-it collapses those back to a single paragraph break.
- * Inserting \u00A0 on each "empty" line makes it a real paragraph for the parser.
- */
-function preserveEmptyParagraphs(md: string): string {
-  return md.replace(/\n{3,}/g, (match) => {
-    const emptyCount = Math.floor((match.length - 2) / 2);
-    return "\n\n" + "\u00A0\n\n".repeat(emptyCount);
-  });
-}
 
 /**
  * After setContent parses NBSP-placeholder markdown, strip the \u00A0 from
@@ -1393,6 +1382,14 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                 title="Redo (⌘⇧Z)"
               >
                 <Redo2 size={15} />
+              </button>
+              <button
+                onClick={() => editor.chain().focus().setHorizontalRule().run()}
+                disabled={isGenerating}
+                className="p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none"
+                title="Insert divider"
+              >
+                <Minus size={15} />
               </button>
             </>
           )}
