@@ -90,9 +90,14 @@ describe("whitespace survives to rendered HTML", () => {
     expect(html).toBe(`<p>a</p>\n<p>${NBSP}</p>\n<p>${NBSP}</p>\n<p>b</p>`);
   });
 
-  it("preview HTML keeps extra blank lines as NBSP paragraphs", () => {
-    const html = markdownToPreviewHtml("a\n\n\nb");
-    expect(html).toBe(`<p>a</p>\n<p>${NBSP}</p>\n<p>b</p>`);
+  it("preview HTML renders every blank line as its own line (literal mode)", () => {
+    // The piece read view has zero paragraph margins, so each authored blank
+    // line must become a rendered NBSP line for the card to mirror the
+    // textarea exactly.
+    expect(markdownToPreviewHtml("a\n\nb")).toBe(`<p>a</p>\n<p>${NBSP}</p>\n<p>b</p>`);
+    expect(markdownToPreviewHtml("a\n\n\nb")).toBe(
+      `<p>a</p>\n<p>${NBSP}</p>\n<p>${NBSP}</p>\n<p>b</p>`,
+    );
   });
 
   it("interior space runs reach the HTML un-collapsed", () => {

@@ -49,7 +49,13 @@ const previewRenderer = new MarkdownIt({
  * markup into the page.
  */
 export function markdownToPreviewHtml(markdown: string): string {
-  return previewRenderer.render(preserveWhitespace(markdown)).trim();
+  // blankLines "literal": the piece read view renders paragraphs with zero
+  // margins (globals.css .shortform-piece-rendered p), so every blank line
+  // the author typed has to become its own rendered line for the read view
+  // to look exactly like the textarea it replaces.
+  return previewRenderer
+    .render(preserveWhitespace(markdown, { blankLines: "literal" }))
+    .trim();
 }
 
 // Order matters: strip the widest-reaching syntax first (bold+italic before

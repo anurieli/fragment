@@ -16,7 +16,6 @@ import {
   Clock,
   Undo2,
   Redo2,
-  Minus,
   Check,
   Loader2,
   Square,
@@ -1382,14 +1381,6 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                 title="Redo (⌘⇧Z)"
               >
                 <Redo2 size={15} />
-              </button>
-              <button
-                onClick={() => editor.chain().focus().setHorizontalRule().run()}
-                disabled={isGenerating}
-                className="p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150 disabled:opacity-30 disabled:pointer-events-none"
-                title="Insert divider"
-              >
-                <Minus size={15} />
               </button>
             </>
           )}

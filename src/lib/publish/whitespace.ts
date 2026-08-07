@@ -88,13 +88,31 @@ function transformLine(line: string, listContext: boolean): string {
  * passes through unchanged, so it is safe to apply both at save time and at
  * render time.
  */
-export function preserveWhitespace(markdown: string): string {
+export interface PreserveWhitespaceOptions {
+  /**
+   * "break" (default): a run of k blank lines renders as one paragraph break
+   * plus k-1 visible empty paragraphs. Right for paragraph-styled documents
+   * (share pages, Substack/Kit HTML), where paragraph margins already draw
+   * the single-blank-line gap.
+   * "literal": every one of the k blank lines becomes a visible empty
+   * paragraph. Right for the piece read view, which renders paragraphs with
+   * zero margins so it mirrors the textarea line for line.
+   */
+  blankLines?: "break" | "literal";
+}
+
+export function preserveWhitespace(
+  markdown: string,
+  options: PreserveWhitespaceOptions = {},
+): string {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];
   let inFence = false;
   let sawContent = false;
   let blanks = 0;
   let listContext = false;
+
+  const literal = options.blankLines === "literal";
 
   const flushBlanks = () => {
     if (blanks === 0) return;
@@ -103,10 +121,11 @@ export function preserveWhitespace(markdown: string): string {
       // becomes a visible empty paragraph.
       for (let i = 0; i < blanks; i++) out.push(NBSP_ENTITY, "");
     } else {
-      // Interior run of k blank lines: one is the paragraph break itself,
-      // the other k-1 become visible empty paragraphs.
+      // Interior run of k blank lines. "break" mode: one is the paragraph
+      // break itself, the other k-1 become visible empty paragraphs.
+      // "literal" mode: all k become visible empty paragraphs.
       out.push("");
-      for (let i = 1; i < blanks; i++) out.push(NBSP_ENTITY, "");
+      for (let i = literal ? 0 : 1; i < blanks; i++) out.push(NBSP_ENTITY, "");
     }
     blanks = 0;
   };

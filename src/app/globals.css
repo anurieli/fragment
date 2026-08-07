@@ -613,3 +613,12 @@
 .shortform-piece-rendered > :last-child {
   margin-bottom: 0;
 }
+
+/* Line-for-line fidelity with the textarea: paragraphs carry no margins, and
+   the renderer emits every authored blank line as its own NBSP paragraph
+   (markdownToPreviewHtml's "literal" blank-line mode), so the read view shows
+   exactly the lines the author typed. The generic .prose-preview p margin
+   would otherwise shrink a full blank line to a 0.4em sliver. */
+.shortform-piece-rendered p {
+  margin: 0;
+}
