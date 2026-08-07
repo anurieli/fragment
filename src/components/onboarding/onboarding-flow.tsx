@@ -1040,6 +1040,8 @@ interface ConnectStepProps {
 }
 
 function ConnectStep({ onDone }: ConnectStepProps) {
+  const [confirmingSkip, setConfirmingSkip] = useState(false);
+
   return (
     <div
       className="w-[560px] max-h-[90vh] bg-surface rounded-[var(--radius-xl)] border border-border-strong shadow-2xl flex flex-col overflow-hidden"
@@ -1068,14 +1070,37 @@ function ConnectStep({ onDone }: ConnectStepProps) {
           onConnected={onDone}
         />
 
-        <div className="flex items-center justify-center">
-          <button
-            onClick={onDone}
-            className="text-xs text-text-faint hover:text-text-muted transition-colors duration-150"
-          >
-            I&apos;ll do this later
-          </button>
-        </div>
+        {confirmingSkip ? (
+          <div className="flex flex-col items-center gap-3 rounded-[var(--radius-default)] border border-border-strong bg-surface-2 p-4 text-center">
+            <p className="text-xs text-text-muted leading-relaxed">
+              Without AI connected, Snip labeling, Flow, and Refine won&apos;t work - you can
+              still write, organize, and snip text normally. Connect anytime from Settings.
+            </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setConfirmingSkip(false)}
+                className="text-xs text-gold hover:text-gold/80 transition-colors duration-150"
+              >
+                Actually, let&apos;s connect
+              </button>
+              <button
+                onClick={onDone}
+                className="text-xs text-text-faint hover:text-text-muted transition-colors duration-150"
+              >
+                Continue without AI
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center">
+            <button
+              onClick={() => setConfirmingSkip(true)}
+              className="text-xs text-text-faint hover:text-text-muted transition-colors duration-150"
+            >
+              I&apos;ll do this later
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1104,6 +1129,11 @@ const ONBOARDING_STEPS = {
 
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [step, setStep] = useState(0);
+  // "Skip" on the welcome screen still routes through Connect AI when no
+  // provider exists (see the Skip button below) - this flag says the rest of
+  // the walkthrough should be skipped too once that step is done/declined,
+  // instead of continuing into About You / Voice Setup like "Begin" does.
+  const [skippingRest, setSkippingRest] = useState(false);
   const createdNoteIdRef = useRef<string | null>(null);
 
   const createNote = useDataStore((s) => s.createNote);
@@ -1252,7 +1282,14 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               Begin
             </button>
             <button
-              onClick={onComplete}
+              onClick={() => {
+                if (showConnectStep) {
+                  setSkippingRest(true);
+                  setStep(ONBOARDING_STEPS.CONNECT);
+                } else {
+                  onComplete();
+                }
+              }}
               className="text-xs text-text-faint hover:text-text-muted transition-colors"
             >
               Skip
@@ -1263,7 +1300,9 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
       {/* Step 1 — Connect AI (skipped when hosted or already connected) */}
       {step === ONBOARDING_STEPS.CONNECT && showConnectStep && (
-        <ConnectStep onDone={() => setStep(ONBOARDING_STEPS.ABOUT_YOU)} />
+        <ConnectStep
+          onDone={() => (skippingRest ? onComplete() : setStep(ONBOARDING_STEPS.ABOUT_YOU))}
+        />
       )}
 
       {/* Step 2 — About You */}

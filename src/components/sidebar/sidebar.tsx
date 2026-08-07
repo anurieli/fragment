@@ -10,14 +10,15 @@ import {
   Search,
   HelpCircle,
   ScrollText,
-  Wifi,
-  WifiOff,
+  Cloud,
+  CloudOff,
+  Check,
+  X,
   Lightbulb,
   ChevronRight,
   ChevronDown,
   Pin,
   MoreHorizontal,
-  Sparkles,
   Monitor,
   Download,
   MessageSquare,
@@ -27,7 +28,6 @@ import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
 import { draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useToastStore } from "@/hooks/use-toast";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncStore } from "@/stores/sync-store";
@@ -188,10 +188,10 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const deleteIdeaCascade = useContentStore((s) => s.deleteIdeaCascade);
   const restoreIdeaCascade = useContentStore((s) => s.restoreIdeaCascade);
   const showToast = useToastStore((s) => s.showToast);
-  const isOnline = useOnlineStatus();
   const settings = useSettingsStore((s) => s.settings);
   const badProviders = useAppStore((s) => s.badProviders);
   const syncStatus = useSyncStore((s) => s.snapshot.status);
+  const isSynced = syncStatus === "idle";
   const aiConnected = hasAnyWorkingProvider(settings, badProviders);
   const [searchQuery, setSearchQuery] = useState("");
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
@@ -541,30 +541,27 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               Fragment
             </span>
             <div className="flex items-center gap-3">
-              <div
+              <button
+                onClick={onOpenAccount}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
-                  isOnline
-                    ? "text-green"
-                    : "text-red bg-red-muted"
+                  isSynced ? "text-green" : "text-text-faint"
                 }`}
-                title={isOnline ? "Connected" : "Offline — your work is saved locally"}
+                title={isSynced ? "Synced with cloud" : "Not synced with cloud"}
               >
-                {isOnline ? <Wifi size={12} /> : <WifiOff size={12} />}
+                {isSynced ? <Cloud size={12} /> : <CloudOff size={12} />}
                 <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">
-                  {isOnline ? "Online" : "Offline"}
+                  {isSynced ? "Synced" : "Not synced"}
                 </span>
-              </div>
+              </button>
               <button
                 onClick={onOpenAI}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
-                  aiConnected ? "text-green" : "text-gold bg-gold/5"
+                className={`flex items-center gap-1 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
+                  aiConnected ? "text-green" : "text-red"
                 }`}
                 title={aiConnected ? "AI provider configured" : "No AI provider connected"}
               >
-                <Sparkles size={12} />
-                <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">
-                  {aiConnected ? "AI connected" : "AI not connected"}
-                </span>
+                <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">AI</span>
+                {aiConnected ? <Check size={12} /> : <X size={12} />}
               </button>
               <button
                 onClick={toggleSidebar}
