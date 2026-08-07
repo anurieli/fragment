@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-07 - Prove a full library survives export, profile wipe, and restore (ARI-186)
+
+**Summary**: Added the missing end-to-end data-safety test for Fragment's full-library JSON backup. The test seeds every synced Dexie collection with linked notes, snippets, versions, parent and child ideas, long-form and short-form pieces, idea-owned and piece-owned resources, reviews, comments, voices, samples, and settings. It exports through the production backup code, serializes and parses the file, deletes and recreates the real fake-IndexedDB database, imports through the production restore code, and compares the complete restored collection state with the export. Explicit assertions pin IDs, parent and owner relationships, piece statuses, tombstones, and created, updated, deleted, received, published, and pushed timestamps.
+
+**Files**: `src/__tests__/library-backup.test.ts` (new)
+
+**Verification**: 673 of 673 tests pass, `npx tsc --noEmit` is clean, and `npm run lint` exits 0 with the existing 32 warnings and none in the new test. The production build completes with `npx next build --webpack`; the default Turbopack build remains stuck at "Creating an optimized production build" in this worktree and was stopped after two bounded attempts.
+
 ## 2026-08-06 12:11 - Add comments: note/idea commentary that can be turned into ideas (2908316)
 
 **Commit**: `2908316`
