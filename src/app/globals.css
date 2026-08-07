@@ -123,6 +123,13 @@
   margin-bottom: 0.3em;
 }
 
+/* ProseMirror's required white-space mode. Without it the browser collapses
+   runs of spaces as you type them, so spacing looked lost in the editor even
+   once it was surviving the save/reopen round trip. */
+.tiptap-editor {
+  white-space: pre-wrap;
+}
+
 .tiptap-editor p {
   margin: 0;
 }

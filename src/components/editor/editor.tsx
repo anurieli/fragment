@@ -49,6 +49,7 @@ import {
   selectionDragDestination,
 } from "@/lib/textarea-selection";
 import { preserveEmptyParagraphs } from "@/lib/publish/whitespace";
+import { WhitespaceParagraph, WhitespaceText } from "@/lib/editor/whitespace-markdown";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
@@ -232,13 +233,20 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
   const editor = useEditor({
     extensions: [
+      // paragraph/text come from WhitespaceParagraph/WhitespaceText instead, so
+      // the markdown serializer stops discarding empty paragraphs and space
+      // runs on every save (see lib/editor/whitespace-markdown.ts).
       StarterKit.configure({
         dropcursor: {
           color: "#f0c446",
           width: 2,
         },
         link: false,
+        paragraph: false,
+        text: false,
       }),
+      WhitespaceParagraph,
+      WhitespaceText,
       Placeholder.configure({
         placeholder: "Start writing...",
       }),

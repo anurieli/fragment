@@ -1,11 +1,11 @@
-const NBSP = "\u00A0";
+export const NBSP = "\u00A0";
 // markdown-it trims each paragraph's inline content with String.trim(), which
 // eats U+00A0 too: a raw NBSP at the start or end of a line (or alone on one)
 // vanishes. The `&nbsp;` entity survives that trim (it is ASCII in the source)
 // and markdown-it decodes entities even with html:false, so it reaches the
 // HTML as a real NBSP. Raw NBSP is still used *inside* lines, where trim
 // can't reach and where an entity would print literally inside code spans.
-const NBSP_ENTITY = "&nbsp;";
+export const NBSP_ENTITY = "&nbsp;";
 // A line that is (possibly padded) NBSP: the note editor's stored sentinel
 // for an intentionally empty paragraph.
 const NBSP_ONLY_LINE = /^[ \t\u00A0]*\u00A0[ \t\u00A0]*$/;
@@ -21,12 +21,17 @@ const BLOCK_MARKER = /^(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)/;
 const LIST_MARKER = /^(?:[-*+]|\d{1,9}[.)])[ \t]/;
 
 /**
- * Encode empty paragraphs as NBSP lines so they survive the markdown
- * round-trip out of the Tiptap note editor. prosemirror-markdown serializes N
- * empty paragraphs as 2*(N+1) newlines; markdown-it collapses those back to a
- * single paragraph break. Putting a NBSP on each "empty" line makes it a real
- * paragraph for the parser. Use this on serializer output (notes); use
- * `preserveWhitespace` on raw authored text (pieces) and at render time.
+ * Legacy/defensive pass over note markdown: turns a run of 3+ newlines into
+ * explicit NBSP paragraphs.
+ *
+ * This does NOT fix empty paragraphs coming out of the editor, despite once
+ * being written for that. prosemirror-markdown separates blocks through
+ * `flushClose`, which caps the run at two newlines however many empty
+ * paragraphs sit between them, so the `\n{3,}` this looks for is never emitted
+ * and the blank lines were already gone. That is handled properly now at
+ * serialize time by WhitespaceParagraph (lib/editor/whitespace-markdown.ts).
+ * Kept because notes and pasted text from other sources can still carry
+ * multi-newline runs.
  */
 export function preserveEmptyParagraphs(md: string): string {
   return md.replace(/\n{3,}/g, (match) => {
@@ -37,7 +42,7 @@ export function preserveEmptyParagraphs(md: string): string {
 
 /** Runs of 2+ spaces become NBSPs plus one real space, so the run keeps its
  * width in rendered HTML while the line can still wrap. */
-function hardenSpaces(text: string): string {
+export function hardenSpaces(text: string): string {
   return text.replace(/ {2,}/g, (run) => NBSP.repeat(run.length - 1) + " ");
 }
 
