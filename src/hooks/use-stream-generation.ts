@@ -13,7 +13,7 @@ import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/conne
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { parseSSEStreamWithUsage } from "@/lib/sse-parser";
 import { logApiCall } from "@/lib/api-logger";
-import { DEFAULT_NOTE_CREATION_PROMPT } from "@/lib/defaults";
+import { buildNoteCreationPrompt, type GenerateFormat, type GenerateLength } from "@/lib/defaults";
 
 /** Extract a leading H1 from markdown, returning the title and remaining content. */
 function extractH1(markdown: string): { title: string; content: string } {
@@ -46,6 +46,10 @@ export interface StreamGenerationParams {
   existingNoteId?: string;
   /** Voice to apply. undefined = inherit default, null = no voice, string = specific voice. */
   voiceId?: string | null;
+  /** Document shape and target length. Ephemeral generation params, not note fields:
+   * they steer the prompt template and are forgotten after the run. */
+  format?: GenerateFormat;
+  length?: GenerateLength;
 }
 
 export function useStreamGeneration() {
@@ -53,7 +57,7 @@ export function useStreamGeneration() {
   const titleSetRef = useRef(false);
 
   const startGeneration = useCallback(async (params: StreamGenerationParams) => {
-    const { prompt, goal, audience, tone, remember, existingNoteId, voiceId } = params;
+    const { prompt, goal, audience, tone, remember, existingNoteId, voiceId, format, length } = params;
 
     const {
       createNote,
@@ -140,7 +144,7 @@ export function useStreamGeneration() {
         tone,
         remember,
         userInstruction: prompt,
-        promptTemplate: DEFAULT_NOTE_CREATION_PROMPT,
+        promptTemplate: buildNoteCreationPrompt(format ?? "freeform", length ?? "auto"),
         voiceContext,
         model: ai.model,
         provider: ai.provider,

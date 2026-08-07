@@ -8,8 +8,6 @@ import {
   Sparkles,
   ArrowLeft,
   PanelLeftOpen,
-  ChevronDown,
-  ChevronRight,
   X,
   Lightbulb,
 } from "lucide-react";
@@ -17,8 +15,8 @@ import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useVoiceStore } from "@/stores/voice-store";
 import { useToastStore } from "@/hooks/use-toast";
+import { GeneratePanel, type GeneratePanelSubmit } from "./generate-panel";
 import type { Note } from "@/lib/types";
 import type { StreamGenerationParams } from "@/hooks/use-stream-generation";
 
@@ -49,20 +47,9 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
   const setActiveNote = useAppStore((s) => s.setActiveNote);
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
   const settings = useSettingsStore((s) => s.settings);
-  const voicesMap = useVoiceStore((s) => s.voices);
-  const voicesList = Object.values(voicesMap).sort((a, b) => a.createdAt - b.createdAt);
 
   const [view, setView] = useState<CreationView>("menu");
   const [pasteContent, setPasteContent] = useState("");
-  const [generatePrompt, setGeneratePrompt] = useState("");
-
-  // Context fields for generate sub-flow
-  const [genGoal, setGenGoal] = useState("");
-  const [genAudience, setGenAudience] = useState("");
-  const [genTone, setGenTone] = useState("");
-  const [genRemember, setGenRemember] = useState("");
-  const [genVoiceId, setGenVoiceId] = useState<string | null | undefined>(undefined);
-  const [contextExpanded, setContextExpanded] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -128,24 +115,16 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
     [finishCreate],
   );
 
-  const handleGenerate = useCallback(async () => {
-    if (!generatePrompt.trim() || !onStartGeneration) return;
-
-    // Immediately start streaming — this creates the note and navigates to the editor
-    onStartGeneration({
-      prompt: generatePrompt.trim(),
-      goal: genGoal,
-      audience: genAudience,
-      tone: genTone,
-      remember: genRemember,
-      voiceId: genVoiceId,
-      existingNoteId: existingNote?.id,
-    });
-  }, [generatePrompt, genGoal, genAudience, genTone, genRemember, genVoiceId, existingNote?.id, onStartGeneration]);
+  const handleGenerate = useCallback(
+    (params: GeneratePanelSubmit) => {
+      if (!onStartGeneration) return;
+      // Immediately start streaming — this creates the note and navigates to the editor
+      onStartGeneration({ ...params, existingNoteId: existingNote?.id });
+    },
+    [existingNote?.id, onStartGeneration],
+  );
 
   const aiEnabled = settings.slashCommand.enabled;
-  const activeProvider = settings.featureProviders.slashCommand.provider;
-  const activeModel = settings.featureProviders.slashCommand.model;
 
   // ─── Sub-flow: Paste ────────────────────────────────────────────────────────
   if (view === "paste") {
@@ -199,8 +178,6 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
 
   // ─── Sub-flow: Generate with AI ─────────────────────────────────────────────
   if (view === "generate") {
-    const modelDisplayName = activeModel.split("/").pop() || activeModel;
-
     return (
       <FlowShell
         leftToolbarSlot={leftToolbarSlot}
@@ -220,122 +197,20 @@ export function NoteCreationFlow({ sidebarOpen, toggleSidebar, existingNote, onO
             Generate with AI
           </h3>
           <p className="text-[12px] text-text-muted mb-4">
-            Describe what you&apos;d like to write and we&apos;ll generate a first draft.
+            Describe what you&apos;d like to write, or dictate it, and we&apos;ll generate a first draft.
           </p>
-
-          {/* Prompt textarea */}
-          <textarea
-            value={generatePrompt}
-            onChange={(e) => setGeneratePrompt(e.target.value)}
-            placeholder="e.g., A blog post about why most productivity advice is wrong, aimed at startup founders..."
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && generatePrompt.trim()) {
-                handleGenerate();
-              }
-            }}
-            className="w-full min-h-[120px] p-4 bg-surface-2 border border-border-strong rounded-[var(--radius-lg)]
-              text-[14px] text-text-primary placeholder:text-text-faint
-              resize-y outline-none focus:border-border-active transition-colors duration-150"
+          <GeneratePanel
+            initial={existingNote ? {
+              goal: existingNote.goal,
+              audience: existingNote.audience,
+              tone: existingNote.tone,
+              remember: existingNote.remember,
+              voiceId: existingNote.voiceId,
+            } : undefined}
+            onGenerate={handleGenerate}
+            onCancel={() => setView("menu")}
+            onOpenAISettings={onOpenAISettings}
           />
-
-          {/* Model indicator — clickable to open AI settings */}
-          <div className="mt-2 mb-3">
-            <button
-              onClick={onOpenAISettings}
-              className="text-[10px] text-text-faint font-[family-name:var(--font-mono)] hover:text-text-muted transition-colors duration-150"
-              title="Change model in AI settings"
-            >
-              {modelDisplayName}
-            </button>
-          </div>
-
-          {/* Context fields dropdown — below textarea */}
-          <div className="mb-4">
-            <button
-              onClick={() => setContextExpanded(!contextExpanded)}
-              className="flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text-secondary transition-colors duration-150"
-            >
-              {contextExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              Add context
-            </button>
-            {contextExpanded && (
-              <div
-                className="mt-2 space-y-3 p-3 bg-surface-2 border border-border-strong rounded-[var(--radius-default)]"
-                style={{ animation: "fadeIn 0.15s ease-out" }}
-              >
-                <p className="text-[10px] text-text-faint leading-relaxed">
-                  Helps the AI write a better first draft. You can always edit these later in the toolbar.
-                </p>
-                <ContextInput
-                  label="Goal"
-                  value={genGoal}
-                  onChange={setGenGoal}
-                  placeholder="What are you writing about?"
-                />
-                <ContextInput
-                  label="Audience"
-                  value={genAudience}
-                  onChange={setGenAudience}
-                  placeholder="Who is this for?"
-                />
-                <ContextInput
-                  label="Tone"
-                  value={genTone}
-                  onChange={setGenTone}
-                  placeholder="e.g. conversational, formal, witty..."
-                />
-                <ContextInput
-                  label="Remember"
-                  value={genRemember}
-                  onChange={setGenRemember}
-                  placeholder="Things the AI should keep in mind..."
-                />
-                {voicesList.length > 0 && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
-                      Voice
-                    </label>
-                    <select
-                      value={genVoiceId === null ? "__none__" : genVoiceId === undefined ? "__default__" : genVoiceId}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setGenVoiceId(v === "__default__" ? undefined : v === "__none__" ? null : v);
-                      }}
-                      className="bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-2 py-1 text-[13px] text-text-secondary outline-none focus:border-border-active"
-                    >
-                      <option value="__default__">
-                        Default{settings.brandVoice.defaultVoiceId && voicesMap[settings.brandVoice.defaultVoiceId] ? ` (${voicesMap[settings.brandVoice.defaultVoiceId].name})` : ""}
-                      </option>
-                      <option value="__none__">No voice</option>
-                      {voicesList.map((v) => (
-                        <option key={v.id} value={v.id}>{v.name || "Untitled voice"}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setView("menu")}
-              className="px-4 py-2 rounded-[var(--radius-default)] text-[13px] text-text-muted hover:text-text-secondary transition-colors duration-150"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleGenerate}
-              disabled={!generatePrompt.trim() || !onStartGeneration}
-              className="flex items-center gap-2 px-4 py-2 rounded-[var(--radius-default)] text-[13px] font-medium
-                bg-gold/10 border border-gold/20 text-gold
-                hover:bg-gold/20 disabled:opacity-40 disabled:cursor-not-allowed
-                transition-all duration-150"
-            >
-              Generate note
-            </button>
-          </div>
         </div>
       </FlowShell>
     );
@@ -481,34 +356,6 @@ function CreationCard({
   );
 }
 
-function ContextInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
-        {label}
-      </span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="bg-surface-3/50 text-[12px] text-text-secondary placeholder:text-text-faint outline-none
-          border-b border-border-strong focus:border-border-active pb-1.5 transition-colors duration-150"
-      />
-    </div>
-  );
-}
-
 // ─── Context fields prompt tooltip ──────────────────────────────────────────
 // Shown in the editor when a note has no context fields filled in.
 
@@ -550,19 +397,19 @@ export function EmptyNoteActions({
   noteId,
   onInsertContent,
   onStartGeneration,
+  onOpenAISettings,
 }: {
   noteId: string;
   onInsertContent: (content: string, title?: string) => void;
   onStartGeneration?: (params: StreamGenerationParams) => Promise<void>;
+  onOpenAISettings?: () => void;
 }) {
   const settings = useSettingsStore((s) => s.settings);
+  const note = useDataStore((s) => s.notes[noteId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showGenerate, setShowGenerate] = useState(false);
-  const [generatePrompt, setGeneratePrompt] = useState("");
 
   const aiEnabled = settings.slashCommand.enabled;
-  const activeProvider = settings.featureProviders.slashCommand.provider;
-  const activeModel = settings.featureProviders.slashCommand.model;
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -577,62 +424,33 @@ export function EmptyNoteActions({
     [onInsertContent],
   );
 
-  const handleGenerate = useCallback(() => {
-    if (!generatePrompt.trim() || !onStartGeneration) return;
-    onStartGeneration({
-      prompt: generatePrompt.trim(),
-      goal: "",
-      audience: "",
-      tone: "",
-      remember: "",
-      // Respect whatever voice the existing note already has.
-      voiceId: useDataStore.getState().notes[noteId]?.voiceId,
-      existingNoteId: noteId,
-    });
-  }, [generatePrompt, noteId, onStartGeneration]);
+  const handleGenerate = useCallback(
+    (params: GeneratePanelSubmit) => {
+      if (!onStartGeneration) return;
+      onStartGeneration({ ...params, existingNoteId: noteId });
+    },
+    [noteId, onStartGeneration],
+  );
 
   if (showGenerate) {
     return (
       <div className="px-[5rem] mt-4" style={{ animation: "fadeIn 0.15s ease-out" }}>
         <div className="max-w-md">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[12px] text-text-muted">Describe what you&apos;d like to write</p>
-            <button
-              onClick={() => setShowGenerate(false)}
-              className="text-[11px] text-text-faint hover:text-text-muted transition-colors duration-150"
-            >
-              Cancel
-            </button>
-          </div>
-          <p className="text-[10px] text-text-faint font-[family-name:var(--font-mono)] mb-2">
-            Using {activeProvider} &middot; {activeModel.split("/").pop()}
-          </p>
-          <textarea
-            value={generatePrompt}
-            onChange={(e) => setGeneratePrompt(e.target.value)}
-            placeholder="e.g., A blog post about why most productivity advice is wrong..."
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && generatePrompt.trim()) {
-                handleGenerate();
-              }
-            }}
-            className="w-full min-h-[80px] p-3 bg-surface-2 border border-border-strong rounded-[var(--radius-default)]
-              text-[13px] text-text-primary placeholder:text-text-faint
-              resize-y outline-none focus:border-border-active transition-colors duration-150"
+          <p className="text-[12px] text-text-muted mb-2">Describe what you&apos;d like to write, or dictate it</p>
+          <GeneratePanel
+            compact
+            initial={note ? {
+              goal: note.goal,
+              audience: note.audience,
+              tone: note.tone,
+              remember: note.remember,
+              // Respect whatever voice the existing note already has.
+              voiceId: note.voiceId,
+            } : undefined}
+            onGenerate={handleGenerate}
+            onCancel={() => setShowGenerate(false)}
+            onOpenAISettings={onOpenAISettings}
           />
-          <div className="flex justify-end mt-2">
-            <button
-              onClick={handleGenerate}
-              disabled={!generatePrompt.trim() || !onStartGeneration}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[12px] font-medium
-                bg-gold/10 border border-gold/20 text-gold
-                hover:bg-gold/20 disabled:opacity-40 disabled:cursor-not-allowed
-                transition-all duration-150"
-            >
-              Generate
-            </button>
-          </div>
         </div>
       </div>
     );

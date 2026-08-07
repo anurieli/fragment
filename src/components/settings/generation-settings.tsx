@@ -47,8 +47,8 @@ export function GenerationSettings() {
         <div>
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-base font-[family-name:var(--font-display)] text-text-primary">
-              Flow{" "}
-              <span className="text-text-faint text-sm">(text generation)</span>
+              Text generation{" "}
+              <span className="text-text-faint text-sm">(Flow + Generate)</span>
             </h3>
             <Toggle
               checked={slash.enabled}
@@ -56,7 +56,7 @@ export function GenerationSettings() {
             />
           </div>
           <p className="text-[11px] text-text-faint leading-relaxed">
-            Type <span className="font-[family-name:var(--font-mono)] text-text-muted">/</span> inline in the editor to generate text — at the beginning, middle, or end of your document — without breaking your writing flow.
+            Powers both Flow (type <span className="font-[family-name:var(--font-mono)] text-text-muted">/</span> inline in the editor to generate text mid-document) and &quot;Generate with AI&quot; when creating a note. The provider and model below apply to both.
           </p>
         </div>
 

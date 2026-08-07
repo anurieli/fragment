@@ -1526,6 +1526,7 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
               }
             }}
             onStartGeneration={startGeneration}
+            onOpenAISettings={onOpenAISettings}
           />
         )}
         {editor && !timelinePreviewVersionId && inlineEditEnabled && (
