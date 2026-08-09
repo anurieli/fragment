@@ -100,8 +100,28 @@ export interface ContentPiece {
   title?: string;
   // Exactly one content home: long-form pieces link a Note (noteId), short-form
   // pieces hold markdown inline (body). Never both, never neither.
+  //
+  // The one-entity migration is retiring this split: every fragment ends up
+  // holding its own text in `body`, and `noteId` is cleared in favour of
+  // `legacyNoteId`. Until the UI reads the new shape, both forms are valid on
+  // disk and the rule above still holds for any single row.
   noteId?: string;
   body?: string;
+  // One-line dek under the title. Carried over from Note.subtitle.
+  subtitle?: string;
+  // The writing brief. Short-form fragments have never had one; long-form
+  // fragments inherit theirs from the note they absorbed.
+  goal?: string;
+  audience?: string;
+  tone?: string;
+  remember?: string;
+  // undefined = inherit the default voice, null = explicitly no voice, string =
+  // a specific voice id. Three states, and the migration preserves all three.
+  voiceId?: string | null;
+  // The note this fragment's text came from. Set once by the migration and
+  // never afterwards. Old share links, review threads and file backups are all
+  // keyed by note id, so this is how they keep resolving.
+  legacyNoteId?: string;
   seen: boolean;
   priority: Priority;
   order: number;
@@ -386,6 +406,13 @@ export const contentPieceSchema = z
     title: z.string().optional(),
     noteId: idSchema.optional(),
     body: z.string().optional(),
+    subtitle: z.string().optional(),
+    goal: z.string().optional(),
+    audience: z.string().optional(),
+    tone: z.string().optional(),
+    remember: z.string().optional(),
+    voiceId: z.string().nullable().optional(),
+    legacyNoteId: idSchema.optional(),
     seen: z.boolean(),
     priority: prioritySchema,
     order: z.number(),

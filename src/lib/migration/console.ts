@@ -1,4 +1,6 @@
+import type { MigrationRecord } from "@/lib/types";
 import { dryRunLive, formatDryRunReport, type DryRunReport } from "./dry-run";
+import { readMigrationRecord, runOneEntityMigration, type MigrationOutcome } from "./run";
 import {
   captureSnapshot,
   downloadSnapshot,
@@ -14,9 +16,11 @@ import {
  *
  * A writer's library only exists inside their own browser, so the only place a
  * dry run can be performed against real data is a devtools console on the
- * machine that holds it. This exposes exactly the read-only tools plus the
- * recovery path, and nothing that performs the migration: deciding to migrate
- * stays with the app, not with whoever is typing into a console.
+ * machine that holds it.
+ *
+ * Everything here is read-only except migrateNow() and restore(), which say so
+ * in their names. The app does not run the migration on its own yet; until the
+ * UI can read the new shape, starting it is a deliberate act.
  */
 
 export interface MigrationConsole {
@@ -30,6 +34,11 @@ export interface MigrationConsole {
   snapshots(): Promise<{ id: string; capturedAt: number; schemaVersion: number; rowCounts: Record<string, number> }[]>;
   /** Put a stored snapshot's rows back. */
   restore(id: string): Promise<RestoreResult>;
+  /** Run the migration. Takes its own snapshot first, verifies before keeping
+   * the result, and rolls back completely if verification refuses. */
+  migrateNow(options?: { force?: boolean }): Promise<MigrationOutcome>;
+  /** What this device recorded about its last migration attempt. */
+  status(): Promise<MigrationRecord | undefined>;
 }
 
 const api: MigrationConsole = {
@@ -54,6 +63,10 @@ const api: MigrationConsole = {
     if (!snapshot) throw new Error(`No snapshot with id ${id}. Call snapshots() to list them.`);
     return restoreSnapshotIntoLibrary(snapshot);
   },
+
+  migrateNow: (options = {}) => runOneEntityMigration(options),
+
+  status: () => readMigrationRecord(),
 };
 
 declare global {

@@ -78,6 +78,9 @@ export interface Rekey {
 export interface MigrationPlan {
   promotions: NotePromotion[];
   absorptions: NoteAbsorption[];
+  /** Notes a fragment already holds, because the migration has run here or the
+   * result arrived by sync. Re-verified, never re-created. */
+  alreadyHeld: { noteId: string; pieceId: string }[];
   orphanedPieces: OrphanedPiece[];
   rekeys: {
     noteVersions: Rekey[];
@@ -92,6 +95,7 @@ export interface MigrationPlan {
     absorptions: number;
     duplicates: number;
     orphanedPieces: number;
+    alreadyHeld: number;
     emptyNotes: number;
     noteVersions: number;
     reviews: number;
@@ -158,6 +162,23 @@ export function buildMigrationPlan(input: PlanInput): MigrationPlan {
       return byAgeThenId(a, b);
     });
 
+  // Fragments that already carry a note's text, either because this device has
+  // migrated before or because another device's result arrived by sync. The
+  // bookkeeping row that records "migrated" is local-only, so it can be absent
+  // on a device whose *data* is already migrated. Reading the state off the
+  // rows themselves is what makes re-running safe instead of duplicating.
+  const heldBy = new Map<string, string>();
+  for (const piece of input.pieces.slice().sort((a, b) => {
+    const aDead = a.deletedAt === undefined ? 0 : 1;
+    const bDead = b.deletedAt === undefined ? 0 : 1;
+    if (aDead !== bDead) return aDead - bDead;
+    return byAgeThenId(a, b);
+  })) {
+    if (typeof piece.legacyNoteId === "string" && !heldBy.has(piece.legacyNoteId)) {
+      heldBy.set(piece.legacyNoteId, piece.id);
+    }
+  }
+
   const absorptions: NoteAbsorption[] = [];
   const orphanedPieces: OrphanedPiece[] = [];
   const noteToPiece: Record<string, string> = {};
@@ -171,6 +192,7 @@ export function buildMigrationPlan(input: PlanInput): MigrationPlan {
       orphanedPieces.push({ pieceId: piece.id, missingNoteId: piece.noteId });
       continue;
     }
+    if (heldBy.has(piece.noteId)) continue;
 
     const tombstoned = piece.deletedAt !== undefined;
     const primary = primaryFor.get(piece.noteId);
@@ -196,7 +218,14 @@ export function buildMigrationPlan(input: PlanInput): MigrationPlan {
   }
 
   const promotions: NotePromotion[] = [];
+  const alreadyHeld: MigrationPlan["alreadyHeld"] = [];
   for (const note of input.notes.slice().sort(byAgeThenId)) {
+    const holder = heldBy.get(note.id);
+    if (holder !== undefined) {
+      alreadyHeld.push({ noteId: note.id, pieceId: holder });
+      noteToPiece[note.id] = holder;
+      continue;
+    }
     if (claimedLive.has(note.id)) continue;
 
     const titleDerived = note.title.trim().length === 0;
@@ -237,6 +266,7 @@ export function buildMigrationPlan(input: PlanInput): MigrationPlan {
   return {
     promotions,
     absorptions,
+    alreadyHeld,
     orphanedPieces,
     rekeys,
     noteToPiece,
@@ -246,6 +276,7 @@ export function buildMigrationPlan(input: PlanInput): MigrationPlan {
       absorptions: absorptions.length,
       duplicates: absorptions.filter((row) => row.duplicateOf !== undefined).length,
       orphanedPieces: orphanedPieces.length,
+      alreadyHeld: alreadyHeld.length,
       emptyNotes: promotions.filter((row) => row.empty).length,
       noteVersions: rekeys.noteVersions.length,
       reviews: rekeys.reviews.length,
@@ -292,6 +323,7 @@ export function describePlan(plan: MigrationPlan): string {
     `${counts.absorptions} fold into fragments that already linked them`,
     `${counts.noteVersions + counts.reviews + counts.snippets} satellite rows re-keyed`,
   ];
+  if (counts.alreadyHeld > 0) lines.push(`${counts.alreadyHeld} already held by a fragment, re-checked only`);
   if (counts.duplicates > 0) lines.push(`${counts.duplicates} copied into a second fragment`);
   if (counts.orphanedPieces > 0) lines.push(`${counts.orphanedPieces} fragments point at a missing note`);
   if (counts.emptyNotes > 0) lines.push(`${counts.emptyNotes} empty notes carried over`);

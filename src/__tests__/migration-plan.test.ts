@@ -202,6 +202,39 @@ describe("buildMigrationPlan", () => {
     expect(plan.absorptions[0]).toMatchObject({ pieceId: "dead", tombstoned: true, duplicateOf: "migp-n1" });
   });
 
+  it("leaves a note alone when a fragment already holds it", () => {
+    const plan = buildMigrationPlan(
+      emptyInput({
+        notes: [note({ id: "n1" })],
+        ideas: [idea("i1")],
+        pieces: [piece({ id: "p1", ideaId: "i1", body: "already moved", legacyNoteId: "n1" })],
+      }),
+    );
+
+    expect(plan.counts.promotions).toBe(0);
+    expect(plan.counts.absorptions).toBe(0);
+    expect(plan.counts.alreadyHeld).toBe(1);
+    expect(plan.noteToPiece.n1).toBe("p1");
+  });
+
+  it("does not re-promote when a migrated fragment arrived from another device", () => {
+    // The bookkeeping row that says "migrated" is local-only, so a second
+    // device can hold migrated data without knowing it. The rows have to be
+    // the source of truth or that device duplicates the whole library.
+    const notes = [note({ id: "n1" }), note({ id: "n2" })];
+    const migrated = piece({
+      id: "migp-n1",
+      ideaId: "mig-n1",
+      body: "Body of n1",
+      legacyNoteId: "n1",
+    });
+
+    const plan = buildMigrationPlan(emptyInput({ notes, ideas: [idea("mig-n1")], pieces: [migrated] }));
+
+    expect(plan.promotions.map((row) => row.noteId)).toEqual(["n2"]);
+    expect(plan.noteToPiece).toEqual({ n1: "migp-n1", n2: "migp-n2" });
+  });
+
   it("reports a fragment pointing at a note that is gone", () => {
     const plan = buildMigrationPlan(
       emptyInput({ ideas: [idea("i1")], pieces: [piece({ id: "p1", ideaId: "i1", noteId: "ghost" })] }),

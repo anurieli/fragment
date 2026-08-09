@@ -36,6 +36,9 @@ export interface Snippet {
   order: number;
   /** The idea this snippet belongs to. Optional — existing rows are not backfilled. */
   ideaId?: string;
+  /** The fragment this snippet was cut from, once fragments hold their own
+   * text. Replaces noteId; both are present during the migration window. */
+  pieceId?: string;
 }
 
 /**
@@ -77,6 +80,54 @@ export interface NoteVersion {
   trigger: VersionTrigger;
   wordCount: number;
   createdAt: number;
+}
+
+/**
+ * A version snapshot of a fragment.
+ *
+ * The same record as NoteVersion, keyed to the fragment that now holds the
+ * text rather than to a note. Rows carried over by the one-entity migration
+ * keep `legacyNoteId` so the timeline of a fragment that used to be a note is
+ * continuous rather than starting over on migration day.
+ */
+export interface PieceVersion {
+  id: string;
+  pieceId: string;
+  legacyNoteId?: string;
+  title: string;
+  subtitle?: string;
+  content: string;
+  goal: string;
+  audience: string;
+  tone: string;
+  remember: string;
+  voiceId?: string | null;
+  name: string;
+  trigger: VersionTrigger;
+  wordCount: number;
+  createdAt: number;
+}
+
+export type MigrationStatus = "running" | "complete" | "failed";
+
+/**
+ * Bookkeeping for a one-off data migration.
+ *
+ * Local-only and never synced: whether *this device* has finished reshaping
+ * its own copy is not a fact other devices need, and syncing it would let one
+ * device's failure look like everyone's.
+ */
+export interface MigrationRecord {
+  id: string;
+  status: MigrationStatus;
+  startedAt: number;
+  finishedAt?: number;
+  /** Plan counts, so a support conversation can start from what was attempted. */
+  counts?: Record<string, number>;
+  /** Why the verification gate refused, when it did. */
+  failures?: { code: string; subject: string; detail: string }[];
+  /** Id of the pre-migration snapshot taken before this attempt. */
+  snapshotId?: string;
 }
 
 export interface FeatureProviderConfig {
@@ -329,6 +380,9 @@ export interface ReviewReturn {
 export interface StoredReview extends ReviewReturn {
   id: string;
   noteId: string;
+  /** The fragment this review is about. Replaces noteId; both are present
+   * during the migration window so old share links keep resolving. */
+  pieceId?: string;
   /** When this review file was imported into Fragment (not the reviewer's own timestamp). */
   receivedAt: number;
 }
