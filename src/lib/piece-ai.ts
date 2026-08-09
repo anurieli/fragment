@@ -14,7 +14,6 @@
  * resolution path in here to disagree with the hook's.
  */
 
-import { isLongformFormat } from "@/lib/content-engine";
 import type { ContentFormat } from "@/lib/content-engine";
 import type { PublishPlatform } from "@/lib/publish";
 import { PLATFORM_CHAR_LIMITS, charCount } from "@/lib/publish";
@@ -112,9 +111,23 @@ export function buildRefineContext(input: RefineContextInput): RefineContext {
 export interface FlowContextInput {
   format: ContentFormat;
   idea?: PieceIdeaContext;
-  /** The text of the idea's long-form draft, if it has one. See
-   * findDraftBodyForIdea below. */
-  draftBody?: string | null;
+  /**
+   * Everything the idea holds, from buildIdeaBrief in lib/ai-context.
+   *
+   * This used to be the text of "the idea's long-form draft", singular, found
+   * by taking the oldest long-form piece. That assumed every idea has exactly
+   * one long piece that counts as its draft, which is not how anyone works: an
+   * idea can hold three short pieces and no long one, or two long ones with
+   * equal claim. The brief describes what is actually there.
+   */
+  ideaBrief: string;
+  /**
+   * What the writer typed into the Flow prompt. Required, and there is no
+   * default, because Flow used to run with a canned instruction the moment a
+   * key was pressed: no prompt, no confirmation, just a page of text nobody
+   * asked for. Generating is now something you ask for in words.
+   */
+  instruction: string;
 }
 
 export interface FlowContext {
@@ -136,54 +149,26 @@ const FLOW_DRAFT_NOUN: Record<ContentFormat, string> = {
 
 /**
  * Assembles the useSlashCommand().generateStream() call arguments for
- * drafting a piece from scratch (⌘⏎ / "Draft with Flow"): the idea's own
- * long-form draft stands in for "context above" (there's no mid-document
- * split for a short-form piece, Flow here always drafts from the top), the
- * idea's title/summary plus the platform hint feed goal/remember exactly as
- * in buildRefineContext, and a default instruction names the target format
- * since there's no typed prompt for the ⌘⏎ path.
+ * drafting a piece with Flow.
+ *
+ * The idea's brief stands in for "context above" (there is no mid-document
+ * split when drafting a piece from the top), and the idea's title plus the
+ * platform hint feed goal/remember exactly as in buildRefineContext. The
+ * writer's own words lead the instruction; the format noun trails it, so
+ * "make it angrier about the pricing" still comes out shaped like a tweet
+ * without the format overriding what was asked for.
  */
 export function buildFlowContext(input: FlowContextInput): FlowContext {
-  const { format, idea, draftBody } = input;
+  const { format, idea, ideaBrief, instruction } = input;
   const hint = platformContextHint(format, "");
   const remember = [idea?.summary, hint].filter((v): v is string => !!v).join("\n\n");
   return {
-    contextAbove: draftBody ?? "",
+    contextAbove: ideaBrief,
     goal: idea?.title ?? "",
     remember,
-    instruction: `Draft this as a ${FLOW_DRAFT_NOUN[format]} based on the idea above.`,
+    instruction: `${instruction.trim()}\n\nWrite it as a ${FLOW_DRAFT_NOUN[format]}, and use the context above so it belongs to this idea rather than restating it.`,
     voiceId: idea?.voiceId,
   };
-}
-
-// ---------------------------------------------------------------------------
-// The idea's long-form draft (for Flow context)
-// ---------------------------------------------------------------------------
-
-export interface PieceLike {
-  id: string;
-  ideaId: string;
-  format: ContentFormat;
-  body: string;
-  deletedAt?: number;
-  createdAt: number;
-}
-
-/**
- * The text of the idea's long-form draft, or null when it has none.
- *
- * This used to hunt down a linked note, because a long-form piece was a
- * pointer at one. A fragment holds its own words now, so the question is
- * simply which of the idea's fragments is the long-form one; oldest first, to
- * match draftsForIdea, so an idea with two drafts keeps answering with the one
- * the writer thinks of as the draft rather than with whichever was touched
- * last.
- */
-export function findDraftBodyForIdea(ideaId: string, pieces: readonly PieceLike[]): string | null {
-  const draft = pieces
-    .filter((p) => p.ideaId === ideaId && p.deletedAt === undefined && isLongformFormat(p.format))
-    .sort((a, b) => a.createdAt - b.createdAt)[0];
-  return draft ? draft.body : null;
 }
 
 // A "Snip out" from a piece used to route through resolveSnipTargetNoteId,

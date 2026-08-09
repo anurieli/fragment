@@ -3,22 +3,9 @@ import {
   platformContextHint,
   buildRefineContext,
   buildFlowContext,
-  findDraftBodyForIdea,
   estimateSelectionAnchor,
-  type PieceLike,
 } from "@/lib/piece-ai";
 import { TWEET_CHAR_LIMIT, LINKEDIN_CHAR_LIMIT } from "@/lib/publish";
-
-function makePiece(overrides: Partial<PieceLike> = {}): PieceLike {
-  return {
-    id: "piece-1",
-    ideaId: "idea-1",
-    format: "tweet",
-    body: "",
-    createdAt: 1000,
-    ...overrides,
-  };
-}
 
 describe("platformContextHint", () => {
   it("returns null for formats with no publish platform", () => {
@@ -116,97 +103,46 @@ describe("buildRefineContext", () => {
 });
 
 describe("buildFlowContext", () => {
-  it("uses the idea's draft text as contextAbove", () => {
+  it("carries the idea's brief through as contextAbove", () => {
     const ctx = buildFlowContext({
       format: "linkedin",
       idea: { title: "Idea title", summary: "Idea summary" },
-      draftBody: "Full long-form draft content.",
+      ideaBrief: "IDEA: Idea title\n\nALREADY WRITTEN IN THIS IDEA:\n- a thing",
+      instruction: "open with the pricing argument",
     });
-    expect(ctx.contextAbove).toBe("Full long-form draft content.");
+    expect(ctx.contextAbove).toContain("ALREADY WRITTEN IN THIS IDEA");
     expect(ctx.goal).toBe("Idea title");
     expect(ctx.remember).toContain("Idea summary");
-    expect(ctx.instruction).toContain("LinkedIn post");
   });
 
-  it("falls back to an empty contextAbove when the idea has no draft", () => {
-    const ctx = buildFlowContext({ format: "tweet", idea: { title: "T" }, draftBody: null });
-    expect(ctx.contextAbove).toBe("");
-    expect(ctx.instruction).toContain("tweet");
+  it("leads with what the writer asked for, and trails the format", () => {
+    // Order matters: Flow used to run a canned "draft this as a tweet" with no
+    // prompt at all. The typed words are the instruction now, and the format
+    // is a shaping note after it rather than the whole request.
+    const ctx = buildFlowContext({
+      format: "tweet",
+      idea: { title: "T" },
+      ideaBrief: "",
+      instruction: "make it angrier about the pricing",
+    });
+    expect(ctx.instruction.indexOf("angrier about the pricing")).toBeLessThan(
+      ctx.instruction.indexOf("tweet"),
+    );
   });
 
-  it("names the draft noun per format", () => {
-    expect(buildFlowContext({ format: "essay" }).instruction).toContain("piece");
-    expect(buildFlowContext({ format: "script" }).instruction).toContain("script");
-  });
-});
-
-describe("findDraftBodyForIdea", () => {
-  it("reads the text out of the idea's own long-form fragment", () => {
-    const pieces: PieceLike[] = [
-      makePiece({ id: "p-tweet", ideaId: "idea-1", format: "tweet", body: "a hot take" }),
-      makePiece({ id: "p-essay", ideaId: "idea-1", format: "essay", body: "the draft" }),
-      makePiece({ id: "p-other-idea", ideaId: "idea-2", format: "essay", body: "someone else's" }),
-    ];
-    expect(findDraftBodyForIdea("idea-1", pieces)).toBe("the draft");
+  it("names the target noun per format", () => {
+    const base = { ideaBrief: "", instruction: "go" };
+    expect(buildFlowContext({ ...base, format: "essay" }).instruction).toContain("piece");
+    expect(buildFlowContext({ ...base, format: "script" }).instruction).toContain("script");
   });
 
-  it("prefers the oldest long-form fragment when the idea has several", () => {
-    const pieces: PieceLike[] = [
-      makePiece({ id: "p-new", ideaId: "idea-1", format: "essay", body: "newer", createdAt: 900 }),
-      makePiece({ id: "p-old", ideaId: "idea-1", format: "essay", body: "older", createdAt: 100 }),
-    ];
-    expect(findDraftBodyForIdea("idea-1", pieces)).toBe("older");
-  });
-
-  it("ignores a tombstoned draft", () => {
-    const pieces: PieceLike[] = [
-      makePiece({ id: "p-gone", ideaId: "idea-1", format: "essay", body: "deleted", deletedAt: 123 }),
-    ];
-    expect(findDraftBodyForIdea("idea-1", pieces)).toBeNull();
-  });
-
-  it("returns null when the idea has only short-form fragments", () => {
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", format: "tweet", body: "a take" })];
-    expect(findDraftBodyForIdea("idea-1", pieces)).toBeNull();
-  });
-
-  it("returns the empty string, not null, for a draft nobody has written in yet", () => {
-    // Flow still runs off an untouched draft; "" and null mean different things
-    // to the caller, which only falls back when there is no draft at all.
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", format: "essay", body: "" })];
-    expect(findDraftBodyForIdea("idea-1", pieces)).toBe("");
+  it("trims the typed prompt so stray whitespace never leads the instruction", () => {
+    const ctx = buildFlowContext({
+      format: "other",
+      ideaBrief: "",
+      instruction: "   a tight opener  \n",
+    });
+    expect(ctx.instruction.startsWith("a tight opener")).toBe(true);
   });
 });
 
-
-describe("estimateSelectionAnchor", () => {
-  const geometry = { top: 100, left: 20, scrollTop: 0, lineHeight: 18 };
-
-  it("anchors at the textarea top for a selection on the first line", () => {
-    const anchor = estimateSelectionAnchor("hello world", 3, geometry);
-    expect(anchor).toEqual({ top: 100, left: 20 });
-  });
-
-  it("moves down one line height per newline before the selection", () => {
-    const value = "line one\nline two\nline three";
-    const selectionStart = value.indexOf("line three");
-    const anchor = estimateSelectionAnchor(value, selectionStart, geometry);
-    expect(anchor.top).toBe(100 + 2 * 18);
-    expect(anchor.left).toBe(20);
-  });
-
-  it("subtracts scrollTop so a scrolled textarea's line stays under the cursor", () => {
-    const value = "line one\nline two";
-    const selectionStart = value.indexOf("line two");
-    const anchor = estimateSelectionAnchor(value, selectionStart, { ...geometry, scrollTop: 18 });
-    expect(anchor.top).toBe(100); // one line down, minus one line scrolled = back at top
-  });
-
-  it("never anchors above the textarea's own top edge", () => {
-    const value = "line one\nline two\nline three";
-    const selectionStart = value.indexOf("line three");
-    // Scrolled far down — raw math would go negative relative to top.
-    const anchor = estimateSelectionAnchor(value, selectionStart, { ...geometry, scrollTop: 1000 });
-    expect(anchor.top).toBe(geometry.top);
-  });
-});

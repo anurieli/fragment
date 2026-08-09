@@ -15,9 +15,10 @@ import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import {
   buildRefineContext,
   buildFlowContext,
-  findDraftBodyForIdea,
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
+import { buildIdeaBrief } from "@/lib/ai-context";
+import { effectiveResourcesForIdea } from "@/stores/resources-selectors";
 import {
   moveTextareaSelection,
   offsetAtPoint,
@@ -141,6 +142,8 @@ export function PieceCard({
   const setPiecePriority = useContentStore((s) => s.setPiecePriority);
   const ideas = useContentStore((s) => s.ideas);
   const allPieces = useContentStore((s) => s.pieces);
+  const allIdeas = useContentStore((s) => s.ideas);
+  const allResources = useContentStore((s) => s.resources);
   const addSnippet = useDataStore((s) => s.addSnippet);
   const pinHelperBar = useAppStore((s) => s.pinHelperBar);
   const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
@@ -166,6 +169,12 @@ export function PieceCard({
   // finishes, so IndexedDB isn't written on every animation frame.
   const [flowGenerating, setFlowGenerating] = useState(false);
   const [streamedBody, setStreamedBody] = useState<string | null>(null);
+  // Flow asks before it writes. It used to fire the moment ⌘⏎ was pressed,
+  // with a canned instruction nobody typed, so opening a piece and reaching
+  // for a keyboard shortcut produced a page of text out of nowhere. The
+  // shortcut opens this line instead; generation needs words in it.
+  const [flowPrompt, setFlowPrompt] = useState<string | null>(null);
+  const flowPromptRef = useRef<HTMLInputElement>(null);
 
   // The one string this card is about, from whichever source is live.
   const body = flowGenerating ? streamedBody ?? "" : piece.body ?? "";
@@ -222,16 +231,41 @@ export function PieceCard({
   // long-form editor's "/" trigger uses, just with a piece-shaped context;
   // see buildFlowContext in piece-ai.ts). Triggered by ⌘⏎ in the textarea or
   // the ⋯ menu's "Draft with Flow" item.
-  const handleFlowGenerate = useCallback(() => {
+  /** Open the prompt line. Flow never starts from a keystroke alone. */
+  const openFlowPrompt = useCallback(() => {
     if (flowGenerating) return;
     // Silence was the worst answer here: ⌘⏎ with Flow switched off did
     // nothing at all, which reads as a broken feature rather than an off one.
     if (!slashEnabled) {
-      showToast("Flow is off — turn on slash commands in Settings → AI.");
+      showToast("Flow is off. Turn on slash commands in Settings, AI.");
       return;
     }
-    const draftBody = findDraftBodyForIdea(piece.ideaId, Object.values(allPieces));
-    const ctx = buildFlowContext({ format: piece.format, idea, draftBody });
+    setFlowPrompt("");
+    requestAnimationFrame(() => flowPromptRef.current?.focus());
+  }, [flowGenerating, slashEnabled, showToast]);
+
+  const handleFlowGenerate = useCallback((instruction: string) => {
+    if (flowGenerating) return;
+    if (!slashEnabled) return;
+    if (!instruction.trim()) return;
+    setFlowPrompt(null);
+    // Everything the idea holds: its title and summary, what is already
+    // written in it, and the sources attached to it. Flow used to receive
+    // only "the idea's long-form draft", which assumed each idea has exactly
+    // one long piece that counts, and left a model writing blind whenever it
+    // did not.
+    const ideaBrief = buildIdeaBrief({
+      idea: idea ? { title: idea.title ?? "", summary: idea.summary } : null,
+      siblings: Object.values(allPieces).filter(
+        (p) => p.ideaId === piece.ideaId && p.id !== piece.id && p.deletedAt === undefined,
+      ),
+      resources: effectiveResourcesForIdea(
+        piece.ideaId,
+        Object.values(allIdeas),
+        Object.values(allResources),
+      ),
+    });
+    const ctx = buildFlowContext({ format: piece.format, idea, ideaBrief, instruction });
     const baseBody = piece.body ?? "";
 
     setFlowGenerating(true);
@@ -272,10 +306,11 @@ export function PieceCard({
     flowGenerating,
     piece,
     allPieces,
+    allIdeas,
+    allResources,
     idea,
     generateStream,
     updatePiece,
-    showToast,
   ]);
 
   /** Stop mid-generation and keep what already streamed — the same bargain the
@@ -304,10 +339,23 @@ export function PieceCard({
         onExitEdit();
       } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        handleFlowGenerate();
+        openFlowPrompt();
+      } else if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // "/" at the start of a line opens Flow, the same gesture the
+        // long-form editor has had all along. In a piece it did nothing at
+        // all, so the shortcut a writer had already learned looked broken
+        // here. Mid-word and mid-sentence slashes are left alone: dates and
+        // and/or are ordinary typing.
+        const el = e.currentTarget;
+        const before = el.value.slice(0, el.selectionStart ?? 0);
+        const atLineStart = before === "" || before.endsWith("\n");
+        if (atLineStart && el.selectionStart === el.selectionEnd) {
+          e.preventDefault();
+          openFlowPrompt();
+        }
       }
     },
-    [onExitEdit, handleFlowGenerate],
+    [onExitEdit, openFlowPrompt],
   );
 
   // Refine: context-aware edit of the current textarea selection, routed
@@ -635,6 +683,36 @@ export function PieceCard({
           follows streamedBody (local state) instead of the store, matching
           the long-form editor's streamingContent pattern — see
           handleFlowGenerate. */}
+      {flowPrompt !== null && (
+        <div className="px-1 pb-2">
+          <div className="flex items-center gap-2 rounded-[var(--radius-default)] border border-gold/50 bg-gold-muted/10 px-3 py-2">
+            <span className="text-[11px] font-medium text-gold shrink-0">Flow</span>
+            <input
+              ref={flowPromptRef}
+              value={flowPrompt}
+              onChange={(e) => setFlowPrompt(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setFlowPrompt(null);
+                  textareaRef.current?.focus();
+                } else if (e.key === "Enter" && flowPrompt.trim()) {
+                  e.preventDefault();
+                  handleFlowGenerate(flowPrompt);
+                }
+              }}
+              placeholder="What should Flow write here?"
+              className="flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-faint outline-none"
+            />
+            <span className="text-[10px] text-text-faint shrink-0 font-[family-name:var(--font-mono)]">
+              enter to write, esc to cancel
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-y-auto pr-3 -mr-1">
         {isEditing ? (
           <>
@@ -648,7 +726,7 @@ export function PieceCard({
               onBlur={onExitEdit}
               onKeyDown={handleTextareaKeyDown}
               readOnly={flowGenerating}
-              placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
+              placeholder={slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
             />
             {inlineEditEnabled && !flowGenerating && (
               <PieceRefineMenu
@@ -767,7 +845,7 @@ export function PieceCard({
                     e.stopPropagation();
                     setMenuOpen(false);
                     setPriorityMenuOpen(false);
-                    handleFlowGenerate();
+                    openFlowPrompt();
                   }}
                   disabled={!slashEnabled || flowGenerating}
                   className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
@@ -776,10 +854,10 @@ export function PieceCard({
                       ? "Flow is off — turn on slash commands in Settings → AI"
                       : flowGenerating
                         ? "Already generating"
-                        : "Generate a first draft for this fragment with AI (⌘⏎)"
+                        : "Ask Flow to write into this piece (⌘⏎, or / at the start of a line)"
                   }
                 >
-                  Draft with Flow
+                  Write with Flow...
                 </button>
                 <div className="border-t border-border mt-1 pt-1">
                   <button
