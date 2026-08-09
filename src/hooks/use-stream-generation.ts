@@ -14,6 +14,8 @@ import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token
 import { parseSSEStreamWithUsage } from "@/lib/sse-parser";
 import { logApiCall } from "@/lib/api-logger";
 import { buildNoteCreationPrompt, type GenerateFormat, type GenerateLength } from "@/lib/defaults";
+import { buildIdeaBrief } from "@/lib/ai-context";
+import { effectiveResourcesForIdea } from "@/stores/resources-selectors";
 
 /** Extract a leading H1 from markdown, returning the title and remaining content. */
 function extractH1(markdown: string): { title: string; content: string } {
@@ -140,7 +142,30 @@ export function useStreamGeneration() {
       setStreamingContent(null);
       return;
     }
-    const promptLength = prompt.length + (goal?.length ?? 0) + (audience?.length ?? 0) + (tone?.length ?? 0) + (remember?.length ?? 0);
+    // What this generation is standing next to. Assembled at send time rather
+    // than at creation time, so a fragment that has sat in an idea for a week
+    // is briefed on what the idea holds now, not on what it held then.
+    const content = useContentStore.getState();
+    const generatedPiece = content.pieces[pieceId];
+    const briefIdeaId = generatedPiece?.ideaId;
+    const ideaBrief = buildIdeaBrief({
+      idea: briefIdeaId ? content.ideas[briefIdeaId] ?? null : null,
+      siblings: briefIdeaId
+        ? Object.values(content.pieces).filter(
+            (p) => p.ideaId === briefIdeaId && p.id !== pieceId && p.deletedAt === undefined,
+          )
+        : [],
+      resources: briefIdeaId
+        ? effectiveResourcesForIdea(
+            briefIdeaId,
+            Object.values(content.ideas),
+            Object.values(content.resources),
+          )
+        : [],
+    });
+
+    const briefLength = ideaBrief.length;
+    const promptLength = prompt.length + briefLength + (goal?.length ?? 0) + (audience?.length ?? 0) + (tone?.length ?? 0) + (remember?.length ?? 0);
 
     const { voices } = useVoiceStore.getState();
     const defaultVoiceId = useSettingsStore.getState().settings.brandVoice.defaultVoiceId;
@@ -148,7 +173,7 @@ export function useStreamGeneration() {
 
     const buildBody = (token: string | undefined) =>
       JSON.stringify({
-        contextAbove: "",
+        contextAbove: ideaBrief,
         contextBelow: "",
         goal,
         audience,

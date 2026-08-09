@@ -99,6 +99,15 @@ export function buildNoteCreationPrompt(
 ): string {
   return `You are a writing assistant. The user wants to create a new document from scratch.
 
+The document belongs to an idea the user is developing. Here is what is
+already in that idea, including anything they have written on it and the
+sources they attached:
+---
+{contextAbove}
+---
+Use this to stay on their specific argument rather than writing a generic
+treatment of the topic, and do not restate what they have already written.
+
 Document goal: "{goal}"
 Target audience: "{audience}"
 Tone: "{tone}"
