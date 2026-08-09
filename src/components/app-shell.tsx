@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Puzzle } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
@@ -41,9 +41,21 @@ import { OnboardingFlow } from "./onboarding/onboarding-flow";
 import { MigrationFailed } from "@/components/migration/migration-failed";
 import { ConnectGate } from "./ai-connect/connect-gate";
 import { useToastStore } from "@/hooks/use-toast";
+import { useHoverPeek } from "@/hooks/use-hover-peek";
 
 const COMPACT_BREAKPOINT = 960;
 const MIN_SUPPORTED_WIDTH = 768;
+
+// Panel widths, in one place. The left column never collapses to nothing any
+// more: it becomes a rail, so there is always something to click back.
+const SIDEBAR_WIDTH = 300;
+const SIDEBAR_RAIL_WIDTH = 44;
+const SETTINGS_NAV_WIDTH = 220;
+const RIGHT_PANEL_WIDTH = 340;
+// The shell's own p-3 padding and the flex row's gap-2, in pixels — the peeked
+// sidebar is absolutely positioned, so it has to be told where the rail ends.
+const SHELL_PADDING = 12;
+const COLUMN_GAP = 8;
 
 export function AppShell() {
   const { migrationFailed, migrationRecord, retryMigration } = usePersistence();
@@ -117,6 +129,8 @@ export function AppShell() {
   }, [hydrated, deviceId]);
 
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const sidebarPinned = useAppStore((s) => s.sidebarPinned);
+  const peekSidebar = useAppStore((s) => s.peekSidebar);
   const helperBarOpen = useAppStore((s) => s.helperBarOpen);
   const helperBarPinned = useAppStore((s) => s.helperBarPinned);
   const timelineOpen = useAppStore((s) => s.timelineOpen);
@@ -176,9 +190,11 @@ export function AppShell() {
     if (saved !== null) setSidebarOpen(saved === "true");
   }, [setSidebarOpen]);
 
+  // What is worth remembering is the deliberate choice, not a hover that
+  // happened to be in flight when the tab closed.
   useEffect(() => {
-    localStorage.setItem("fragment:sidebarOpen", String(sidebarOpen));
-  }, [sidebarOpen]);
+    localStorage.setItem("fragment:sidebarOpen", String(sidebarPinned));
+  }, [sidebarPinned]);
 
   // Same treatment for the idea workspace column
   useEffect(() => {
@@ -186,13 +202,16 @@ export function AppShell() {
     if (saved !== null) setIdeaPanelOpen(saved === "true");
   }, [setIdeaPanelOpen]);
 
-  // A narrow window can't hold sidebar + idea workspace + editor without
-  // crushing the editor, so opening an idea there hands the left rail to the
-  // workspace. ⌘\ brings the sidebar back; this only fires when the idea or
-  // compactness changes, never fighting a deliberate re-open.
+  // The sidebar navigates across ideas; the idea workspace and the Snip Bar are
+  // for working inside one. When either of those opens, the sidebar has done
+  // its job and steps back to the rail rather than competing for width. It is
+  // still one hover away, and ⌘\ or the rail's button pins it back.
+  //
+  // Deps are what the rule reacts to, so it fires when a panel opens and never
+  // again — a deliberate re-open while the idea panel is still open sticks.
   useEffect(() => {
-    if (isCompact && activeIdeaId && ideaPanelOpen) setSidebarOpen(false);
-  }, [isCompact, activeIdeaId, ideaPanelOpen, setSidebarOpen]);
+    if ((activeIdeaId && ideaPanelOpen) || helperBarPinned) setSidebarOpen(false);
+  }, [activeIdeaId, ideaPanelOpen, helperBarPinned, setSidebarOpen]);
 
   useEffect(() => {
     localStorage.setItem("fragment:ideaPanelOpen", String(ideaPanelOpen));
@@ -217,6 +236,29 @@ export function AppShell() {
   // Dragging from the editor sets isDraggingToHelper, which keeps the panel
   // open as the drop target regardless of helperBarOpen state.
   // ────────────────────────────────────────────────────────────────────────────
+  // The sidebar peeks on the same terms the Snip Bar does: hover the rail to
+  // look, click to pin. Both go through useHoverPeek so the two edges of the
+  // window cannot drift apart in feel.
+  const sidebarPeek = useHoverPeek({
+    pinned: sidebarPinned,
+    onOpen: useCallback(() => peekSidebar(true), [peekSidebar]),
+    onClose: useCallback(() => peekSidebar(false), [peekSidebar]),
+  });
+
+  const sidebarHandlers = useMemo(
+    () => ({
+      onOpenSettings: () => setShowSettings(true),
+      onOpenAccount: () => { setSettingsSection("account"); setShowSettings(true); },
+      onOpenAI: () => { setSettingsSection("ai"); setShowSettings(true); },
+      onOpenHelp: () => setShowHelp(true),
+      onOpenLogs: () => { setSettingsSection("logs"); setShowSettings(true); },
+    }),
+    // setShowSettings is a stable useCallback defined below; the setters are
+    // React state setters and never change identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -404,7 +446,14 @@ export function AppShell() {
     );
   }
 
-  const showRightPanelCompact = !showSettings && (helperBarOpen || timelineOpen || isDraggingToHelper);
+  // The right panel takes width in the flex row only when it was opened
+  // deliberately. A drag reveals it as an overlay instead (see below), so
+  // starting a drag never reflows the draft.
+  const rightPanelInFlow = !showSettings && (helperBarOpen || timelineOpen);
+  const dragRevealOverlay = !showSettings && isDraggingToHelper && !rightPanelInFlow;
+  const showRightPanelOverlay = isCompact
+    ? !showSettings && (helperBarOpen || timelineOpen || isDraggingToHelper)
+    : dragRevealOverlay;
 
   return (
     <>
@@ -413,7 +462,15 @@ export function AppShell() {
           {/* Left panel: sidebar or settings nav */}
           <div
             className="transition-all duration-300 ease-out overflow-hidden shrink-0"
-            style={{ width: showSettings ? 220 : sidebarOpen ? 300 : 0 }}
+            style={{
+              width: showSettings
+                ? SETTINGS_NAV_WIDTH
+                : sidebarOpen && sidebarPinned
+                  ? SIDEBAR_WIDTH
+                  : SIDEBAR_RAIL_WIDTH,
+            }}
+            onMouseEnter={sidebarPeek.onTriggerEnter}
+            onMouseLeave={sidebarPeek.onTriggerLeave}
           >
             {showSettings ? (
               <SettingsNav
@@ -422,13 +479,7 @@ export function AppShell() {
                 onClose={() => setShowSettings(false)}
               />
             ) : (
-              <Sidebar
-                onOpenSettings={() => setShowSettings(true)}
-                onOpenAccount={() => { setSettingsSection("account"); setShowSettings(true); }}
-                onOpenAI={() => { setSettingsSection("ai"); setShowSettings(true); }}
-                onOpenHelp={() => setShowHelp(true)}
-                onOpenLogs={() => { setSettingsSection("logs"); setShowSettings(true); }}
-              />
+              <Sidebar rail={!(sidebarOpen && sidebarPinned)} {...sidebarHandlers} />
             )}
           </div>
 
@@ -478,13 +529,17 @@ export function AppShell() {
           {/* Right panel (non-compact): timeline or helper bar as flex child.
               Width animates open/closed. Mouse enter/leave trigger the same
               hover-reveal logic as the compact overlay so the panel behaves
-              consistently at any window size. isDraggingToHelper auto-reveals
-              the panel when the user drags from the editor, even if it was
-              closed, so there is always a visible drop target. */}
+              consistently at any window size.
+
+              A drag no longer widens this column. It used to, so that there
+              was always a visible drop target — but widening it narrows the
+              editor, and the passage you are dragging slides out from under
+              the cursor mid-gesture. Now dragging reveals the bar as an
+              overlay instead; nothing reflows. */}
           {!isCompact && (
             <div
-              className={`overflow-hidden shrink-0 ${isDraggingToHelper ? "" : "transition-all duration-300 ease-out"}`}
-              style={{ width: !showSettings && (helperBarOpen || timelineOpen || isDraggingToHelper) ? 340 : 0 }}
+              className="overflow-hidden shrink-0 transition-all duration-300 ease-out"
+              style={{ width: rightPanelInFlow ? RIGHT_PANEL_WIDTH : 0 }}
               onMouseEnter={handleOverlayMouseEnter}
               onMouseLeave={handleOverlayMouseLeave}
             >
@@ -501,16 +556,35 @@ export function AppShell() {
             isDraggingToHelper keeps the overlay visible as the drop target;
             once the drag ends the overlay collapses if helperBarOpen is still
             false. */}
-        {isCompact && (
+        {(isCompact || dragRevealOverlay) && (
           <div
             ref={overlayRef}
-            className={`absolute top-3 right-3 bottom-3 z-20 w-[340px] overflow-hidden rounded-[var(--radius-xl)] shadow-2xl transition-transform duration-300 ease-out ${
-              showRightPanelCompact ? "translate-x-0" : "translate-x-[120%]"
-            }`}
+            className={`absolute top-3 right-3 bottom-3 z-20 w-[340px] overflow-hidden rounded-[var(--radius-xl)] shadow-2xl ${
+              isCompact ? "transition-transform duration-300 ease-out" : ""
+            } ${showRightPanelOverlay ? "translate-x-0" : "translate-x-[120%]"}`}
             onMouseEnter={handleOverlayMouseEnter}
             onMouseLeave={handleOverlayMouseLeave}
           >
             {(timelineOpen && !helperBarPinned && !isDraggingToHelper) ? <TimelinePanel /> : <HelperBar />}
+          </div>
+        )}
+
+        {/* Peeked sidebar: shown while hovering the rail without having pinned
+            it. An overlay rather than a width change, because pushing the
+            editor sideways every time the pointer grazes the left edge would
+            reflow the text under the cursor.
+
+            It starts to the RIGHT of the rail rather than on top of it. Covering
+            the rail would put its own buttons under the panel the moment you
+            hovered them, so the pin button could never be clicked. */}
+        {!showSettings && sidebarOpen && !sidebarPinned && (
+          <div
+            className="absolute top-3 bottom-3 z-30 overflow-hidden rounded-[var(--radius-xl)] shadow-2xl"
+            style={{ left: SHELL_PADDING + SIDEBAR_RAIL_WIDTH + COLUMN_GAP, width: SIDEBAR_WIDTH }}
+            onMouseEnter={sidebarPeek.onPanelEnter}
+            onMouseLeave={sidebarPeek.onPanelLeave}
+          >
+            <Sidebar {...sidebarHandlers} />
           </div>
         )}
 

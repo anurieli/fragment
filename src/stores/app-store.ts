@@ -46,6 +46,10 @@ export type IdeaSpace = "write" | "pieces";
 
 interface AppState {
   sidebarOpen: boolean;
+  /** True when the sidebar was opened deliberately rather than peeked at.
+   * A peeked sidebar overlays and retracts on mouse-out; a pinned one holds
+   * the column open. Mirrors helperBarOpen / helperBarPinned. */
+  sidebarPinned: boolean;
   helperBarOpen: boolean;
   helperBarPinned: boolean;
   timelineOpen: boolean;
@@ -103,6 +107,12 @@ interface AppState {
   openFeedback: () => void;
   closeFeedback: () => void;
   toggleSidebar: () => void;
+  /** Peek: show it without pinning. Used by the rail's hover. */
+  peekSidebar: (v: boolean) => void;
+  /** Pin it open. What the rail's button does — it cannot toggle, because
+   * hovering the rail to reach the button has already peeked it open, and a
+   * toggle would read that as "open" and close it. */
+  pinSidebar: () => void;
   toggleHelperBar: () => void;
   toggleTimeline: () => void;
   toggleCommentsPanel: () => void;
@@ -144,6 +154,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   sidebarOpen: true,
+  sidebarPinned: true,
   helperBarOpen: false,
   helperBarPinned: false,
   timelineOpen: false,
@@ -200,12 +211,16 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   openFeedback: () => set({ isFeedbackOpen: true }),
   closeFeedback: () => set({ isFeedbackOpen: false }),
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  // Toggling is always deliberate, so it sets both flags together: opening
+  // pins, closing un-pins and hands the column back to hover-peek.
+  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen, sidebarPinned: !s.sidebarOpen })),
+  peekSidebar: (v) => set((s) => (s.sidebarPinned ? {} : { sidebarOpen: v })),
+  pinSidebar: () => set({ sidebarOpen: true, sidebarPinned: true }),
   toggleHelperBar: () => set((s) => {
     const opening = !s.helperBarOpen;
     return { helperBarOpen: opening, helperBarPinned: opening, timelineOpen: opening ? false : s.timelineOpen };
   }),
-  setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  setSidebarOpen: (v) => set({ sidebarOpen: v, sidebarPinned: v }),
   setHelperBarOpen: (v) => set((s) => ({ helperBarOpen: v, timelineOpen: v ? false : s.timelineOpen })),
   pinHelperBar: () => set({ helperBarOpen: true, helperBarPinned: true, timelineOpen: false }),
   closeHelperBar: () => set({ helperBarOpen: false, helperBarPinned: false }),

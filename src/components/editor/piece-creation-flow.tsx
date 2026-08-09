@@ -7,7 +7,6 @@ import {
   Upload,
   Sparkles,
   ArrowLeft,
-  PanelLeftOpen,
   X,
   Lightbulb,
 } from "lucide-react";
@@ -24,8 +23,6 @@ import type { StreamGenerationParams } from "@/hooks/use-stream-generation";
 type CreationView = "menu" | "paste" | "generate";
 
 interface PieceCreationFlowProps {
-  sidebarOpen: boolean;
-  toggleSidebar: () => void;
   existingPiece?: ContentPiece;
   onOpenAISettings?: () => void;
   onStartGeneration?: (params: StreamGenerationParams) => Promise<void>;
@@ -34,7 +31,7 @@ interface PieceCreationFlowProps {
   leftToolbarSlot?: React.ReactNode;
 }
 
-export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, onOpenAISettings, onStartGeneration, leftToolbarSlot }: PieceCreationFlowProps) {
+export function PieceCreationFlow({ existingPiece, onOpenAISettings, onStartGeneration, leftToolbarSlot }: PieceCreationFlowProps) {
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaTitle = useContentStore((s) => (activeIdeaId ? s.ideas[activeIdeaId]?.title : undefined));
   const { idea: existingIdea, voice: existingVoice } = useBrief(existingPiece);
@@ -153,7 +150,7 @@ export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, o
   // ─── Sub-flow: Paste ────────────────────────────────────────────────────────
   if (view === "paste") {
     return (
-      <FlowShell leftToolbarSlot={leftToolbarSlot} sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar}>
+      <FlowShell leftToolbarSlot={leftToolbarSlot}>
         <div className="w-full max-w-lg">
           <button
             onClick={() => setView("menu")}
@@ -205,8 +202,6 @@ export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, o
     return (
       <FlowShell
         leftToolbarSlot={leftToolbarSlot}
-        sidebarOpen={sidebarOpen}
-        toggleSidebar={toggleSidebar}
         className="overflow-y-auto py-8"
       >
         <div className="w-full max-w-lg">
@@ -244,7 +239,7 @@ export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, o
 
   // ─── Main menu ──────────────────────────────────────────────────────────────
   return (
-    <FlowShell leftToolbarSlot={leftToolbarSlot} sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar}>
+    <FlowShell leftToolbarSlot={leftToolbarSlot}>
       <input
         ref={fileInputRef}
         type="file"
@@ -305,14 +300,10 @@ export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, o
  */
 function FlowShell({
   leftToolbarSlot,
-  sidebarOpen,
-  toggleSidebar,
   className,
   children,
 }: {
   leftToolbarSlot?: React.ReactNode;
-  sidebarOpen: boolean;
-  toggleSidebar: () => void;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -321,34 +312,15 @@ function FlowShell({
       {leftToolbarSlot && (
         <div className="flex items-center gap-3 px-8 pt-6 pb-3 shrink-0">
           {leftToolbarSlot}
-          {!sidebarOpen && (
-            <button
-              onClick={toggleSidebar}
-              className="shrink-0 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
-            >
-              <PanelLeftOpen size={16} />
-            </button>
-          )}
         </div>
       )}
       <div className={`flex-1 flex flex-col items-center justify-center px-6 ${className ?? ""}`}>
-        {!leftToolbarSlot && !sidebarOpen && <SidebarToggle onClick={toggleSidebar} />}
         {children}
       </div>
     </div>
   );
 }
 
-function SidebarToggle({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="absolute top-7 left-7 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
-    >
-      <PanelLeftOpen size={16} />
-    </button>
-  );
-}
 
 function CreationCard({
   icon,

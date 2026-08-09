@@ -12,7 +12,6 @@ import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
 import { InsertHighlight } from "@/lib/editor/insert-highlight-extension";
 import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
 import {
-  PanelLeftOpen,
   PanelRightOpen,
   Clock,
   Undo2,
@@ -89,14 +88,12 @@ interface EditorProps {
 export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const {
     activePieceId,
-    sidebarOpen,
     helperBarOpen,
     timelineOpen,
     timelinePreviewVersionId,
     pendingSnippetDrop,
     showCreationFlow,
     contextPromptDismissedPieces,
-    toggleSidebar,
     toggleHelperBar,
     toggleTimeline,
     setDraggingToHelper,
@@ -361,9 +358,26 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
             const { state } = view;
             const docSize = state.doc.content.size;
-            const sf = Math.min(range.from, docSize);
-            const st = Math.min(range.to, docSize);
+            let sf = Math.min(range.from, docSize);
+            let st = Math.min(range.to, docSize);
             if (sf >= st) return;
+
+            // A selection covering all of one paragraph moves the paragraph,
+            // not just its words. Taking only the text would leave the empty
+            // block behind, and "move this line there" would cost a second
+            // edit to tidy up after itself.
+            const $from = state.doc.resolve(sf);
+            const $to = state.doc.resolve(st);
+            if (
+              $from.depth > 0 &&
+              $from.parent === $to.parent &&
+              $from.parent.isTextblock &&
+              $from.parentOffset === 0 &&
+              $to.parentOffset === $to.parent.content.size
+            ) {
+              sf = $from.before();
+              st = $to.after();
+            }
 
             // Dropped back onto itself: a no-op, not a delete-and-reinsert.
             const at = target.pos;
@@ -1345,11 +1359,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   );
 
   if (!piece) {
-    return <PieceCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
+    return <PieceCreationFlow onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   if (showCreationFlow && !piece.body.trim()) {
-    return <PieceCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingPiece={piece} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
+    return <PieceCreationFlow existingPiece={piece} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   return (
@@ -1357,14 +1371,6 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       {/* Toolbar */}
       <div className="flex items-center px-8 pt-6 pb-3 shrink-0 gap-3 min-w-0">
         {leftToolbarSlot}
-        {!sidebarOpen && (
-          <button
-            onClick={toggleSidebar}
-            className="shrink-0 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
-          >
-            <PanelLeftOpen size={16} />
-          </button>
-        )}
         {/* Spacer keeps right-side buttons anchored right during version preview */}
         {timelinePreviewVersionId && <div className="flex-1" />}
 

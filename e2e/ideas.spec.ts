@@ -136,38 +136,30 @@ test.describe("Idea lifecycle", () => {
 });
 
 test.describe("Panel toggles", () => {
-  test("sidebar collapses via toggle button", async ({ page }) => {
-    // The sidebar wrapper in app-shell has an inline style with width
-    // When open: width: 272, when closed: width: 0
-    // The wrapper is a div with class containing "overflow-hidden shrink-0"
-    // and it contains the .bg-surface-2 sidebar
-
-    // Get the initial wrapper width
+  test("sidebar collapses to a rail, and the rail can reopen it", async ({ page }) => {
+    // The sidebar never collapses to nothing: it becomes a ~44px rail, so
+    // there is always something on screen to click back. The old assertion
+    // here was width 0, and it located the sidebar by .bg-surface-2, which
+    // actually matches the Snip Bar.
     const getWrapperWidth = () =>
       page.evaluate(() => {
-        // Find the sidebar wrapper: the div that wraps .bg-surface-2
-        const sidebar = document.querySelector(".bg-surface-2");
+        const sidebar = document.querySelector('[data-sidebar]');
         const wrapper = sidebar?.parentElement;
         return wrapper ? parseFloat(getComputedStyle(wrapper).width) : -1;
       });
 
-    const initialWidth = await getWrapperWidth();
-    expect(initialWidth).toBeGreaterThan(200);
+    expect(await getWrapperWidth()).toBeGreaterThan(200);
 
-    // Click the PanelLeftClose button in the sidebar header
-    const collapseBtn = page
-      .locator(".bg-surface-2")
-      .first()
-      .locator("div")
-      .first()
-      .locator("button");
-    await collapseBtn.click();
+    await page.getByRole("button", { name: "Collapse sidebar" }).click();
+    await page.waitForTimeout(400); // 300ms width transition
 
-    // Wait for the 300ms transition
+    const railWidth = await getWrapperWidth();
+    expect(railWidth).toBeGreaterThan(0);
+    expect(railWidth).toBeLessThan(80);
+
+    await page.getByRole("button", { name: "Open sidebar" }).click();
     await page.waitForTimeout(400);
-
-    const closedWidth = await getWrapperWidth();
-    expect(closedWidth).toBe(0);
+    expect(await getWrapperWidth()).toBeGreaterThan(200);
   });
 });
 

@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   Search,
   HelpCircle,
@@ -44,6 +45,9 @@ import {
 
 interface SidebarProps {
   onOpenSettings: () => void;
+  /** Render the collapsed strip instead of the full column. Same component so
+   * the rail's buttons run the same code paths the full sidebar does. */
+  rail?: boolean;
   onOpenAccount: () => void;
   onOpenAI: () => void;
   onOpenHelp: () => void;
@@ -177,8 +181,9 @@ function IdeaMenuItem({
   );
 }
 
-export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs, rail }: SidebarProps) {
   const { toggleSidebar } = useAppStore();
+  const pinSidebar = useAppStore((s) => s.pinSidebar);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
@@ -606,8 +611,32 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     );
   }
 
+  if (rail) {
+    return (
+      <div data-sidebar className="flex flex-col items-center h-full w-full py-5 gap-2 bg-surface rounded-[var(--radius-xl)]">
+        <RailButton label="Open sidebar" onClick={pinSidebar}>
+          <PanelLeftOpen size={16} />
+        </RailButton>
+        <div className="w-5 border-t border-border my-1" />
+        <RailButton label="New idea" onClick={handleNewIdea}>
+          <Lightbulb size={16} />
+        </RailButton>
+        <RailButton
+          label="Search ideas and fragments"
+          onClick={() => { pinSidebar(); openSearch(); }}
+        >
+          <Search size={16} />
+        </RailButton>
+        <div className="flex-1" />
+        <RailButton label="Settings" onClick={onOpenSettings}>
+          <Settings size={16} />
+        </RailButton>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-full w-[300px] bg-surface rounded-[var(--radius-xl)] overflow-hidden">
+    <div data-sidebar className="flex flex-col h-full w-[300px] bg-surface rounded-[var(--radius-xl)] overflow-hidden">
       {showFullFeedback ? (
         <FeedbackPanel />
       ) : (
@@ -642,6 +671,8 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               </button>
               <button
                 onClick={toggleSidebar}
+                title="Collapse sidebar"
+                aria-label="Collapse sidebar"
                 className="p-2 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
               >
                 <PanelLeftClose size={16} />
@@ -847,5 +878,29 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
         </>
       )}
     </div>
+  );
+}
+
+/** One icon in the collapsed rail. Titles do the labelling, since there is no
+ * room for text and an unlabelled strip of icons is a puzzle. */
+function RailButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="p-2 rounded-[var(--radius-default)] text-text-muted
+        hover:text-text-primary hover:bg-surface-2 transition-all duration-150"
+    >
+      {children}
+    </button>
   );
 }
