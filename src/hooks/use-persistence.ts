@@ -11,6 +11,7 @@ import { commentHome } from "@/lib/comment-scope";
 import { recoverFromCrash } from "@/hooks/use-auto-save";
 import { logPersistence } from "@/lib/persistence-logger";
 import { useToastStore } from "@/hooks/use-toast";
+import { installMigrationConsole } from "@/lib/migration/console";
 
 export function usePersistence() {
   const activeNoteId = useAppStore((s) => s.activeNoteId);
@@ -31,6 +32,10 @@ export function usePersistence() {
 
   // Initial hydration + crash recovery
   useEffect(() => {
+    // Read-only migration tools, reachable as window.fragmentMigration. The
+    // dry run has to run where the library lives, which is this browser.
+    installMigrationConsole();
+
     async function hydrate() {
       try {
         const allNotes = await loadAllNotes();
