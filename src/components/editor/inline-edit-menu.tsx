@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
-import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight } from "lucide-react";
+import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight, Lightbulb } from "lucide-react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { calculateInlineMenuPosition } from "@/lib/inline-menu-placement";
 
@@ -11,9 +11,12 @@ interface InlineEditMenuProps {
   editor: TiptapEditor;
   onSnip: () => void;
   onEdit: (instruction: string) => Promise<string | null>;
+  /** Turn the selection into an idea of its own. Receives the selected text;
+   * the draft it was cut from is left alone. */
+  onCaptureIdea?: (text: string) => void;
 }
 
-export function InlineEditMenu({ editor, onSnip, onEdit }: InlineEditMenuProps) {
+export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: InlineEditMenuProps) {
   const [mode, setMode] = useState<EditMode>("idle");
   const [customPrompt, setCustomPrompt] = useState("");
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
@@ -190,6 +193,18 @@ export function InlineEditMenu({ editor, onSnip, onEdit }: InlineEditMenuProps) 
     setMode("idle");
   }, [onSnip]);
 
+  const handleCaptureIdea = useCallback(() => {
+    if (!onCaptureIdea) return;
+    const { from, to } = editor.state.selection;
+    // Block separator, so a multi-paragraph selection arrives as paragraphs
+    // rather than one run-on line.
+    const text = editor.state.doc.textBetween(from, to, "\n\n", " ").trim();
+    if (!text) return;
+    onCaptureIdea(text);
+    setVisible(false);
+    setMode("idle");
+  }, [editor, onCaptureIdea]);
+
   if (!visible || !position) return null;
 
   return (
@@ -251,6 +266,16 @@ export function InlineEditMenu({ editor, onSnip, onEdit }: InlineEditMenuProps) 
               <Scissors size={12} />
               <span>Snip</span>
             </button>
+            {onCaptureIdea && (
+              <button
+                onClick={handleCaptureIdea}
+                className="inline-edit-btn"
+                title="Start a new idea from this, without changing what you are writing"
+              >
+                <Lightbulb size={12} />
+                <span>Idea</span>
+              </button>
+            )}
             <div className="w-px h-4 bg-border mx-0.5" />
             <button
               onClick={() => handlePresetEdit("Make this more concise. Tighten the language, remove redundancy, keep the core meaning.")}

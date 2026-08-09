@@ -40,6 +40,8 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice } from "@/lib/voice-context";
 import { useToastStore } from "@/hooks/use-toast";
+import { useContentStore } from "@/stores/content-store";
+import { titleFromText } from "@/lib/derive-title";
 import { useLabelSnippet } from "@/hooks/use-label-snippet";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
@@ -998,6 +1000,41 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     toggleHelperBar,
   ]);
 
+  /**
+   * Turn a highlighted passage into an idea of its own.
+   *
+   * Deliberately non-destructive, which is what separates this from Snip. A
+   * tangent that occurs to you mid-paragraph is not something you want to cut;
+   * you want it filed so you can keep going. The draft is left exactly as it
+   * was, and the toast offers the jump rather than taking it, because being
+   * moved somewhere else is the opposite of what capture is for.
+   */
+  const handleCaptureIdea = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const content = useContentStore.getState();
+    if (!content.hydrated) return;
+
+    const title = titleFromText(trimmed) || "Untitled idea";
+    const ideaId = content.createIdea({ title, origin: "user" });
+    if (!ideaId) return;
+
+    content.createPiece({
+      ideaId,
+      format: "other",
+      origin: "user",
+      status: "inbox",
+      body: trimmed,
+      seen: true,
+    });
+
+    useToastStore.getState().showToast(`Idea created: ${title}`, {
+      label: "Open",
+      onClick: () => useAppStore.getState().setActiveIdea(ideaId),
+    });
+  }, []);
+
   const handleInlineEdit = useCallback(
     async (instruction: string): Promise<string | null> => {
       if (!editor || !note || !inlineEditEnabled) return null;
@@ -1534,6 +1571,7 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
             editor={editor}
             onSnip={handleAddToSnippets}
             onEdit={handleInlineEdit}
+            onCaptureIdea={handleCaptureIdea}
           />
         )}
       </div>

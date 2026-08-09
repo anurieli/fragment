@@ -1,5 +1,6 @@
 import type { ContentPiece, Idea } from "@/lib/content-engine";
 import type { Note } from "@/lib/types";
+import { titleFromText } from "@/lib/derive-title";
 
 /**
  * Deciding what the one-entity migration will do, without doing any of it.
@@ -134,16 +135,10 @@ function byAgeThenId(a: { createdAt: number; id: string }, b: { createdAt: numbe
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** First non-empty line of markdown, stripped of heading marks, for a note
- * that never got a title. Truncated at a length that still reads as a title. */
-export function deriveTitle(content: string): string {
-  const line = content
-    .split("\n")
-    .map((raw) => raw.replace(/^#+\s*/, "").replace(/^[>*-]\s*/, "").trim())
-    .find((candidate) => candidate.length > 0);
-  if (!line) return "";
-  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
-}
+/** First non-empty line of markdown, for a note that never got a title. Shared
+ * with the capture gesture so a writer never sees two different derivations of
+ * the same words. */
+export const deriveTitle = titleFromText;
 
 export function buildMigrationPlan(input: PlanInput): MigrationPlan {
   const noteById = new Map(input.notes.map((note) => [note.id, note]));
