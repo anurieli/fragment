@@ -954,7 +954,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       ideaId,
       format: "other",
       origin: "user",
-      status: "inbox",
+      // Captured by you, mid-sentence, out of your own draft. Parking a
+      // thought is not the same as receiving one, so it is not inbox work.
+      status: "in-progress",
       body: trimmed,
       seen: true,
     });

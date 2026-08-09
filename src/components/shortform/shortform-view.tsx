@@ -154,11 +154,19 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   }, [revealPieceId, visible, filter, setFilter, clearRevealPiece]);
 
   const handleNewPiece = useCallback(() => {
-    const id = createPiece({ ideaId, format: "other", origin: "user", body: "" });
+    const id = createPiece({
+      ideaId,
+      format: "other",
+      origin: "user",
+      status: "in-progress",
+      body: "",
+      seen: true,
+    });
     if (!id) return;
-    // A fresh piece is always "inbox" — switch back to a filter that shows
-    // it so it's immediately focusable/editable.
-    if (filter !== "all" && filter !== "inbox") setFilter("all");
+    // You just made this, so it starts in progress rather than in the inbox.
+    // A narrower filter would hide the card the instant it appeared, so widen
+    // to "all" unless the writer is already looking at in-progress.
+    if (filter !== "all" && filter !== "in-progress") setFilter("all");
     setPendingFocusId(id);
   }, [createPiece, ideaId, filter, setFilter]);
 

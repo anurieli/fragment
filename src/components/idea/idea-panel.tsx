@@ -178,7 +178,14 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   }
 
   function handleNewPiece() {
-    const id = createPiece({ ideaId, format: "other", origin: "user", body: "" });
+    const id = createPiece({
+      ideaId,
+      format: "other",
+      origin: "user",
+      status: "in-progress",
+      body: "",
+      seen: true,
+    });
     if (!id) return;
     openPiece(id);
     showToast("Fragment added. Edit it in the feed.");

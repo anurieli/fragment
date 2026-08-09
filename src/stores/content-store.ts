@@ -53,7 +53,20 @@ export interface CreatePieceInput {
   ideaId: string;
   format: ContentPiece["format"];
   origin: PieceOrigin;
-  status?: PieceStatus;
+  /**
+   * Required, with no default, on purpose.
+   *
+   * "inbox" means one thing: this arrived from somewhere other than the
+   * person sitting here. Agent pushes land there, and the import pipeline
+   * writes them straight to the store, so nothing reaching THIS function is
+   * ever an inbox item. While the field was optional and defaulted to
+   * "inbox", three call sites forgot to pass it and quietly filed the
+   * writer's own work in the agent tray, where the triage strip then asked
+   * whether they wanted to pick up their own writing.
+   *
+   * A default cannot express that rule. Asking every caller can.
+   */
+  status: PieceStatus;
   title?: string;
   /** Defaults to "": a fragment always has a body, even an empty one. */
   body?: string;
@@ -343,7 +356,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
       id: generateId(),
       ideaId: input.ideaId,
       format: input.format,
-      status: input.status ?? "inbox",
+      status: input.status,
       origin: input.origin,
       title: input.title,
       body: input.body ?? "",

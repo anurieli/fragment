@@ -124,8 +124,8 @@ describe("content-store — ideas", () => {
     const store = useContentStore.getState();
     const rootId = store.createIdea({ title: "Root" });
     const childId = store.createIdea({ title: "Child", parentId: rootId });
-    const rootPiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", body: "a" });
-    const childPiece = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", body: "b" });
+    const rootPiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", status: "inbox", body: "a" });
+    const childPiece = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", status: "inbox", body: "b" });
 
     const cascade = useContentStore.getState().deleteIdeaCascade(rootId);
     const after = useContentStore.getState();
@@ -142,7 +142,7 @@ describe("content-store — ideas", () => {
     const store = useContentStore.getState();
     const doomedId = store.createIdea({ title: "Doomed" });
     const keptId = store.createIdea({ title: "Kept" });
-    const keptPiece = store.createPiece({ ideaId: keptId, format: "tweet", origin: "user", body: "keep" });
+    const keptPiece = store.createPiece({ ideaId: keptId, format: "tweet", origin: "user", status: "inbox", body: "keep" });
 
     useContentStore.getState().deleteIdeaCascade(doomedId);
 
@@ -154,9 +154,9 @@ describe("content-store — ideas", () => {
     const store = useContentStore.getState();
     const rootId = store.createIdea({ title: "Root" });
     const childId = store.createIdea({ title: "Child", parentId: rootId });
-    const pieceId = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", body: "b" });
+    const pieceId = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", status: "inbox", body: "b" });
     // Already-deleted content must NOT come back with the undo.
-    const stalePiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", body: "old" });
+    const stalePiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", status: "inbox", body: "old" });
     useContentStore.getState().rejectPiece(stalePiece);
 
     const cascade = useContentStore.getState().deleteIdeaCascade(rootId);
@@ -192,13 +192,38 @@ describe("content-store — pieces", () => {
       ideaId,
       format: "tweet",
       origin: "user",
+      status: "inbox",
       body: "hot take",
     });
     const piece = useContentStore.getState().pieces[id];
     expect(piece.body).toBe("hot take");
+    // Stored as given. createPiece has no status default, so this asserts
+    // pass-through rather than a fallback being exercised.
     expect(piece.status).toBe("inbox");
     expect(piece.seen).toBe(false);
     expect(piece.order).toBe(0);
+  });
+
+  /**
+   * The rule the required field exists to enforce: "inbox" is where work
+   * arrives from somewhere other than the person at the keyboard. Nothing a
+   * writer does inside the app produces one. This pins the store half; the
+   * call sites are checked by the compiler, which is the whole reason
+   * `status` is required rather than defaulted.
+   */
+  it("createPiece never invents a status, so in-app writing cannot land in the inbox", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({
+      ideaId,
+      format: "other",
+      origin: "user",
+      status: "in-progress",
+      body: "mine",
+      seen: true,
+    });
+    const piece = useContentStore.getState().pieces[id];
+    expect(piece.status).toBe("in-progress");
+    expect(piece.seen).toBe(true);
   });
 
   it("createPiece gives a fragment created with no text an empty body", () => {
@@ -207,6 +232,7 @@ describe("content-store — pieces", () => {
       ideaId,
       format: "essay",
       origin: "user",
+      status: "inbox",
     });
     expect(useContentStore.getState().pieces[id].body).toBe("");
   });
@@ -214,9 +240,9 @@ describe("content-store — pieces", () => {
   it("createPiece scopes default order per idea", () => {
     const ideaA = makeIdea();
     const ideaB = makeIdea();
-    const a1 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", body: "a1" });
-    const a2 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", body: "a2" });
-    const b1 = useContentStore.getState().createPiece({ ideaId: ideaB, format: "tweet", origin: "user", body: "b1" });
+    const a1 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", status: "inbox", body: "a1" });
+    const a2 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", status: "inbox", body: "a2" });
+    const b1 = useContentStore.getState().createPiece({ ideaId: ideaB, format: "tweet", origin: "user", status: "inbox", body: "b1" });
 
     expect(useContentStore.getState().pieces[a1].order).toBe(0);
     expect(useContentStore.getState().pieces[a2].order).toBe(1);
@@ -225,8 +251,8 @@ describe("content-store — pieces", () => {
 
   it("reorderPieces applies order updates in bulk", () => {
     const ideaId = makeIdea();
-    const a = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "a" });
-    const b = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "b" });
+    const a = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "a" });
+    const b = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "b" });
 
     useContentStore.getState().reorderPieces([
       { id: a, order: 5 },
@@ -239,7 +265,7 @@ describe("content-store — pieces", () => {
 
   it("setPieceStatus rejects moving to published without a publish record", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     expect(() => useContentStore.getState().setPieceStatus(id, "published")).toThrow(
       ContractError,
@@ -248,7 +274,7 @@ describe("content-store — pieces", () => {
 
   it("setPieceStatus accepts moving to published with a publish record", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     useContentStore.getState().setPieceStatus(id, "published", {
       platform: "tweet",
@@ -264,7 +290,7 @@ describe("content-store — pieces", () => {
 
   it("setPieceStatus clears the publish record when moving away from published", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     useContentStore.getState().setPieceStatus(id, "published", {
       platform: "tweet",
       method: "manual",
@@ -281,7 +307,7 @@ describe("content-store — pieces", () => {
 
   it("markPieceSeen flips seen to true once", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     expect(useContentStore.getState().pieces[id].seen).toBe(false);
 
     useContentStore.getState().markPieceSeen(id);
@@ -290,14 +316,14 @@ describe("content-store — pieces", () => {
 
   it("setPiecePriority sets an explicit priority", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     useContentStore.getState().setPiecePriority(id, 1);
     expect(useContentStore.getState().pieces[id].priority).toBe(1);
   });
 
   it("cyclePiecePriority cycles 0 -> 1 -> 2 -> 3 -> 4 -> 0", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     const expected = [1, 2, 3, 4, 0];
     for (const priority of expected) {
       useContentStore.getState().cyclePiecePriority(id);
@@ -307,7 +333,7 @@ describe("content-store — pieces", () => {
 
   it("rejectPiece tombstones; undeletePiece restores (undo)", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     useContentStore.getState().rejectPiece(id);
     expect(useContentStore.getState().pieces[id].deletedAt).toBeDefined();
@@ -342,7 +368,7 @@ describe("content-store — pieces", () => {
 
   it("updatePiece re-validates the publish guard on edit", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     expect(() =>
       useContentStore.getState().updatePiece(id, {
@@ -353,7 +379,7 @@ describe("content-store — pieces", () => {
 
   it("updatePiece is where a fragment's text and brief are edited", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
 
     useContentStore.getState().updatePiece(id, {
       body: "The opening paragraph.",
@@ -421,7 +447,7 @@ describe("content-store: creating and deleting a fragment", () => {
   it("deletePieceCascade tombstones the fragment and keeps its snips for the undo", () => {
     useDataStore.setState({ snippets: {}, hydrated: true });
     const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
-    const pieceId = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
+    const pieceId = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
     const mine = useDataStore.getState().addSnippet(pieceId, "cut from the draft");
     const theirs = useDataStore.getState().addSnippet(null, "cut from the idea", undefined, ideaId);
 
@@ -437,25 +463,25 @@ describe("content-store: creating and deleting a fragment", () => {
 
   it("deletePieceCascade hands back the next fragment in the same idea", () => {
     const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
-    const first = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
-    const second = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
+    const first = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    const second = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
     const elsewhere = useContentStore.getState().createIdea({ title: "Elsewhere" });
-    useContentStore.getState().createPiece({ ideaId: elsewhere, format: "essay", origin: "user" });
+    useContentStore.getState().createPiece({ ideaId: elsewhere, format: "essay", origin: "user", status: "inbox", });
 
     expect(useContentStore.getState().deletePieceCascade(first)).toBe(second);
   });
 
   it("deletePieceCascade returns null when that was the idea's last fragment", () => {
     const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
-    const only = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
+    const only = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
 
     expect(useContentStore.getState().deletePieceCascade(only)).toBeNull();
   });
 
   it("deletePieceCascade skips fragments already in the bin when picking a successor", () => {
     const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
-    const doomed = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
-    const alreadyGone = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user" });
+    const doomed = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    const alreadyGone = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
     useContentStore.getState().rejectPiece(alreadyGone);
 
     expect(useContentStore.getState().deletePieceCascade(doomed)).toBeNull();
@@ -464,7 +490,7 @@ describe("content-store: creating and deleting a fragment", () => {
   it("restorePieceCascade puts the fragment back with its text", () => {
     const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
     const pieceId = useContentStore.getState().createPiece({
-      ideaId, format: "essay", origin: "user", body: "the words",
+      ideaId, format: "essay", origin: "user", status: "inbox", body: "the words",
     });
 
     useContentStore.getState().deletePieceCascade(pieceId);
@@ -479,7 +505,7 @@ describe("content-store: creating and deleting a fragment", () => {
     useDataStore.setState({ snippets: {}, hydrated: true });
     const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
     const pieceId = useContentStore.getState().createPiece({
-      ideaId, format: "essay", origin: "user", body: "the words",
+      ideaId, format: "essay", origin: "user", status: "inbox", body: "the words",
     });
     const snipId = useDataStore.getState().addSnippet(pieceId, "the words");
 
@@ -516,7 +542,7 @@ describe("content-store — resources", () => {
     const ideaId = makeIdea();
     const pieceId = useContentStore
       .getState()
-      .createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+      .createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     const id = useContentStore.getState().addResource("piece", pieceId, { kind: "note", title: "Context" });
 
     const resource = useContentStore.getState().resources[id];

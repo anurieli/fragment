@@ -235,6 +235,7 @@ describe("content-store interactions used by the feed", () => {
       ideaId,
       format: "other",
       origin: "user",
+      status: "inbox",
       body: "draft",
     });
     expect(useContentStore.getState().pieces[id].seen).toBe(false);
@@ -253,6 +254,7 @@ describe("content-store interactions used by the feed", () => {
       ideaId,
       format: "other",
       origin: "user",
+      status: "inbox",
       body: "draft",
     });
     const expected = [1, 2, 3, 4, 0];
@@ -268,6 +270,7 @@ describe("content-store interactions used by the feed", () => {
       ideaId,
       format: "other",
       origin: "user",
+      status: "inbox",
       body: "draft",
     });
     expect(() => useContentStore.getState().setPieceStatus(id, "published")).toThrow(

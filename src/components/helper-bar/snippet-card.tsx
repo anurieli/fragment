@@ -152,6 +152,9 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
                 ideaId,
                 format: "other",
                 origin: "user",
+                // Dragged out of your own snip bar, so it is already yours.
+                status: "in-progress",
+                seen: true,
                 body: snippet.content,
                 order: Number.isFinite(insertOrder) ? insertOrder : undefined,
               });
