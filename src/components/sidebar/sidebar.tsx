@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
+import { archivedIdeas, draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { useToastStore } from "@/hooks/use-toast";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -193,6 +193,8 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const unpinIdea = useContentStore((s) => s.unpinIdea);
   const deleteIdeaCascade = useContentStore((s) => s.deleteIdeaCascade);
   const restoreIdeaCascade = useContentStore((s) => s.restoreIdeaCascade);
+  const archiveIdeaCascade = useContentStore((s) => s.archiveIdeaCascade);
+  const restoreIdeaArchive = useContentStore((s) => s.restoreIdeaArchive);
   const showToast = useToastStore((s) => s.showToast);
   const settings = useSettingsStore((s) => s.settings);
   const badProviders = useAppStore((s) => s.badProviders);
@@ -227,7 +229,22 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // Counts on an idea row mean short-form pieces. Its long-form drafts are
   // listed by name underneath instead, so counting them here would double up.
   const shortPieces = useMemo(() => shortformOnly(allPieces), [allPieces]);
-  const allIdeas = useMemo(() => Object.values(ideas).filter((i) => !i.deletedAt), [ideas]);
+  // The live library. Archived ideas are still in the store and still hold
+  // every word they held, they just stop competing for attention in the list
+  // you navigate by.
+  const allIdeas = useMemo(
+    () => Object.values(ideas).filter((i) => !i.deletedAt && i.archivedAt === undefined),
+    [ideas],
+  );
+  // Only the top of each archived tree gets a row: a sub-idea archived along
+  // with its parent is already accounted for by the parent's line, and listing
+  // both would make one gesture look like two.
+  const archived = useMemo(() => {
+    const all = archivedIdeas(Object.values(ideas));
+    const archivedIds = new Set(all.map((i) => i.id));
+    return all.filter((i) => !i.parentId || !archivedIds.has(i.parentId));
+  }, [ideas]);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string, Idea[]>();
@@ -349,6 +366,45 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     });
   }
 
+  function handleArchiveIdea(idea: Idea) {
+    const archive = archiveIdeaCascade(idea.id);
+    if (!archive.ideaIds.length && !archive.pieceIds.length) return;
+    // Same courtesy the delete path shows: an idea you are standing inside
+    // should not vanish underneath you without the app letting go of it first.
+    if (archive.ideaIds.includes(activeIdeaId ?? "")) {
+      setActiveIdea(null);
+      setActivePiece(null);
+    }
+    showToast(`Archived "${idea.title || "Untitled idea"}"`, {
+      label: "Undo",
+      onClick: () => restoreIdeaArchive(archive),
+    });
+  }
+
+  /**
+   * Undo an archive long after the toast is gone. Rebuilt from the stamp
+   * rather than remembered: everything one cascade put away shares a single
+   * archivedAt, so matching on it restores exactly that gesture and leaves
+   * alone any child or piece the writer archived separately, whose stamp is
+   * its own.
+   */
+  function handleRestoreIdea(idea: Idea) {
+    const ideaIds = [
+      idea.id,
+      ...Object.values(ideas)
+        .filter((i) => i.parentId === idea.id && i.archivedAt === idea.archivedAt)
+        .map((i) => i.id),
+    ];
+    const owned = new Set(ideaIds);
+    restoreIdeaArchive({
+      ideaIds,
+      pieceIds: Object.values(pieces)
+        .filter((p) => owned.has(p.ideaId) && p.archivedAt === idea.archivedAt)
+        .map((p) => p.id),
+    });
+    showToast(`"${idea.title || "Untitled idea"}" is back`);
+  }
+
   function startRename(ideaId: string, currentTitle: string) {
     setOpenMenuId(null);
     setRenamingId(ideaId);
@@ -385,7 +441,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
       kids.some((k) => k.id === activeIdeaId);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
-    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "fragment" : "fragments"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}`;
+    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}`;
     const hasUnseenAgent = shortPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
@@ -460,7 +516,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                   <IdeaMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
                   <IdeaMenuItem
                     label="New draft"
-                    hint="A long-form fragment in this idea"
+                    hint="A long-form piece in this idea"
                     onClick={() => { setOpenMenuId(null); handleNewDraft(idea.id); }}
                   />
                   {depth === 0 && (
@@ -483,8 +539,13 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                   />
                   <div className="my-1 border-t border-border" />
                   <IdeaMenuItem
+                    label="Archive idea"
+                    hint="Hides it and its pieces. Nothing is deleted"
+                    onClick={() => { setOpenMenuId(null); handleArchiveIdea(idea); }}
+                  />
+                  <IdeaMenuItem
                     label="Delete idea"
-                    hint="Takes its drafts and fragments with it"
+                    hint="Takes its drafts and pieces with it"
                     destructive
                     onClick={() => { setOpenMenuId(null); handleDeleteIdea(idea); }}
                   />
@@ -580,7 +641,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 onKeyDown={searchOpen ? undefined : (e) => {
                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSearch(); }
                 }}
-                title={searchOpen ? undefined : "Search ideas and fragments"}
+                title={searchOpen ? undefined : "Search ideas and pieces"}
                 className={`flex items-center h-11 rounded-[var(--radius-lg)] bg-surface-2 border overflow-hidden
                   transition-all duration-300
                   ${searchOpen
@@ -638,7 +699,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               <p className="px-1 pb-3 text-[12px] text-text-faint leading-relaxed">
                 {searchQuery.trim()
                   ? "No matching ideas"
-                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form fragments. Hit New idea above to make one."}
+                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit New idea above to make one."}
               </p>
             ) : (
               <>
@@ -650,6 +711,44 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                   {visibleRoots.map((idea) => renderIdeaRow(idea, 0))}
                 </div>
               </>
+            )}
+
+            {/* The archive. Collapsed by default and absent entirely when
+                empty: the whole point of putting something away is that it
+                stops taking up room, and a permanent "Archived 0" header
+                would give the tidying back with one hand. */}
+            {archived.length > 0 && (
+              <div className="mt-2 border-t border-border pt-2">
+                <button
+                  onClick={() => setArchiveOpen((v) => !v)}
+                  title="Ideas you put away. Everything they hold is still here"
+                  className="flex items-center gap-1.5 w-full px-1 py-1 text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)] hover:text-text-secondary transition-colors duration-150"
+                >
+                  {archiveOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  Archived {archived.length}
+                </button>
+                {archiveOpen && (
+                  <div className="space-y-0.5 mt-1">
+                    {archived.map((idea) => (
+                      <div
+                        key={idea.id}
+                        className="group flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-default)] hover:bg-surface-2 transition-colors duration-150"
+                      >
+                        <span className="flex-1 min-w-0 truncate text-[12px] text-text-muted">
+                          {idea.title || "Untitled idea"}
+                        </span>
+                        <button
+                          onClick={() => handleRestoreIdea(idea)}
+                          title="Put this idea back in the list"
+                          className="shrink-0 opacity-0 group-hover:opacity-100 text-[10px] text-text-faint hover:text-gold transition-all duration-150"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 

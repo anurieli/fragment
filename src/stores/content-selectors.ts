@@ -21,7 +21,12 @@ function priorityRank(priority: Priority): number {
  */
 export function publishQueue(pieces: readonly ContentPiece[]): ContentPiece[] {
   return pieces
-    .filter((piece) => piece.status === "ready" && piece.deletedAt === undefined)
+    .filter(
+      (piece) =>
+        piece.status === "ready" &&
+        piece.deletedAt === undefined &&
+        piece.archivedAt === undefined,
+    )
     .slice()
     .sort((a, b) => {
       const rankDiff = priorityRank(a.priority) - priorityRank(b.priority);
@@ -51,7 +56,12 @@ export function workingOn(
   windowMs: number,
 ): ContentPiece[] {
   return pieces
-    .filter((piece) => piece.deletedAt === undefined && now - piece.updatedAt <= windowMs)
+    .filter(
+      (piece) =>
+        piece.deletedAt === undefined &&
+        piece.archivedAt === undefined &&
+        now - piece.updatedAt <= windowMs,
+    )
     .slice()
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -62,7 +72,7 @@ export function workingOn(
  */
 export function pinnedFirst(ideas: readonly Idea[]): Idea[] {
   return ideas
-    .filter((idea) => idea.deletedAt === undefined)
+    .filter((idea) => idea.deletedAt === undefined && idea.archivedAt === undefined)
     .slice()
     .sort((a, b) => {
       const aPinned = a.pinnedAt !== undefined;
@@ -78,9 +88,39 @@ export function pinnedFirst(ideas: readonly Idea[]): Idea[] {
 }
 
 /**
+ * Everything the writer put away. Kept as its own selector rather than a flag
+ * on the live ones, so no surface can show archived work by forgetting to
+ * pass something.
+ */
+export function archivedOnly(pieces: readonly ContentPiece[]): ContentPiece[] {
+  return pieces.filter(
+    (piece) => piece.deletedAt === undefined && piece.archivedAt !== undefined,
+  );
+}
+
+/** The complement: what is still in play. */
+export function unarchived(pieces: readonly ContentPiece[]): ContentPiece[] {
+  return pieces.filter(
+    (piece) => piece.deletedAt === undefined && piece.archivedAt === undefined,
+  );
+}
+
+/** Ideas the writer put away, most-recently-archived first. */
+export function archivedIdeas(ideas: readonly Idea[]): Idea[] {
+  return ideas
+    .filter((idea) => idea.deletedAt === undefined && idea.archivedAt !== undefined)
+    .slice()
+    .sort((a, b) => (b.archivedAt as number) - (a.archivedAt as number));
+}
+
+/**
  * An idea's pieces, including the pieces of its direct child ideas (nesting
  * is capped at depth 2 by the contract, so one level of children is the
  * entire hierarchy below `ideaId`).
+ *
+ * Archived pieces are still in this list. The feed is the one surface that
+ * shows them (under its own filter), and it needs them from somewhere;
+ * everywhere else wraps this in `unarchived`.
  */
 export function hierarchyRollup(
   ideaId: string,
@@ -122,6 +162,7 @@ export function draftsForIdea(
     .filter(
       (piece) =>
         piece.deletedAt === undefined &&
+        piece.archivedAt === undefined &&
         piece.ideaId === ideaId &&
         isLongformFormat(piece.format),
     )
@@ -141,7 +182,8 @@ export function pieceCountsForIdea(
     published: 0,
   };
   for (const piece of pieces) {
-    if (piece.deletedAt !== undefined || piece.ideaId !== ideaId) continue;
+    if (piece.deletedAt !== undefined || piece.archivedAt !== undefined) continue;
+    if (piece.ideaId !== ideaId) continue;
     counts[piece.status] += 1;
   }
   return counts;

@@ -12,8 +12,20 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { draftsForIdea, hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
+import {
+  draftsForIdea,
+  hierarchyRollup,
+  shortformOnly,
+  unarchived,
+} from "@/stores/content-selectors";
 import { useToastStore } from "@/hooks/use-toast";
+import {
+  ContextMenu,
+  ContextMenuDivider,
+  ContextMenuItem,
+  useContextMenu,
+} from "@/components/common/context-menu";
+import { PieceMenuItems } from "@/components/shortform/piece-menu-items";
 import { markdownToPlainText } from "@/lib/publish";
 import { formatDate, wordCount } from "@/lib/utils";
 import { findOriginComment } from "@/lib/persistence";
@@ -38,10 +50,10 @@ const STATUS_WORD: Record<PieceStatus, string> = {
   published: "published",
 };
 
-/** First non-empty line of a fragment, as a plain-text row label: markdown
+/** First non-empty line of a piece, as a plain-text row label: markdown
  * syntax stripped so a `## heading` reads as a title, not as hashes. `empty`
- * names what a fragment with nothing in it is called on the surface asking. */
-function pieceLabel(piece: ContentPiece, empty = "Empty fragment"): string {
+ * names what a piece with nothing in it is called on the surface asking. */
+function pieceLabel(piece: ContentPiece, empty = "Empty piece"): string {
   if (piece.title?.trim()) return piece.title.trim();
   const firstLine = markdownToPlainText(piece.body)
     .split("\n")
@@ -67,6 +79,9 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const updateIdea = useContentStore((s) => s.updateIdea);
   const createPiece = useContentStore((s) => s.createPiece);
   const deletePieceCascade = useContentStore((s) => s.deletePieceCascade);
+  const restorePieceCascade = useContentStore((s) => s.restorePieceCascade);
+  const archivePiece = useContentStore((s) => s.archivePiece);
+  const unarchivePiece = useContentStore((s) => s.unarchivePiece);
   const activePieceId = useAppStore((s) => s.activePieceId);
   const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
@@ -100,9 +115,16 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   // too — same rule the Pieces feed uses.
   const shortPieces = useMemo(
     () =>
-      shortformOnly(hierarchyRollup(ideaId, Object.values(ideas), allPieces)).sort(
-        (a, b) => b.updatedAt - a.updatedAt,
-      ),
+      unarchived(
+        shortformOnly(hierarchyRollup(ideaId, Object.values(ideas), allPieces)),
+      ).sort((a, b) => {
+        // Pinned first, exactly as the feed orders them, so the panel and the
+        // feed never disagree about what is at the top.
+        const aPinned = a.pinnedAt !== undefined;
+        const bPinned = b.pinnedAt !== undefined;
+        if (aPinned !== bPinned) return aPinned ? -1 : 1;
+        return b.updatedAt - a.updatedAt;
+      }),
     [ideaId, ideas, allPieces],
   );
   // Untriaged pieces are the ones that owe you a decision, so they list
@@ -158,16 +180,44 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     setShowCreationFlow(true);
   }
 
-  function handleDeleteDraft(e: React.MouseEvent, pieceId: string) {
-    e.stopPropagation();
-    // The cascade hands back the fragment to look at next, so a delete from
-    // this list never leaves the editor pointed at something that is gone. The
-    // idea's remaining drafts come first: this list is what the eye is on, and
-    // the cascade's answer can be any fragment in the idea, card included.
-    const next = deletePieceCascade(pieceId);
+  /** Move the editor off a piece that is about to stop being visible here,
+   * whether it was deleted or archived. The cascade hands back the piece to
+   * look at next, so leaving this list never leaves the editor pointed at
+   * something that is gone. The idea's remaining drafts come first: this list
+   * is what the eye is on, and the cascade's answer can be any piece in the
+   * idea, card included. */
+  function selectAfterLeaving(pieceId: string, fallback: string | null) {
     if (activePieceId !== pieceId) return;
     const nextDraft = drafts.find((d) => d.id !== pieceId);
-    setActivePiece(nextDraft?.id ?? next);
+    setActivePiece(nextDraft?.id ?? fallback);
+  }
+
+  function handleDeleteDraft(pieceId: string) {
+    const next = deletePieceCascade(pieceId);
+    selectAfterLeaving(pieceId, next);
+    showToast("Draft deleted", {
+      label: "Undo",
+      onClick: () => restorePieceCascade(pieceId),
+    });
+  }
+
+  function handleArchiveDraft(pieceId: string) {
+    archivePiece(pieceId);
+    const next = drafts.find((d) => d.id !== pieceId)?.id ?? null;
+    selectAfterLeaving(pieceId, next);
+    showToast("Draft archived", {
+      label: "Undo",
+      onClick: () => unarchivePiece(pieceId),
+    });
+  }
+
+  function handleDeletePiece(pieceId: string) {
+    const next = deletePieceCascade(pieceId);
+    selectAfterLeaving(pieceId, next);
+    showToast("Piece deleted", {
+      label: "Undo",
+      onClick: () => restorePieceCascade(pieceId),
+    });
   }
 
   /** Open the pieces feed with this exact piece selected and scrolled to —
@@ -188,7 +238,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     });
     if (!id) return;
     openPiece(id);
-    showToast("Fragment added. Edit it in the feed.");
+    showToast("Piece added. Edit it in the feed.");
   }
 
   return (
@@ -254,7 +304,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
-        {/* Drafts: the long-form fragments that live in this idea */}
+        {/* Drafts: the long-form pieces that live in this idea */}
         <section>
           <SectionHeader
             label="Drafts"
@@ -277,50 +327,26 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
             </button>
           ) : (
             <div className="space-y-0.5">
-              {drafts.map((piece) => {
-                const isActive = activePieceId === piece.id && space === "write";
-                return (
-                  <div
-                    key={piece.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openDraft(piece.id)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openDraft(piece.id); }}
-                    className={`group relative flex flex-col px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150
-                      ${isActive ? "bg-surface-3" : "hover:bg-surface-2"}`}
-                  >
-                    {isActive && (
-                      <div className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-gold" />
-                    )}
-                    <div className="flex items-center gap-2">
-                      <FileText size={11} className={`shrink-0 ${isActive ? "text-gold" : "text-text-faint"}`} />
-                      <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
-                        {pieceLabel(piece, "Untitled draft")}
-                      </span>
-                      <button
-                        onClick={(e) => handleDeleteDraft(e, piece.id)}
-                        title="Delete this draft"
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
-                    <span className="pl-[19px] text-[10px] text-text-faint font-[family-name:var(--font-mono)]">
-                      {wordCount(piece.body)} words · {formatDate(piece.updatedAt)}
-                    </span>
-                  </div>
-                );
-              })}
+              {drafts.map((piece) => (
+                <DraftRow
+                  key={piece.id}
+                  piece={piece}
+                  isActive={activePieceId === piece.id && space === "write"}
+                  onOpen={() => openDraft(piece.id)}
+                  onArchive={() => handleArchiveDraft(piece.id)}
+                  onDelete={() => handleDeleteDraft(piece.id)}
+                />
+              ))}
             </div>
           )}
         </section>
 
-        {/* Fragments: the short-form feed, summarised */}
+        {/* Pieces: the short-form feed, summarised */}
         <section>
           <SectionHeader
-            label="Fragments"
+            label="Pieces"
             count={shortPieces.length}
-            actionLabel="New fragment"
+            actionLabel="New piece"
             onAction={handleNewPiece}
           />
           <p className="text-[10px] text-text-faint leading-relaxed mb-2">
@@ -347,7 +373,12 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   </button>
                   <div className="space-y-0.5">
                     {inboxPieces.slice(0, 8).map((piece) => (
-                      <PieceRow key={piece.id} piece={piece} onOpen={() => openPiece(piece.id)} />
+                      <PieceRow
+                        key={piece.id}
+                        piece={piece}
+                        onOpen={() => openPiece(piece.id)}
+                        onDelete={() => handleDeletePiece(piece.id)}
+                      />
                     ))}
                   </div>
                   {inboxPieces.length > 8 && (
@@ -368,7 +399,12 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   )}
                   <div className="space-y-0.5">
                     {triagedPieces.slice(0, 8).map((piece) => (
-                      <PieceRow key={piece.id} piece={piece} onOpen={() => openPiece(piece.id)} />
+                      <PieceRow
+                        key={piece.id}
+                        piece={piece}
+                        onOpen={() => openPiece(piece.id)}
+                        onDelete={() => handleDeletePiece(piece.id)}
+                      />
                     ))}
                   </div>
                   {triagedPieces.length > 8 && (
@@ -392,7 +428,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
             text-[11px] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
         >
           {space === "write" ? <LayoutList size={12} /> : <FileText size={12} />}
-          {space === "write" ? "Open the fragments feed" : "Back to the draft"}
+          {space === "write" ? "Open the pieces feed" : "Back to the draft"}
           <kbd className="ml-auto text-[9px] text-text-faint font-[family-name:var(--font-mono)] bg-surface-2 px-1.5 py-0.5 rounded-[4px] border border-border-strong">
             {space === "write" ? "⌘2" : "⌘1"}
           </kbd>
@@ -423,19 +459,28 @@ export function IdeaPanelToggle() {
   );
 }
 
-/** One piece as a table-of-contents row: a status dot (grey inbox, blue in
- * progress, gold ready, green published), the plain-text label, and the unseen
- * pulse for anything an agent pushed that you haven't looked at yet.
+/**
+ * One long-form draft as a row: click to open it in the editor, right-click
+ * for the same actions the hover Trash icon used to be the only route to.
  *
- * The row also mirrors the feed: whichever piece has roving focus over there
- * gets the gold rail here, and hovering a card lights up its row, so the panel
- * answers "where am I" without you having to find the highlighted card. */
-function PieceRow({ piece, onOpen }: { piece: ContentPiece; onOpen: () => void }) {
-  const focusedPieceId = useAppStore((s) => s.focusedPieceId);
-  const hoveredPieceId = useAppStore((s) => s.hoveredPieceId);
-  const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
-  const isFocused = focusedPieceId === piece.id;
-  const isHovered = hoveredPieceId === piece.id;
+ * No pin here, unlike a piece. An idea has a handful of drafts and they are
+ * already listed oldest-first by hand; a pin would be ceremony over a list
+ * short enough to read at a glance.
+ */
+function DraftRow({
+  piece,
+  isActive,
+  onOpen,
+  onArchive,
+  onDelete,
+}: {
+  piece: ContentPiece;
+  isActive: boolean;
+  onOpen: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}) {
+  const { point, openAt, close } = useContextMenu();
 
   return (
     <div
@@ -443,6 +488,78 @@ function PieceRow({ piece, onOpen }: { piece: ContentPiece; onOpen: () => void }
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
+      onContextMenu={openAt}
+      className={`group relative flex flex-col px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150
+        ${isActive ? "bg-surface-3" : "hover:bg-surface-2"}`}
+    >
+      {isActive && <div className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-gold" />}
+      <div className="flex items-center gap-2">
+        <FileText size={11} className={`shrink-0 ${isActive ? "text-gold" : "text-text-faint"}`} />
+        <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
+          {pieceLabel(piece, "Untitled draft")}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="Delete this draft"
+          className="opacity-0 group-hover:opacity-100 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
+        >
+          <Trash2 size={11} />
+        </button>
+      </div>
+      <span className="pl-[19px] text-[10px] text-text-faint font-[family-name:var(--font-mono)]">
+        {wordCount(piece.body)} words · {formatDate(piece.updatedAt)}
+      </span>
+
+      {point && (
+        <ContextMenu point={point} onClose={close}>
+          <ContextMenuItem label="Open in the editor" onClick={() => { close(); onOpen(); }} />
+          <ContextMenuDivider />
+          <ContextMenuItem
+            label="Archive"
+            hint="Out of this idea's list. Nothing is deleted"
+            onClick={() => { close(); onArchive(); }}
+          />
+          <ContextMenuItem
+            label="Delete draft"
+            destructive
+            onClick={() => { close(); onDelete(); }}
+          />
+        </ContextMenu>
+      )}
+    </div>
+  );
+}
+
+/** One piece as a table-of-contents row: a status dot (grey inbox, blue in
+ * progress, gold ready, green published), the plain-text label, and the unseen
+ * pulse for anything an agent pushed that you haven't looked at yet.
+ *
+ * The row also mirrors the feed: whichever piece has roving focus over there
+ * gets the gold rail here, and hovering a card lights up its row, so the panel
+ * answers "where am I" without you having to find the highlighted card. */
+function PieceRow({
+  piece,
+  onOpen,
+  onDelete,
+}: {
+  piece: ContentPiece;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const focusedPieceId = useAppStore((s) => s.focusedPieceId);
+  const hoveredPieceId = useAppStore((s) => s.hoveredPieceId);
+  const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
+  const isFocused = focusedPieceId === piece.id;
+  const isHovered = hoveredPieceId === piece.id;
+  const { point, openAt, close } = useContextMenu();
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
+      onContextMenu={openAt}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
       title={`${pieceLabel(piece)} — ${STATUS_WORD[piece.status]}`}
@@ -462,6 +579,14 @@ function PieceRow({ piece, onOpen }: { piece: ContentPiece; onOpen: () => void }
           className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"
           style={{ animation: "pulse-gold 2s ease-in-out infinite" }}
         />
+      )}
+
+      {point && (
+        <ContextMenu point={point} onClose={close}>
+          <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
+          <ContextMenuDivider />
+          <PieceMenuItems piece={piece} onClose={close} onDelete={onDelete} />
+        </ContextMenu>
       )}
     </div>
   );

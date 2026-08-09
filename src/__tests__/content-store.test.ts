@@ -517,6 +517,99 @@ describe("content-store: creating and deleting a fragment", () => {
   });
 });
 
+describe("content-store — archive", () => {
+  beforeEach(resetStore);
+
+  function makePiece(ideaId: string, body = "words"): string {
+    return useContentStore.getState().createPiece({
+      ideaId, format: "tweet", origin: "user", status: "in-progress", body,
+    });
+  }
+
+  it("archiving an idea takes its sub-ideas and every piece under it", () => {
+    const store = useContentStore.getState();
+    const rootId = store.createIdea({ title: "Root" });
+    const childId = store.createIdea({ title: "Child", parentId: rootId });
+    const rootPiece = makePiece(rootId);
+    const childPiece = makePiece(childId);
+
+    const archive = useContentStore.getState().archiveIdeaCascade(rootId);
+
+    const state = useContentStore.getState();
+    expect(state.ideas[rootId].archivedAt).toBeDefined();
+    expect(state.ideas[childId].archivedAt).toBeDefined();
+    expect(state.pieces[rootPiece].archivedAt).toBeDefined();
+    expect(state.pieces[childPiece].archivedAt).toBeDefined();
+    expect(archive.ideaIds.sort()).toEqual([rootId, childId].sort());
+    expect(archive.pieceIds.sort()).toEqual([rootPiece, childPiece].sort());
+  });
+
+  it("archiving keeps every word, unlike deleting", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const pieceId = makePiece(ideaId, "the sentence I want back");
+
+    useContentStore.getState().archiveIdeaCascade(ideaId);
+
+    const piece = useContentStore.getState().pieces[pieceId];
+    expect(piece.body).toBe("the sentence I want back");
+    expect(piece.deletedAt).toBeUndefined();
+  });
+
+  it("restoring an archive lifts exactly what that archive stamped", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const together = makePiece(ideaId, "went with the idea");
+    const separately = makePiece(ideaId, "put away on its own");
+
+    // Archived by hand first, so it is not part of the idea's cascade and
+    // must still be archived after the idea comes back.
+    useContentStore.getState().archivePiece(separately);
+    const archive = useContentStore.getState().archiveIdeaCascade(ideaId);
+    expect(archive.pieceIds).toEqual([together]);
+
+    useContentStore.getState().restoreIdeaArchive(archive);
+
+    const state = useContentStore.getState();
+    expect(state.ideas[ideaId].archivedAt).toBeUndefined();
+    expect(state.pieces[together].archivedAt).toBeUndefined();
+    expect(state.pieces[separately].archivedAt).toBeDefined();
+  });
+
+  it("archivePiece and unarchivePiece round-trip one piece", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const pieceId = makePiece(ideaId);
+
+    useContentStore.getState().archivePiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].archivedAt).toBeDefined();
+
+    useContentStore.getState().unarchivePiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].archivedAt).toBeUndefined();
+  });
+
+  it("pinPiece and unpinPiece round-trip one piece", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const pieceId = makePiece(ideaId);
+
+    useContentStore.getState().pinPiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].pinnedAt).toBeDefined();
+
+    useContentStore.getState().unpinPiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].pinnedAt).toBeUndefined();
+  });
+
+  it("a deleted idea cannot be archived", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    useContentStore.getState().deleteIdeaCascade(ideaId);
+
+    const archive = useContentStore.getState().archiveIdeaCascade(ideaId);
+    expect(archive).toEqual({ ideaIds: [], pieceIds: [] });
+  });
+});
+
 describe("content-store — resources", () => {
   beforeEach(resetStore);
 

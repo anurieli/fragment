@@ -173,7 +173,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   const handleDelete = useCallback(
     (piece: ContentPiece) => {
       rejectPiece(piece.id);
-      showToast("Fragment deleted", { label: "Undo", onClick: () => undeletePiece(piece.id) });
+      showToast("Piece deleted", { label: "Undo", onClick: () => undeletePiece(piece.id) });
     },
     [rejectPiece, showToast, undeletePiece],
   );
@@ -229,7 +229,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
         case "1":
         case "2":
         case "3":
-        case "4": {
+        case "4":
+        case "5": {
           e.preventDefault();
           const next = PIECE_FILTERS[Number(e.key) - 1];
           if (next) setFilter(next);

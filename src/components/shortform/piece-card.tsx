@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { Flag, MoreHorizontal, ChevronDown } from "lucide-react";
-import type { ContentFormat, ContentPiece, Priority } from "@/lib/content-engine";
+import { Flag, MoreHorizontal, Pin } from "lucide-react";
+import type { ContentFormat, ContentPiece } from "@/lib/content-engine";
 import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml, publishPendingState } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
@@ -32,6 +32,8 @@ import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
 import { PieceRefineMenu } from "./piece-refine-menu";
 import { PieceTriageBar } from "./piece-triage";
+import { PieceMenuItems } from "./piece-menu-items";
+import { ContextMenu, useContextMenu } from "@/components/common/context-menu";
 import { LiveMarkdownTextarea } from "./live-markdown-textarea";
 
 const FORMAT_LABELS: Record<ContentFormat, string> = {
@@ -63,14 +65,6 @@ const PRIORITY_META: Record<1 | 2 | 3 | 4, { label: string; className: string }>
   3: { label: "Medium", className: "text-blue" },
   4: { label: "Low", className: "text-text-muted" },
 };
-
-const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
-  { value: 1, label: "Urgent" },
-  { value: 2, label: "High" },
-  { value: 3, label: "Medium" },
-  { value: 4, label: "Low" },
-  { value: 0, label: "No priority" },
-];
 
 function platformChip(format: ContentFormat): string {
   if (format === "tweet") return `X · ${TWEET_CHAR_LIMIT}`;
@@ -139,7 +133,6 @@ export function PieceCard({
   const updatePiece = useContentStore((s) => s.updatePiece);
   const markPieceSeen = useContentStore((s) => s.markPieceSeen);
   const cyclePiecePriority = useContentStore((s) => s.cyclePiecePriority);
-  const setPiecePriority = useContentStore((s) => s.setPiecePriority);
   const ideas = useContentStore((s) => s.ideas);
   const allPieces = useContentStore((s) => s.pieces);
   const allIdeas = useContentStore((s) => s.ideas);
@@ -161,8 +154,11 @@ export function PieceCard({
   const overflowMenuRef = useRef<HTMLDivElement>(null);
   // The footer this hangs off is pinned to the bottom of the page.
   const menuPlacement = useMenuPlacement(menuOpen, overflowAnchorRef, overflowMenuRef);
-  const [priorityMenuOpen, setPriorityMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  // Right-click anywhere on the card opens the same list of actions the ⋯
+  // button holds, at the pointer. The one exception is inside the textarea,
+  // where the browser's own menu still owns spellcheck, cut and paste.
+  const { point: contextPoint, openAt: openContextMenu, close: closeContextMenu } = useContextMenu();
   // Flow (⌘⏎ / "Draft with Flow"): streamedBody mirrors the long-form
   // editor's streamingContent pattern (editor.tsx) — chunks accumulate in
   // local state and only commit to the store (updatePiece) once generation
@@ -562,6 +558,12 @@ export function PieceCard({
     [flowGenerating, piece.body, piece.id, updatePiece],
   );
 
+  const flowDisabledReason = !slashEnabled
+    ? "Flow is off. Turn on slash commands in Settings, AI"
+    : flowGenerating
+      ? "Already generating"
+      : undefined;
+
   const footer = charFooter(piece);
   const stale = stalenessLevel(piece, now);
   const staleClass =
@@ -579,6 +581,14 @@ export function PieceCard({
       data-piece-card
       data-piece-id={piece.id}
       onClick={onFocusCard}
+      onContextMenu={(e) => {
+        // Text fields keep the browser's menu: inside the textarea a
+        // right-click is about the words (paste, spellcheck), not the piece.
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "TEXTAREA" || tag === "INPUT") return;
+        onFocusCard();
+        openContextMenu(e);
+      }}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
       className={`relative flex flex-col h-full min-h-0 pl-5 pr-2 py-4 transition-colors duration-150 rounded-[var(--radius-default)] ${
@@ -591,8 +601,36 @@ export function PieceCard({
         <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-gold/50" />
       )}
 
+      {contextPoint && (
+        <ContextMenu point={contextPoint} onClose={closeContextMenu}>
+          <PieceMenuItems
+            piece={piece}
+            onClose={closeContextMenu}
+            onDelete={onDelete}
+            onWriteWithFlow={openFlowPrompt}
+            flowDisabledReason={flowDisabledReason}
+            onOpenResources={() => setResourcesOpen(true)}
+          />
+        </ContextMenu>
+      )}
+
       {/* Meta row — pinned to the top of the page */}
       <div className="shrink-0 flex items-center gap-2.5 mb-2 flex-wrap">
+        {piece.pinnedAt !== undefined && (
+          <span title="Pinned to the top of this idea's feed" className="shrink-0 text-gold">
+            <Pin size={10} fill="currentColor" />
+          </span>
+        )}
+
+        {piece.archivedAt !== undefined && (
+          <span
+            title="Archived. It only shows under the Archived filter"
+            className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-text-faint px-1.5 py-0.5 rounded-[4px] bg-surface-2 border border-border"
+          >
+            Archived
+          </span>
+        )}
+
         <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-text-muted px-1.5 py-0.5 rounded-[4px] bg-surface-2 border border-border">
           {platformChip(piece.format)}
         </span>
@@ -658,7 +696,7 @@ export function PieceCard({
         )}
 
         <span
-          title={`Fragment ${position} of ${total} in this view`}
+          title={`Piece ${position} of ${total} in this view`}
           className="ml-auto text-[10px] font-[family-name:var(--font-mono)] text-text-faint"
         >
           {position}/{total}
@@ -789,7 +827,6 @@ export function PieceCard({
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
-                setPriorityMenuOpen(false);
               }}
               className="p-1.5 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
             >
@@ -799,78 +836,18 @@ export function PieceCard({
             {menuOpen && (
               <div
                 ref={overflowMenuRef}
-                className={`absolute right-0 ${menuPlacement.className} z-20 w-40 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+                className={`absolute right-0 ${menuPlacement.className} z-20 w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
                 style={{ maxHeight: menuPlacement.maxHeight || undefined }}
-                onMouseLeave={() => { setMenuOpen(false); setPriorityMenuOpen(false); }}
+                onMouseLeave={() => setMenuOpen(false)}
               >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(false);
-                    setPriorityMenuOpen(false);
-                    setResourcesOpen(true);
-                  }}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                  title="Reference links and assets for this piece, including the ones inherited from its idea"
-                >
-                  Resources
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setPriorityMenuOpen((v) => !v); }}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                >
-                  Set priority
-                  <ChevronDown size={10} />
-                </button>
-                {priorityMenuOpen && (
-                  <div className="border-t border-border py-1">
-                    {PRIORITY_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPiecePriority(piece.id, opt.value);
-                          setMenuOpen(false);
-                          setPriorityMenuOpen(false);
-                        }}
-                        className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(false);
-                    setPriorityMenuOpen(false);
-                    openFlowPrompt();
-                  }}
-                  disabled={!slashEnabled || flowGenerating}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
-                  title={
-                    !slashEnabled
-                      ? "Flow is off — turn on slash commands in Settings → AI"
-                      : flowGenerating
-                        ? "Already generating"
-                        : "Ask Flow to write into this piece (⌘⏎, or / at the start of a line)"
-                  }
-                >
-                  Write with Flow...
-                </button>
-                <div className="border-t border-border mt-1 pt-1">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      onDelete();
-                    }}
-                    className="block w-full text-left px-3 py-1.5 text-[12px] text-red hover:bg-red-muted transition-colors duration-150"
-                  >
-                    Delete
-                  </button>
-                </div>
+                <PieceMenuItems
+                  piece={piece}
+                  onClose={() => setMenuOpen(false)}
+                  onDelete={onDelete}
+                  onWriteWithFlow={openFlowPrompt}
+                  flowDisabledReason={flowDisabledReason}
+                  onOpenResources={() => setResourcesOpen(true)}
+                />
               </div>
             )}
 

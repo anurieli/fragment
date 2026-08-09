@@ -88,6 +88,13 @@ export interface Idea {
   origin: PieceOrigin;
   createdAt: number;
   updatedAt: number;
+  // Put away, not thrown away. An archived idea drops out of the sidebar and
+  // out of every count, and its pieces go with it, but the words are all
+  // still there and one click brings the whole thing back. Distinct from
+  // deletedAt on purpose: a tombstone says "this was a mistake", an archive
+  // says "this is finished". Conflating them would mean the only way to tidy
+  // the list is to tell the app you regret writing something.
+  archivedAt?: number;
   deletedAt?: number;
 }
 
@@ -120,6 +127,12 @@ export interface ContentPiece {
   legacyNoteId?: string;
   seen: boolean;
   priority: Priority;
+  // Held at the top of its idea's feed regardless of order or status. Ideas
+  // have had this since the sidebar existed; pieces need it for the same
+  // reason, which is that the one you keep coming back to should not sink
+  // under the twenty you wrote after it. Drafts have no pin: an idea's drafts
+  // are few and already listed by hand.
+  pinnedAt?: number;
   order: number;
   scheduledAt?: number;
   publish?: PublishRecord;
@@ -134,6 +147,10 @@ export interface ContentPiece {
   agentMeta?: AgentMeta;
   createdAt: number;
   updatedAt: number;
+  // See Idea.archivedAt. Archiving an idea stamps its pieces too, so a piece
+  // can be archived on its own or as part of its idea; unarchiving the idea
+  // only lifts the stamps that idea put there (see restoreIdeaArchive).
+  archivedAt?: number;
   deletedAt?: number;
 }
 
@@ -409,6 +426,7 @@ export const contentPieceSchema = z.object({
   legacyNoteId: idSchema.optional(),
   seen: z.boolean(),
   priority: prioritySchema,
+  pinnedAt: z.number().optional(),
   order: z.number(),
   scheduledAt: z.number().optional(),
   publishAttemptedAt: z.number().optional(),
@@ -431,6 +449,7 @@ export const contentPieceSchema = z.object({
     .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  archivedAt: z.number().optional(),
   deletedAt: z.number().optional(),
 });
 

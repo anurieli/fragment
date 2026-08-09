@@ -60,6 +60,7 @@ describe("filterPieces / filterCounts", () => {
     makePiece({ id: "d", status: "ready" }),
     makePiece({ id: "e", status: "published" }),
     makePiece({ id: "f", status: "ready", deletedAt: 5000 }),
+    makePiece({ id: "g", status: "ready", archivedAt: 6000 }),
   ];
 
   it("'all' keeps every live piece regardless of status", () => {
@@ -71,13 +72,56 @@ describe("filterPieces / filterCounts", () => {
     expect(filterPieces(pieces, "ready").map((p) => p.id)).toEqual(["d"]);
   });
 
+  it("keeps archived pieces out of every filter but their own", () => {
+    // The point of archiving is that the piece stops appearing where you
+    // work. A status filter that still surfaced it would make the gesture
+    // meaningless, and "all" is the one most likely to leak it.
+    expect(filterPieces(pieces, "all").map((p) => p.id)).not.toContain("g");
+    expect(filterPieces(pieces, "ready").map((p) => p.id)).not.toContain("g");
+    expect(filterPieces(pieces, "archived").map((p) => p.id)).toEqual(["g"]);
+  });
+
   it("computes counts per filter chip over the live set", () => {
     expect(filterCounts(pieces)).toEqual({
       all: 5,
       inbox: 2,
       "in-progress": 1,
       ready: 1,
+      archived: 1,
     });
+  });
+});
+
+describe("sortPieces — pinned pieces", () => {
+  it("floats pinned pieces above the rest without reordering either group", () => {
+    const pieces = [
+      makePiece({ id: "newest", createdAt: 3000 }),
+      makePiece({ id: "pinned-old", createdAt: 1000, pinnedAt: 500 }),
+      makePiece({ id: "middle", createdAt: 2000 }),
+      makePiece({ id: "pinned-new", createdAt: 2500, pinnedAt: 900 }),
+    ];
+    expect(sortPieces(pieces, "newest").map((p) => p.id)).toEqual([
+      "pinned-new",
+      "pinned-old",
+      "newest",
+      "middle",
+    ]);
+  });
+
+  it("leaves manual order alone, pins included", () => {
+    // Manual order is the writer's own arrangement, made by dragging. A pin
+    // that jumped a card to the top would overrule a decision they took by
+    // hand, in a mode whose whole promise is that it does not.
+    const pieces = [
+      makePiece({ id: "first", order: 0 }),
+      makePiece({ id: "second", order: 1, pinnedAt: 900 }),
+      makePiece({ id: "third", order: 2 }),
+    ];
+    expect(sortPieces(pieces, "manual").map((p) => p.id)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
   });
 });
 

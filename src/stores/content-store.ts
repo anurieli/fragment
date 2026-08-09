@@ -125,6 +125,15 @@ interface ContentState {
   cycleIdeaPriority: (id: string) => void;
   pinIdea: (id: string) => void;
   unpinIdea: (id: string) => void;
+  /** Put an idea away with everything under it: child ideas and every
+   * fragment they own. Same reach as deleteIdeaCascade and for the same
+   * reason (a child whose parent left the list is invisible but still there),
+   * and it returns the ids it stamped so unarchiving lifts exactly those.
+   * Anything already archived on its own stays out of the returned set, so
+   * restoring the idea does not drag back a piece the writer put away
+   * separately. */
+  archiveIdeaCascade: (id: string) => IdeaCascade;
+  restoreIdeaArchive: (archive: IdeaCascade) => void;
 
   // Pieces ----------------------------------------------------------------
   createPiece: (input: CreatePieceInput) => string;
@@ -145,6 +154,12 @@ interface ContentState {
   cyclePiecePriority: (id: string) => void;
   rejectPiece: (id: string) => void;
   undeletePiece: (id: string) => void;
+  /** Put one fragment away. No cascade: a fragment owns nothing but its own
+   * snips, and those are already scoped to it. */
+  archivePiece: (id: string) => void;
+  unarchivePiece: (id: string) => void;
+  pinPiece: (id: string) => void;
+  unpinPiece: (id: string) => void;
   /** Tombstone a fragment, leaving the snips cut out of it in place, and
    * return the id of the next fragment in the same idea to select, or null
    * when that was the last one. The caller is usually looking at what it just deleted, so it
@@ -346,6 +361,82 @@ export const useContentStore = create<ContentState>((set, get) => ({
     persistIdea(updated);
   },
 
+  archiveIdeaCascade: (id) => {
+    const empty: IdeaCascade = { ideaIds: [], pieceIds: [] };
+    if (!get().hydrated) return empty;
+    const idea = get().ideas[id];
+    if (!idea || idea.deletedAt !== undefined) return empty;
+
+    const ideaIds = idea.archivedAt === undefined ? [id] : [];
+    for (const candidate of Object.values(get().ideas)) {
+      if (
+        candidate.parentId === id &&
+        candidate.deletedAt === undefined &&
+        candidate.archivedAt === undefined
+      ) {
+        ideaIds.push(candidate.id);
+      }
+    }
+    // The pieces of every idea going away, including this one's own even when
+    // the idea itself was already archived — reaching them is the point.
+    const owned = new Set<string>([id, ...ideaIds]);
+    const pieceIds = Object.values(get().pieces)
+      .filter(
+        (piece) =>
+          piece.deletedAt === undefined &&
+          piece.archivedAt === undefined &&
+          owned.has(piece.ideaId),
+      )
+      .map((piece) => piece.id);
+
+    if (ideaIds.length === 0 && pieceIds.length === 0) return empty;
+
+    const now = Date.now();
+    set((s) => {
+      const ideas = { ...s.ideas };
+      for (const ideaId of ideaIds) {
+        const updated: Idea = { ...ideas[ideaId], archivedAt: now, updatedAt: now };
+        ideas[ideaId] = updated;
+        persistIdea(updated);
+      }
+      const pieces = { ...s.pieces };
+      for (const pieceId of pieceIds) {
+        const updated: ContentPiece = { ...pieces[pieceId], archivedAt: now, updatedAt: now };
+        pieces[pieceId] = updated;
+        persistPiece(updated);
+      }
+      return { ideas, pieces };
+    });
+
+    return { ideaIds, pieceIds };
+  },
+
+  restoreIdeaArchive: (archive) => {
+    if (!get().hydrated) return;
+    const now = Date.now();
+    set((s) => {
+      const ideas = { ...s.ideas };
+      for (const ideaId of archive.ideaIds) {
+        const idea = ideas[ideaId];
+        if (!idea) continue;
+        const { archivedAt: _archivedAt, ...rest } = idea;
+        const updated: Idea = { ...rest, updatedAt: now };
+        ideas[ideaId] = updated;
+        persistIdea(updated);
+      }
+      const pieces = { ...s.pieces };
+      for (const pieceId of archive.pieceIds) {
+        const piece = pieces[pieceId];
+        if (!piece) continue;
+        const { archivedAt: _archivedAt, ...rest } = piece;
+        const updated: ContentPiece = { ...rest, updatedAt: now };
+        pieces[pieceId] = updated;
+        persistPiece(updated);
+      }
+      return { ideas, pieces };
+    });
+  },
+
   createPiece: (input) => {
     if (!get().hydrated) return "";
     const now = Date.now();
@@ -485,6 +576,46 @@ export const useContentStore = create<ContentState>((set, get) => ({
     const piece = get().pieces[id];
     if (!piece) return;
     const { deletedAt: _deletedAt, ...rest } = piece;
+    const updated: ContentPiece = { ...rest, updatedAt: Date.now() };
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
+  },
+
+  archivePiece: (id) => {
+    if (!get().hydrated) return;
+    const piece = get().pieces[id];
+    if (!piece) return;
+    const now = Date.now();
+    const updated: ContentPiece = { ...piece, archivedAt: now, updatedAt: now };
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
+  },
+
+  unarchivePiece: (id) => {
+    if (!get().hydrated) return;
+    const piece = get().pieces[id];
+    if (!piece) return;
+    const { archivedAt: _archivedAt, ...rest } = piece;
+    const updated: ContentPiece = { ...rest, updatedAt: Date.now() };
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
+  },
+
+  pinPiece: (id) => {
+    if (!get().hydrated) return;
+    const piece = get().pieces[id];
+    if (!piece) return;
+    const now = Date.now();
+    const updated: ContentPiece = { ...piece, pinnedAt: now, updatedAt: now };
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
+  },
+
+  unpinPiece: (id) => {
+    if (!get().hydrated) return;
+    const piece = get().pieces[id];
+    if (!piece) return;
+    const { pinnedAt: _pinnedAt, ...rest } = piece;
     const updated: ContentPiece = { ...rest, updatedAt: Date.now() };
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
