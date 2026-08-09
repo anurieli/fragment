@@ -41,11 +41,11 @@ const ROUTE_LABELS: Record<string, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-interface FragmentUsageFooterProps {
+interface PieceUsageFooterProps {
   pieceId: string;
 }
 
-export function FragmentUsageFooter({ pieceId }: FragmentUsageFooterProps) {
+export function PieceUsageFooter({ pieceId }: PieceUsageFooterProps) {
   const [stats, setStats] = useState<PieceUsageStats | null>(null);
 
   useEffect(() => {

@@ -9,6 +9,7 @@ import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { TextSelection } from "@tiptap/pm/state";
 import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
+import { InsertHighlight } from "@/lib/editor/insert-highlight-extension";
 import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
 import {
   PanelLeftOpen,
@@ -22,8 +23,8 @@ import {
 } from "lucide-react";
 import { SlashBlockExtension } from "@/lib/slash-block-extension";
 import { useAppStore } from "@/stores/app-store";
-import { FragmentCreationFlow, EmptyFragmentActions, ContextFieldsTooltip } from "./fragment-creation-flow";
-import { FragmentHeader } from "./fragment-header";
+import { PieceCreationFlow, EmptyPieceActions, ContextFieldsTooltip } from "./piece-creation-flow";
+import { PieceHeader } from "./piece-header";
 import { ExportMenu } from "./export-menu";
 import { CommentsAffordance } from "@/components/review/comments-affordance";
 import { InlineEditMenu } from "./inline-edit-menu";
@@ -42,13 +43,13 @@ import { logApiCall } from "@/lib/api-logger";
 import { postLabel } from "@/lib/ai-client";
 import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
-import { debounce, type DebouncedFn } from "@/lib/utils";
+import { debounce, generateId, type DebouncedFn } from "@/lib/utils";
 import { preserveEmptyParagraphs } from "@/lib/publish/whitespace";
 import { WhitespaceParagraph, WhitespaceText } from "@/lib/editor/whitespace-markdown";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
-import { FragmentUsageFooter } from "./fragment-usage-footer";
+import { PieceUsageFooter } from "./piece-usage-footer";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
 /**
@@ -138,6 +139,10 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const snippetRemoveMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
   const prevUndoDepthRef = useRef(0);
   const pendingSnippetRecordRef = useRef<{ snapshot: import("@/lib/types").Snippet; isOutward?: boolean } | null>(null);
+  // Timers fading out an insert-highlight decoration (see
+  // insert-highlight-extension.ts). Tracked so unmount can clear them instead
+  // of firing a command against a destroyed editor.
+  const insertHighlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const isCancellingDropRef = useRef(false);
 
   const piece = activePieceId ? pieces[activePieceId] : null;
@@ -209,6 +214,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       }),
       SlashBlockExtension,
       CommentHighlight,
+      InsertHighlight,
     ],
     editorProps: {
       attributes: {
@@ -781,8 +787,29 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       });
     }
 
+    // Spotlight the region that just landed so the writer can see exactly
+    // what came in, then let it fade. It is a decoration, never a mark, so it
+    // never reaches saved markdown (see insert-highlight-extension.ts).
+    const highlightId = generateId();
+    editor.commands.addInsertHighlight({ id: highlightId, from, to });
+    const timer = setTimeout(() => {
+      insertHighlightTimersRef.current.delete(highlightId);
+      if (!editor.isDestroyed) editor.commands.removeInsertHighlight(highlightId);
+    }, 5000);
+    insertHighlightTimersRef.current.set(highlightId, timer);
+
     setTimeout(() => editor.view.focus(), 0);
   }, [pendingSnippetInsert, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear any still-pending insert-highlight fade timers on unmount, so they
+  // never fire a command against an editor that is already gone.
+  useEffect(() => {
+    const timers = insertHighlightTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
 
   // Show a drop indicator in the editor while a snippet is being dragged over it.
   // Two modes:
@@ -1196,11 +1223,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   );
 
   if (!piece) {
-    return <FragmentCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
+    return <PieceCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   if (showCreationFlow && !piece.body.trim()) {
-    return <FragmentCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingPiece={piece} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
+    return <PieceCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingPiece={piece} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   return (
@@ -1423,7 +1450,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         onDragOver={handleWrapperDragOver}
         onDrop={handleWrapperDrop}
       >
-        <FragmentHeader
+        <PieceHeader
           title={previewVersion ? previewVersion.title : piece.title ?? ""}
           subtitle={previewVersion ? previewVersion.subtitle ?? "" : piece.subtitle ?? ""}
           disabled={!!timelinePreviewVersionId || isGenerating}
@@ -1443,7 +1470,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         />
         <EditorContent editor={editor} />
         {editor && editor.isEmpty && !timelinePreviewVersionId && !isGenerating && (
-          <EmptyFragmentActions
+          <EmptyPieceActions
             pieceId={piece.id}
             onInsertContent={(content, title) => {
               if (title && !piece.title) {
@@ -1469,7 +1496,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         )}
       </div>
       {activePieceId && !timelinePreviewVersionId && (
-        <FragmentUsageFooter pieceId={activePieceId} />
+        <PieceUsageFooter pieceId={activePieceId} />
       )}
     </div>
   );

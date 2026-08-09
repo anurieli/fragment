@@ -561,7 +561,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               <button
                 onClick={handleNewIdea}
                 tabIndex={searchOpen ? -1 : 0}
-                title="New idea: a home for its drafts and its short-form fragments"
+                title="New idea: a home for its drafts and its short-form pieces"
                 className={`flex items-center gap-3 py-3 rounded-[var(--radius-lg)] text-[13px] font-medium
                   bg-surface-2 text-text-secondary border
                   hover:bg-surface-3 hover:text-text-primary hover:border-gold/20
@@ -596,7 +596,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
-                      placeholder="Search ideas and fragments..."
+                      placeholder="Search ideas and pieces..."
                       className="flex-1 min-w-0 bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
                     />
                     <button
@@ -643,7 +643,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             ) : (
               <>
                 <p className="px-1 pb-2 text-[11px] text-text-faint leading-relaxed">
-                  Open an idea to work inside it: its drafts and fragments appear in the panel
+                  Open an idea to work inside it: its drafts and pieces appear in the panel
                   beside this one. Right-click or use ⋯ to rename, add, or delete.
                 </p>
                 <div className="space-y-1 mb-4">

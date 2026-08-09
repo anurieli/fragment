@@ -24,6 +24,11 @@ import type { ContentPiece } from "@/lib/content-engine";
 
 interface PieceChipProps {
   piece: ContentPiece;
+  /** Fired the instant the card is pressed, drag or plain click alike: the
+   * "Also in this idea" shelf should collapse back down the moment you reach
+   * into it, so the drop target (the editor) and the snips are visible again
+   * whether you end up dragging or just clicking. */
+  onInteractionStart?: () => void;
 }
 
 /** Title if it has one, else the opening words, so a row is never blank. */
@@ -37,7 +42,7 @@ export function pieceChipLabel(piece: Pick<ContentPiece, "title" | "body">): str
   return firstLine || "Empty";
 }
 
-export function PieceChip({ piece }: PieceChipProps) {
+export function PieceChip({ piece, onInteractionStart }: PieceChipProps) {
   const setDraggingToEditor = useAppStore((s) => s.setDraggingToEditor);
   const [isDragging, setIsDragging] = useState(false);
   const label = pieceChipLabel(piece);
@@ -51,6 +56,7 @@ export function PieceChip({ piece }: PieceChipProps) {
       if (e.button !== 0) return;
       if ((e.target as HTMLElement).closest("button")) return;
       e.preventDefault();
+      onInteractionStart?.();
 
       const startX = e.clientX;
       const startY = e.clientY;
@@ -101,7 +107,7 @@ export function PieceChip({ piece }: PieceChipProps) {
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     },
-    [piece.body, label, setDraggingToEditor],
+    [piece.body, label, setDraggingToEditor, onInteractionStart],
   );
 
   return (

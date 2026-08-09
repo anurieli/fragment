@@ -31,7 +31,7 @@ interface PieceFilterBarProps {
 
 /**
  * Instant client-side filter chips over one list of pieces, plus a sort
- * control and "+ New fragment". Numbers 1-4 (see shortform-view.tsx's keydown
+ * control and "+ New piece". Numbers 1-4 (see shortform-view.tsx's keydown
  * handler) jump straight to a filter, in this same left-to-right order.
  */
 export function PieceFilterBar({
@@ -65,7 +65,7 @@ export function PieceFilterBar({
         <select
           value={sort}
           onChange={(e) => onSortChange(e.target.value as PieceSortMode)}
-          title="Sort fragments"
+          title="Sort pieces"
           className="bg-surface-2 border border-border rounded-[var(--radius-sm)] px-2 py-1 text-[11px] text-text-secondary outline-none focus:border-border-active cursor-pointer"
         >
           {SORT_OPTIONS.map((opt) => (
@@ -78,7 +78,7 @@ export function PieceFilterBar({
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[12px] font-medium text-text-secondary bg-surface-2 border border-border-strong hover:bg-surface-3 hover:text-text-primary hover:border-gold/20 transition-all duration-150"
         >
           <Plus size={12} />
-          New fragment
+          New piece
         </button>
       </div>
     </div>

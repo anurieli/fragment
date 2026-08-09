@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { Layers, PanelRightClose, Puzzle } from "lucide-react";
+import { ChevronDown, ChevronUp, Info, Layers, PanelRightClose, Puzzle } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
@@ -18,6 +18,18 @@ export function HelperBar() {
   const [dragOver, setDragOver] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [draggingSnippetId, setDraggingSnippetId] = useState<string | null>(null);
+  // "Also in this idea" shelf, expanded up to show every piece at once.
+  // Deliberately local, not store state: this is a view preference for the
+  // panel in front of you right now, not something to carry across ideas.
+  const [piecesExpanded, setPiecesExpanded] = useState(false);
+  // Land on a new idea collapsed, not however the last one was left. Adjusted
+  // during render (React's documented pattern for resetting state off a prop
+  // change) rather than in an effect, so there is no extra render pass.
+  const [expandedForIdea, setExpandedForIdea] = useState(activeIdeaId);
+  if (activeIdeaId !== expandedForIdea) {
+    setExpandedForIdea(activeIdeaId);
+    setPiecesExpanded(false);
+  }
   const listRef = useRef<HTMLDivElement>(null);
   const prevDraggingHelperRef = useRef(isDraggingToHelper);
   const prevDraggingEditorRef = useRef(isDraggingToEditor);
@@ -311,9 +323,14 @@ export function HelperBar() {
 
       {/* The idea's other pieces. Below the snips rather than beside them: the
           snip list is the working surface with the drop zone, and this is a
-          shelf you reach for. */}
+          shelf you reach for. Expand pushes it up to meet the header above
+          (3.5rem = the header's own h-14) so every piece is visible at once;
+          collapsing hands the flex-1 drop zone above it back its room. */}
       {ideaPieces.length > 0 && (
-        <div className="shrink-0 border-t border-border max-h-[38%] flex flex-col">
+        <div
+          className="shrink-0 border-t border-border flex flex-col overflow-hidden transition-[max-height] duration-300 ease-out"
+          style={{ maxHeight: piecesExpanded ? "calc(100% - 3.5rem)" : "38%" }}
+        >
           <div className="flex items-center gap-2.5 px-5 h-11 shrink-0">
             <Layers size={13} className="text-text-muted" />
             <span className="text-[12px] font-medium text-text-secondary">
@@ -322,10 +339,29 @@ export function HelperBar() {
             <span className="text-[11px] text-text-faint font-[family-name:var(--font-mono)]">
               {ideaPieces.length}
             </span>
+            <button
+              type="button"
+              title="Pieces inside of this idea"
+              className="p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150 cursor-help"
+            >
+              <Info size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPiecesExpanded((expanded) => !expanded)}
+              title={piecesExpanded ? "Collapse" : "Expand up"}
+              className="ml-auto p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
+            >
+              {piecesExpanded ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+            </button>
           </div>
-          <div className="overflow-y-auto px-4 pb-4 space-y-1.5">
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-1.5">
             {ideaPieces.map((piece) => (
-              <PieceChip key={piece.id} piece={piece} />
+              <PieceChip
+                key={piece.id}
+                piece={piece}
+                onInteractionStart={() => setPiecesExpanded(false)}
+              />
             ))}
           </div>
         </div>

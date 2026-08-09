@@ -811,7 +811,7 @@ export function PieceCard({
                     setResourcesOpen(true);
                   }}
                   className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                  title="Reference links and assets for this fragment, including the ones inherited from its idea"
+                  title="Reference links and assets for this piece, including the ones inherited from its idea"
                 >
                   Resources
                 </button>

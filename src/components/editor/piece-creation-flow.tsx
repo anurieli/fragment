@@ -21,7 +21,7 @@ import type { StreamGenerationParams } from "@/hooks/use-stream-generation";
 
 type CreationView = "menu" | "paste" | "generate";
 
-interface FragmentCreationFlowProps {
+interface PieceCreationFlowProps {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   existingPiece?: ContentPiece;
@@ -32,7 +32,7 @@ interface FragmentCreationFlowProps {
   leftToolbarSlot?: React.ReactNode;
 }
 
-export function FragmentCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, onOpenAISettings, onStartGeneration, leftToolbarSlot }: FragmentCreationFlowProps) {
+export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, onOpenAISettings, onStartGeneration, leftToolbarSlot }: PieceCreationFlowProps) {
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaTitle = useContentStore((s) => (activeIdeaId ? s.ideas[activeIdeaId]?.title : undefined));
   const createPiece = useContentStore((s) => s.createPiece);
@@ -414,7 +414,7 @@ export function ContextFieldsTooltip({
 // ─── Empty fragment inline actions ──────────────────────────────────────────
 // Shown inside the editor area when a fragment exists but has no body yet.
 
-export function EmptyFragmentActions({
+export function EmptyPieceActions({
   pieceId,
   onInsertContent,
   onStartGeneration,

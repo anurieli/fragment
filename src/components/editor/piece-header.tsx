@@ -15,7 +15,7 @@ function autoGrow(el: HTMLTextAreaElement | null) {
  * Title and subtitle always look the same — they live outside the
  * markdown document, so no editor formatting can touch them.
  */
-export function FragmentHeader({
+export function PieceHeader({
   title,
   subtitle,
   disabled,

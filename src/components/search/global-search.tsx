@@ -105,7 +105,7 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search all drafts and fragments..."
+            placeholder="Search all drafts and pieces..."
             className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-faint outline-none"
           />
           <kbd className="text-[10px] text-text-faint font-[family-name:var(--font-mono)] bg-surface-2 px-1.5 py-0.5 rounded-[3px] border border-border-strong">

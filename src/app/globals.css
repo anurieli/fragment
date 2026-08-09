@@ -359,6 +359,23 @@
   100% { background: var(--color-gold-muted); }
 }
 
+/* Insert highlight, set when a snip or piece lands in the editor from a
+   drag out of the helper bar, so the writer can see exactly what just
+   landed. Fades out over ~5s and the decoration is removed to match (see
+   src/lib/editor/insert-highlight-extension.ts); it never becomes a mark,
+   so it never reaches saved markdown. */
+.insert-highlight-overlay {
+  background: var(--color-gold-strong);
+  border-radius: 2px;
+  animation: insertHighlightFade 5s ease-out forwards;
+}
+
+@keyframes insertHighlightFade {
+  0% { background: var(--color-gold-strong); }
+  60% { background: var(--color-gold-muted); }
+  100% { background: transparent; }
+}
+
 /* Drop zone active states */
 .drop-zone-active {
   background: var(--color-gold-muted) !important;

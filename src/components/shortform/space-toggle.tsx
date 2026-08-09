@@ -36,7 +36,7 @@ export function SpaceToggle({ ideaId }: SpaceToggleProps) {
   return (
     <div
       className="inline-flex items-center gap-0.5 p-0.5 rounded-[var(--radius-default)] bg-surface-2 border border-border shrink-0"
-      title="Write is the long-form editor. Fragments is the short-form feed for this idea."
+      title="Write is the long-form editor. Pieces is the short-form feed for this idea."
     >
       <button
         onClick={() => setIdeaSpace(ideaId, "write")}

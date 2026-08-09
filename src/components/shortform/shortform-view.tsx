@@ -258,7 +258,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
             {idea?.title || "Untitled idea"}
           </span>
           <span className="shrink-0 text-[11px] text-text-faint">
-            short-form fragments. Snip one out, or let an agent drop a draft in the inbox
+            short-form pieces. Snip one out, or let an agent drop a draft in the inbox
           </span>
         </div>
       </div>

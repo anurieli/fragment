@@ -29,10 +29,18 @@ const USER_FACING_ATTRIBUTES = "placeholder|title|aria-label|alt";
 const NOTE_WORD = /\bnotes?\b/i;
 
 /**
- * "piece" and "pieces" as whole words. The wire format and the code still say
- * piece on purpose, but a reader should only ever meet the word "fragment".
+ * "fragment" used as a word for content.
+ *
+ * The word briefly replaced "piece" in the interface and has been reverted:
+ * an idea has pieces, some long, some short, all parts of the larger idea,
+ * which is the sentence that actually describes the product.
+ *
+ * Deliberately case-sensitive, because the app is called Fragment and the
+ * two uses are told apart by exactly that. Capitalised and singular is the
+ * product ("Fragment could not finish this update"). Lowercase anywhere, or
+ * plural in any case, is the entity, and the entity is a piece.
  */
-const PIECE_WORD = /\bpieces?\b/i;
+const FRAGMENT_WORD = /\bfragments?\b|\bFragments\b/;
 
 /**
  * Matches that are not the old vocabulary. `text` is a substring of the
@@ -50,24 +58,14 @@ const ALLOWED: readonly { file: string; text: string; why: string }[] = [
     why: "the option label for a resource whose kind is \"note\"",
   },
   {
-    file: "settings/brand-voice/voice-samples-manager.tsx",
-    text: "a piece of your writing",
-    why: "\"a piece of writing\" is ordinary English, not the entity",
-  },
-  {
-    file: "onboarding/onboarding-flow.tsx",
-    text: "a piece of your writing",
-    why: "\"a piece of writing\" is ordinary English, not the entity",
-  },
-  {
-    file: "settings/labeling-settings.tsx",
-    text: "puzzle pieces",
-    why: "a metaphor for rearranging snips, not the entity",
+    file: "editor/export-menu.tsx",
+    text: ".fragment-review.json",
+    why: "the review file's extension, named after the app, not after a piece",
   },
   {
     file: "landing/landing-page.tsx",
-    text: "Hold all the pieces",
-    why: "headline wordplay on the product name, not the entity",
+    text: "anurieli/fragment",
+    why: "the GitHub repo path",
   },
 ];
 
@@ -189,9 +187,9 @@ describe("product vocabulary", () => {
     expect(violations).toEqual([]);
   });
 
-  it("never says \"piece\" in anything the user reads", () => {
+  it("never calls a piece a \"fragment\" in anything the user reads", () => {
     const violations = tsxFilesUnder(COMPONENTS_DIR)
-      .flatMap((file) => findingsIn(file, PIECE_WORD))
+      .flatMap((file) => findingsIn(file, FRAGMENT_WORD))
       .filter((finding) => !isAllowed(finding))
       .map((finding) => `${finding.file}: ${finding.text}`);
 

@@ -415,7 +415,7 @@ export function IdeaPanelToggle() {
   return (
     <button
       onClick={() => setIdeaPanelOpen(true)}
-      title="Show this idea's drafts and fragments"
+      title="Show this idea's drafts and pieces"
       className="shrink-0 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
     >
       <PanelLeftOpen size={16} />

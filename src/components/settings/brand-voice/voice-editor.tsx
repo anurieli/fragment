@@ -98,7 +98,7 @@ export function VoiceEditor({ voice }: VoiceEditorProps) {
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-text-muted">
-                Fragments using this voice fall back to your default voice.
+                Pieces using this voice fall back to your default voice.
               </span>
               <button
                 onClick={() => deleteBrandVoice(voice.id)}
