@@ -638,7 +638,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               <p className="px-1 pb-3 text-[12px] text-text-faint leading-relaxed">
                 {searchQuery.trim()
                   ? "No matching ideas"
-                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit New idea above to make one."}
+                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form fragments. Hit New idea above to make one."}
               </p>
             ) : (
               <>

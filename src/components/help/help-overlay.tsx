@@ -13,7 +13,7 @@ const SHORTCUTS = [
   { keys: "⌘ H", action: "Toggle Snip Bar" },
   { keys: "⌘ \\", action: "Toggle sidebar" },
   { keys: "⌘ 1", action: "Switch to Write space (active idea)" },
-  { keys: "⌘ 2", action: "Switch to Pieces space (active idea)" },
+  { keys: "⌘ 2", action: "Switch to Fragments space (active idea)" },
   { keys: "⌘ ⇧ F", action: "Search across every idea" },
   { keys: "⌘ /", action: "Open this help panel" },
   { keys: "⌘ F", action: "Find in the open draft (browser)" },

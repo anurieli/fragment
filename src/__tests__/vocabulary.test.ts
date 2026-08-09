@@ -121,6 +121,22 @@ function stripExpressions(text: string): string {
   return stripped;
 }
 
+/**
+ * True when a quoted string is prose rather than a class list, a path, or an
+ * identifier. Copy inside a JSX expression, most often a ternary picking an
+ * empty state, is invisible to the text and attribute scans, and that is
+ * exactly where a stale sentence hides longest.
+ */
+function looksLikeProse(text: string): boolean {
+  if (text.length < 25) return false;
+  if ((text.match(/ /g) ?? []).length < 3) return false;
+  if (text.includes("/")) return false;
+  // Tailwind class lists are long and spaced, but they never contain a
+  // sentence's worth of ordinary punctuation.
+  if (/\b(?:flex|grid|rounded|px-|py-|mt-|mb-|gap-|bg-|border-|font-\[)/.test(text)) return false;
+  return /[a-z] [a-z]/.test(text);
+}
+
 function findingsIn(file: string, word: RegExp = NOTE_WORD): Finding[] {
   const source = stripComments(readFileSync(file, "utf8"));
   const name = relative(COMPONENTS_DIR, file);
@@ -140,6 +156,14 @@ function findingsIn(file: string, word: RegExp = NOTE_WORD): Finding[] {
     if (text.includes("{") || text.includes("}")) continue;
     if (looksLikeCode(text)) continue;
     if (word.test(text)) findings.push({ file: name, text: text.replace(/\s+/g, " ").trim() });
+  }
+
+  // Copy that reaches the screen through an expression rather than as a text
+  // node: `{condition ? "one sentence" : "another"}`.
+  for (const match of source.matchAll(/"([^"\\n]{25,})"/g)) {
+    const text = match[1];
+    if (!looksLikeProse(text)) continue;
+    if (word.test(text)) findings.push({ file: name, text });
   }
 
   return findings;
