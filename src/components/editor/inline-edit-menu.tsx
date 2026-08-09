@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight, Lightbulb } from "lucide-react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
-import { calculateInlineMenuPosition } from "@/lib/inline-menu-placement";
 
 type EditMode = "idle" | "loading" | "custom-input";
 
@@ -24,15 +23,11 @@ export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: Inline
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeEditRef = useRef(false);
+  const menuHeightRef = useRef(40);
 
   const updatePosition = useCallback(() => {
     const { from, to } = editor.state.selection;
-    const menuHasFocus = menuRef.current?.contains(document.activeElement) ?? false;
-    const customEditIsOpen = mode === "custom-input";
-    if (
-      from === to
-      || (!editor.isFocused && !menuHasFocus && !customEditIsOpen && !activeEditRef.current)
-    ) {
+    if (from === to) {
       setVisible(false);
       return;
     }
@@ -47,115 +42,120 @@ export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: Inline
     }
 
     const editorRect = editorDom.getBoundingClientRect();
-    const nextPosition = calculateInlineMenuPosition({
-      selection: {
-        top: startCoords.top,
-        right: endCoords.right,
-        bottom: endCoords.bottom,
-        left: startCoords.left,
-      },
-      container: {
-        top: editorRect.top,
-        right: editorRect.right,
-        bottom: editorRect.bottom,
-        left: editorRect.left,
-      },
-      scrollTop: editorDom.scrollTop,
-      scrollLeft: editorDom.scrollLeft,
-      menu: {
-        width: menuRef.current?.offsetWidth ?? 320,
-        height: menuRef.current?.offsetHeight ?? 40,
-      },
-      viewport: {
-        width: window.innerWidth,
-        height: window.innerHeight,
-      },
-    });
+    const centerX = (startCoords.left + endCoords.right) / 2;
 
-    if (!nextPosition) {
-      setVisible(false);
-      return;
+    // coordsAtPos returns viewport coordinates, but this menu is absolutely
+    // positioned inside the scroll container, where `top` is measured from the
+    // top of the scrolled content. Without the scroll term the menu lands
+    // scrollTop pixels too high — invisible once you are any distance down the
+    // page. Same offset the drop-indicator overlay in editor.tsx uses.
+    const offsetY = editorDom.scrollTop - editorRect.top;
+
+    // Measured height, not a guess: the menu is taller in custom-input mode.
+    // Kept in a ref because the first pass runs before the menu is in the DOM
+    // (see the layout effect below, which corrects it once it is).
+    const menuHeight = menuHeightRef.current;
+    const gap = 8;
+
+    // Default: position above the selection
+    let top = startCoords.top + offsetY - menuHeight - gap;
+
+    // If the menu would sit above the visible top edge, flip below the
+    // selection. The visible top edge is scrollTop in content coordinates.
+    if (top < editorDom.scrollTop) {
+      top = endCoords.bottom + offsetY + gap;
     }
 
-    setPosition({ top: nextPosition.top, left: nextPosition.left });
+    setPosition({
+      top,
+      left: centerX - editorRect.left,
+    });
     setVisible(true);
-  }, [editor, mode]);
+  }, [editor]);
 
-  // Selection can already exist when this component mounts or when the editor
-  // regains focus without changing the ProseMirror range. Check immediately and
-  // listen at both the editor and DOM boundaries so mouse, keyboard, and focus
-  // selection paths all reveal the toolbar.
+  // Listen to selection changes
   useEffect(() => {
-    const reset = () => {
-      setVisible(false);
-      setMode("idle");
-      setCustomPrompt("");
-    };
     const handleSelectionUpdate = () => {
       if (activeEditRef.current) return;
 
       const { from, to } = editor.state.selection;
       if (from === to) {
-        reset();
+        setVisible(false);
+        setMode("idle");
+        setCustomPrompt("");
         return;
       }
       updatePosition();
     };
-    const handleBlur = () => {
-      // Small delay to allow clicking the menu itself.
-      setTimeout(() => {
-        if (!menuRef.current?.contains(document.activeElement) && !activeEditRef.current) {
-          reset();
-        }
-      }, 150);
-    };
-    const handleDomSelection = () => requestAnimationFrame(handleSelectionUpdate);
 
     editor.on("selectionUpdate", handleSelectionUpdate);
-    editor.on("focus", handleSelectionUpdate);
-    editor.on("blur", handleBlur);
-    editor.view.dom.addEventListener("mouseup", handleDomSelection);
-    editor.view.dom.addEventListener("keyup", handleDomSelection);
-    handleSelectionUpdate();
+    editor.on("blur", () => {
+      // Small delay to allow clicking the menu itself
+      setTimeout(() => {
+        if (!menuRef.current?.contains(document.activeElement) && !activeEditRef.current) {
+          setVisible(false);
+          setMode("idle");
+          setCustomPrompt("");
+        }
+      }, 150);
+    });
 
     return () => {
       editor.off("selectionUpdate", handleSelectionUpdate);
-      editor.off("focus", handleSelectionUpdate);
-      editor.off("blur", handleBlur);
-      editor.view.dom.removeEventListener("mouseup", handleDomSelection);
-      editor.view.dom.removeEventListener("keyup", handleDomSelection);
     };
   }, [editor, updatePosition]);
 
-  // Remeasure after the toolbar mounts or changes mode, since the custom input
-  // and loading states have different dimensions.
+  // Reposition on window resize: the selection has not moved, but the column
+  // it sits in has, so the cached coordinates are stale.
+  useEffect(() => {
+    if (!visible) return;
+    const onResize = () => updatePosition();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [visible, updatePosition]);
+
+  // Clamp menu horizontally so it never overflows the editor bounds, and
+  // correct the vertical placement once the menu's real height is known
+  // (it grows when the custom-instruction input opens).
   useLayoutEffect(() => {
-    if (!visible || !menuRef.current) return;
-    updatePosition();
+    if (!visible || !position || !menuRef.current) return;
 
-    const observer = new ResizeObserver(updatePosition);
-    observer.observe(menuRef.current);
-    return () => observer.disconnect();
-  }, [visible, mode, updatePosition]);
+    const menu = menuRef.current;
+    const editorDom = editor.view.dom.closest(".overflow-y-auto");
+    if (!editorDom) return;
 
-  // coordsAtPos reports viewport coordinates, so remeasure whenever either the
-  // editor or the page scrolls and whenever the viewport changes size.
+    const measured = menu.offsetHeight;
+    if (measured && measured !== menuHeightRef.current) {
+      menuHeightRef.current = measured;
+      updatePosition();
+      return; // this effect re-runs with the corrected position
+    }
+
+    const containerWidth = editorDom.clientWidth;
+    const menuWidth = menu.offsetWidth;
+    const halfWidth = menuWidth / 2;
+    const padding = 8;
+
+    let translateX = -halfWidth; // default: center on position.left
+
+    // Would overflow left
+    if (position.left + translateX < padding) {
+      translateX = padding - position.left;
+    }
+    // Would overflow right
+    else if (position.left + translateX + menuWidth > containerWidth - padding) {
+      translateX = containerWidth - padding - menuWidth - position.left;
+    }
+
+    menu.style.transform = `translateX(${translateX}px)`;
+  }, [visible, position, mode, editor, updatePosition]);
+
+  // Focus custom input when mode switches
   useEffect(() => {
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [updatePosition]);
-
-  // Restore focus when the custom input remounts after its selection returns
-  // to the viewport as well as when the mode first opens.
-  useEffect(() => {
-    if (mode === "custom-input" && visible) {
+    if (mode === "custom-input") {
       inputRef.current?.focus();
     }
-  }, [mode, visible]);
+  }, [mode]);
 
   const handlePresetEdit = useCallback(async (instruction: string) => {
     setMode("loading");
