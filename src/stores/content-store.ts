@@ -2,9 +2,9 @@
 
 import { create } from "zustand";
 import {
-  pieceContentHome,
   assertIdeaParentAllowed,
   ContractError,
+  type ContentFormat,
   type ContentPiece,
   type Idea,
   type PieceOrigin,
@@ -55,7 +55,7 @@ export interface CreatePieceInput {
   origin: PieceOrigin;
   status?: PieceStatus;
   title?: string;
-  noteId?: string;
+  /** Defaults to "": a fragment always has a body, even an empty one. */
   body?: string;
   priority?: Priority;
   scheduledAt?: number;
@@ -99,12 +99,13 @@ interface ContentState {
   deleteIdea: (id: string) => void;
   undeleteIdea: (id: string) => void;
   /** Tombstone an idea together with everything only reachable through it: its
-   * child ideas and every piece owned by any of them. Returns the ids it
+   * child ideas and every fragment owned by any of them. Returns the ids it
    * touched so the caller can offer an exact undo (restoreIdeaCascade).
-   * Deleting the idea alone would strand its children — the sidebar renders
+   * Deleting the idea alone would strand its children: the sidebar renders
    * ideas from the roots down, so a child whose parent is gone is invisible
-   * but still there. Notes are never deleted: dropping the linking piece just
-   * returns a draft to the standalone Notes list. */
+   * but still there. The same is now true of the fragments, which is why they
+   * go with it. A fragment holds its own text and has no home outside its
+   * idea, so leaving one behind would hide it rather than spare it. */
   deleteIdeaCascade: (id: string) => IdeaCascade;
   restoreIdeaCascade: (cascade: IdeaCascade) => void;
   setIdeaPriority: (id: string, priority: Priority) => void;
@@ -114,25 +115,15 @@ interface ContentState {
 
   // Pieces ----------------------------------------------------------------
   createPiece: (input: CreatePieceInput) => string;
-  /** Attach an existing Note to an idea as one of its long-form drafts. The
-   * link IS a piece: long-form pieces keep their text in a Note (noteId),
-   * short-form pieces keep it inline (body). Returns the existing piece id if
-   * the note is already linked, so repeat calls are harmless. */
-  linkNoteToIdea: (ideaId: string, noteId: string, title?: string) => string;
-  /** Move a short-form piece's text into a Note and make that Note its content
-   * home. The piece keeps its id, origin, agentMeta, priority and resources —
-   * only where its text lives changes — so a substack draft an agent dropped
-   * in the inbox becomes a real draft you write in the editor without losing
-   * its provenance. Side effects that fall out of the swap: `shortformOnly`
-   * stops returning it (gone from the feed) and `draftsForIdea` starts
-   * (listed under Drafts). Seeding the Note's content is the caller's job.
-   * Returns the body it replaced, so an undo can put it back; null if the
-   * piece is missing or already long-form. */
-  convertPieceToDraft: (id: string, noteId: string) => string | null;
-  /** The undo half of convertPieceToDraft: hand back the body it returned.
-   * Call this BEFORE deleting the Note — deleteNote tombstones every piece
-   * linking it (detachPieceNote), which would take this piece with it. */
-  revertPieceToShortform: (id: string, body: string, status?: PieceStatus) => void;
+  /** Create an idea and its first fragment in one step, and return both ids.
+   * Every fragment belongs to an idea, so "start writing something new" is
+   * always these two writes; making it one call is what stops the sidebar
+   * from having to know that. */
+  createIdeaWithFragment: (input?: {
+    title?: string;
+    body?: string;
+    format?: ContentFormat;
+  }) => { ideaId: string; pieceId: string };
   updatePiece: (id: string, partial: Partial<Omit<ContentPiece, "id" | "createdAt">>) => void;
   reorderPieces: (updates: { id: string; order: number }[]) => void;
   setPieceStatus: (id: string, status: PieceStatus, publish?: PublishRecord) => void;
@@ -141,10 +132,15 @@ interface ContentState {
   cyclePiecePriority: (id: string) => void;
   rejectPiece: (id: string) => void;
   undeletePiece: (id: string) => void;
-  /** In-memory-only tombstone of every piece linking `noteId`, called by
-   * data-store's deleteNote after deleteNoteAndSnippets has already
-   * persisted the same tombstone in one transaction. */
-  detachPieceNote: (noteId: string) => void;
+  /** Tombstone a fragment, leaving the snips cut out of it in place, and
+   * return the id of the next fragment in the same idea to select, or null
+   * when that was the last one. The caller is usually looking at what it just deleted, so it
+   * needs somewhere to go; picking the successor here keeps that answer in one
+   * place instead of in every surface that can delete. */
+  deletePieceCascade: (id: string) => string | null;
+  /** Undo half of deletePieceCascade. Restores the fragment and, with it, the
+   * snips cut from it, which were never removed. */
+  restorePieceCascade: (id: string) => void;
 
   // Resources ---------------------------------------------------------------
   /** Add a resource directly owned by an idea or a piece. Never copies an
@@ -350,8 +346,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
       status: input.status ?? "inbox",
       origin: input.origin,
       title: input.title,
-      noteId: input.noteId,
-      body: input.body,
+      body: input.body ?? "",
       seen: input.seen ?? false,
       priority: input.priority ?? 0,
       order: input.order ?? siblingMaxOrder + 1,
@@ -360,70 +355,33 @@ export const useContentStore = create<ContentState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
     };
-    pieceContentHome(piece);
     assertPublishGuard(piece);
     set((s) => ({ pieces: { ...s.pieces, [piece.id]: piece } }));
     persistPiece(piece);
     return piece.id;
   },
 
-  linkNoteToIdea: (ideaId, noteId, title) => {
-    if (!get().hydrated) return "";
-    const existing = Object.values(get().pieces).find(
-      (piece) => piece.noteId === noteId && piece.deletedAt === undefined,
-    );
-    if (existing) return existing.id;
-    if (!get().ideas[ideaId]) return "";
-    return get().createPiece({
+  createIdeaWithFragment: (input) => {
+    const nothing = { ideaId: "", pieceId: "" };
+    if (!get().hydrated) return nothing;
+    const title = input?.title ?? "";
+    const ideaId = get().createIdea({ title });
+    if (!ideaId) return nothing;
+    const pieceId = get().createPiece({
       ideaId,
-      // Long-form default. The format only drives publish presets and the
-      // format chip; the user can change it on the piece.
-      format: "essay",
+      // Long-form by default: the empty fragment a writer is handed opens in
+      // the editor, not as a card in the feed. Format is shape only, so
+      // changing it later moves the fragment between surfaces and nothing else.
+      format: input?.format ?? "essay",
       origin: "user",
+      // Something you made by hand is already picked up; the inbox is for
+      // fragments that arrived on their own.
       status: "in-progress",
-      title,
-      noteId,
+      title: title || undefined,
+      body: input?.body ?? "",
       seen: true,
     });
-  },
-
-  convertPieceToDraft: (id, noteId) => {
-    if (!get().hydrated) return null;
-    const piece = get().pieces[id];
-    if (!piece || piece.body === undefined) return null;
-    const previousBody = piece.body;
-    const updated: ContentPiece = {
-      ...piece,
-      noteId,
-      body: undefined,
-      // Converting IS the act of picking it up, so it leaves the inbox. A
-      // piece already further along keeps whatever stage it reached.
-      status: piece.status === "inbox" ? "in-progress" : piece.status,
-      seen: true,
-      updatedAt: Date.now(),
-    };
-    pieceContentHome(updated);
-    assertPublishGuard(updated);
-    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
-    persistPiece(updated);
-    return previousBody;
-  },
-
-  revertPieceToShortform: (id, body, status) => {
-    if (!get().hydrated) return;
-    const piece = get().pieces[id];
-    if (!piece) return;
-    const updated: ContentPiece = {
-      ...piece,
-      noteId: undefined,
-      body,
-      status: status ?? piece.status,
-      updatedAt: Date.now(),
-    };
-    pieceContentHome(updated);
-    assertPublishGuard(updated);
-    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
-    persistPiece(updated);
+    return { ideaId, pieceId };
   },
 
   updatePiece: (id, partial) => {
@@ -431,7 +389,6 @@ export const useContentStore = create<ContentState>((set, get) => ({
     const piece = get().pieces[id];
     if (!piece) return;
     const updated: ContentPiece = { ...piece, ...partial, updatedAt: Date.now() };
-    pieceContentHome(updated);
     assertPublishGuard(updated);
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
@@ -520,17 +477,35 @@ export const useContentStore = create<ContentState>((set, get) => ({
     persistPiece(updated);
   },
 
-  detachPieceNote: (noteId) => {
+  deletePieceCascade: (id) => {
+    if (!get().hydrated) return null;
+    const piece = get().pieces[id];
+    if (!piece) return null;
+
     const now = Date.now();
-    set((s) => {
-      const pieces = { ...s.pieces };
-      for (const [id, piece] of Object.entries(pieces)) {
-        if (piece.noteId === noteId && piece.deletedAt === undefined) {
-          pieces[id] = { ...piece, deletedAt: now, updatedAt: now };
-        }
-      }
-      return { pieces };
-    });
+    const updated: ContentPiece = { ...piece, deletedAt: now, updatedAt: now };
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+
+    // The snips stay. Deleting a fragment is a tombstone, and a tombstone is
+    // reversible, so destroying its snips in the same breath would make undo a
+    // half-measure: the words come back and the cuttings the writer kept beside
+    // them do not. They are already invisible while the fragment is, because
+    // every snip surface is scoped to a fragment or an idea, so leaving the
+    // rows costs nothing a writer can see and makes restore whole.
+    persistPiece(updated);
+
+    // Where to look next: the idea's remaining fragments in the order the UI
+    // lists them, so the selection lands where the eye already is.
+    const next = Object.values(get().pieces)
+      .filter((p) => p.id !== id && p.ideaId === piece.ideaId && p.deletedAt === undefined)
+      .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)[0];
+    return next?.id ?? null;
+  },
+
+  restorePieceCascade: (id) => {
+    // Lifting the tombstone restores everything, because nothing else was
+    // taken away: the snips were left in place precisely so this is true.
+    get().undeletePiece(id);
   },
 
   addResource: (ownerType, ownerId, input) => {

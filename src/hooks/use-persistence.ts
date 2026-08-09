@@ -1,263 +1,313 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore, computeWritingStyleSeed } from "@/stores/voice-store";
 import { useContentStore } from "@/stores/content-store";
-import { loadAllNotes, loadSnippetsForNote, loadSnippetsForIdea, loadVersionsForNote, saveNote, loadAllVoices, saveVoice, loadAllIdeas, loadAllContentPieces, loadAllResources, loadCommentsForNote, loadCommentsForIdea } from "@/lib/persistence";
+import { isLongformFormat } from "@/lib/content-engine";
+import {
+  loadSnippetsForPiece,
+  loadSnippetsForIdea,
+  loadVersionsForPiece,
+  loadAllPieceVersions,
+  loadAllVoices,
+  saveVoice,
+  loadAllIdeas,
+  loadAllContentPieces,
+  loadAllResources,
+  loadCommentsForPiece,
+  loadCommentsForIdea,
+} from "@/lib/persistence";
 import { commentHome } from "@/lib/comment-scope";
-import { recoverFromCrash } from "@/hooks/use-auto-save";
+import { recoverFromCrash, RECOVERY_PREFIX } from "@/hooks/use-auto-save";
 import { logPersistence } from "@/lib/persistence-logger";
 import { useToastStore } from "@/hooks/use-toast";
 import { installMigrationConsole } from "@/lib/migration/console";
+import { readMigrationRecord, runOneEntityMigration } from "@/lib/migration/run";
+import type { MigrationRecord } from "@/lib/types";
 
-export function usePersistence() {
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
+export interface PersistenceState {
+  /** True when the one-entity migration refused to finish. Nothing was
+   * hydrated, so the shell must render the blocking screen rather than a
+   * library that would look emptied. */
+  migrationFailed: boolean;
+  /** What the migration recorded about the refusal, for the details panel. */
+  migrationRecord: MigrationRecord | undefined;
+  /** Run the migration again and, if it finishes this time, hydrate. */
+  retryMigration: () => void;
+}
+
+/**
+ * Brings the library into memory, once, in the only order that is safe.
+ *
+ * The one-entity migration runs before anything is read. It is the step that
+ * moves each note's text into the fragment that now owns it, so hydrating
+ * ahead of it would put a library on screen missing everything not yet carried
+ * across, and a writer editing that library writes the gap in. When the
+ * migration refuses to finish, nothing is loaded at all: `migrationFailed`
+ * goes up and the shell shows the blocking screen instead of the app.
+ */
+export function usePersistence(): PersistenceState {
+  const activePieceId = useAppStore((s) => s.activePieceId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const activeIdeaSpace = useAppStore((s) => (s.activeIdeaId ? s.ideaSpaces[s.activeIdeaId] : undefined));
-  const setActiveNote = useAppStore((s) => s.setActiveNote);
-  const { setNotes, setSnippets, setVersions, setComments, setHydrated } = useDataStore();
-  const {
-    setIdeas,
-    setPieces,
-    setResources,
-    setHydrated: setContentHydrated,
-    setLoadFailed: setContentLoadFailed,
-  } = useContentStore();
-  const prevNoteId = useRef<string | null>(null);
-  const prevSnipScope = useRef<{ noteId: string | null; ideaId: string | null }>({ noteId: null, ideaId: null });
+  const setSnippets = useDataStore((s) => s.setSnippets);
+  const setVersions = useDataStore((s) => s.setVersions);
+  const prevPieceId = useRef<string | null>(null);
+  const prevSnipScope = useRef<{ pieceId: string | null; ideaId: string | null }>({ pieceId: null, ideaId: null });
   const prevCommentHomeKey = useRef<string>("");
 
-  // Initial hydration + crash recovery
+  const [migrationFailed, setMigrationFailed] = useState(false);
+  const [migrationRecord, setMigrationRecord] = useState<MigrationRecord | undefined>(undefined);
+  const startupRunning = useRef(false);
+
+  const hydrate = useCallback(async () => {
+    // The Content Engine is the library: ideas, the fragments inside them, and
+    // the resources hanging off both. Version rows load with them so the
+    // timeline has something to show for whichever fragment opens first,
+    // before the per-fragment read further down narrows it.
+    try {
+      const [ideas, pieces, resources, versions] = await Promise.all([
+        loadAllIdeas(),
+        loadAllContentPieces(),
+        loadAllResources(),
+        loadAllPieceVersions(),
+      ]);
+      const content = useContentStore.getState();
+      content.setIdeas(ideas);
+      content.setPieces(pieces);
+      content.setResources(resources);
+      useDataStore.getState().setVersions(versions);
+
+      // Open on the draft last worked on, and on the idea around it. Opening
+      // the fragment alone would start the session with no idea context and no
+      // Write | Pieces toggle, even though the sidebar lists it under that idea.
+      const lastDraft = pieces
+        .filter((piece) => piece.deletedAt === undefined && isLongformFormat(piece.format))
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (lastDraft) {
+        useAppStore.getState().setActivePiece(lastDraft.id);
+        useAppStore.getState().setActiveIdea(lastDraft.ideaId);
+      }
+      content.setLoadFailed(false);
+    } catch {
+      // The library could not be read. Do NOT leave the empty maps looking
+      // like an empty library: the agent-inbox importer reads them as "none
+      // of this exists yet", re-imports every pending handoff at its file
+      // status, and acks the source markdown out of the inbox, turning a
+      // failed read into permanent loss. loadFailed makes the importer stand
+      // down until a reload succeeds.
+      logPersistence("hydrate_fail", { error: "content-engine load threw" });
+      useContentStore.getState().setLoadFailed(true);
+      useToastStore
+        .getState()
+        .showToast("Couldn't open your library, reload before editing");
+    } finally {
+      useContentStore.getState().setHydrated(true);
+      useDataStore.getState().setHydrated(true);
+    }
+
+    // Request persistent storage so the OS won't evict IndexedDB/localStorage.
+    // Critical for Tauri (WKWebView) where storage is ephemeral by default.
+    try {
+      const persisted = await navigator.storage?.persist?.();
+      logPersistence("storage_persist_result", { granted: persisted ?? "unsupported" });
+    } catch {
+      logPersistence("storage_persist_result", { granted: "error" });
+    }
+
+    // Drain the crash-recovery buffer. It writes straight through updatePiece,
+    // which puts the recovered text in the store and on disk in one move, so
+    // there is nothing to re-read afterwards.
+    try {
+      const recovered = await recoverFromCrash();
+      if (recovered > 0) {
+        // The event name is fixed by the shared log union in
+        // persistence-logger.ts; what it counts is fragments.
+        logPersistence("note_recovery", { recoveredCount: recovered });
+      }
+    } catch {
+      // crash recovery failed, not critical
+    }
+
+    // Hydrate Brand Voices from IndexedDB, running the one-shot
+    // writingStyle -> Brand Voice migration. Waits for settings first so the
+    // migration reads real persisted values, not DEFAULT_SETTINGS.
+    try {
+      await waitForSettingsHydration();
+      const settingsStore = useSettingsStore.getState();
+      const bv = settingsStore.settings.brandVoice;
+      const voices = await loadAllVoices();
+      const seed = computeWritingStyleSeed({
+        migrated: bv.migratedFromWritingStyle,
+        voiceDescription: settingsStore.settings.writingStyle.voiceDescription,
+        existingCount: voices.length,
+        now: Date.now(),
+      });
+      if (seed) {
+        await saveVoice(seed);
+        voices.push(seed);
+        settingsStore.updateBrandVoiceSettings({
+          defaultVoiceId: bv.defaultVoiceId ?? seed.id,
+          migratedFromWritingStyle: true,
+        });
+      } else if (!bv.migratedFromWritingStyle) {
+        settingsStore.updateBrandVoiceSettings({ migratedFromWritingStyle: true });
+      }
+      useVoiceStore.getState().setVoices(voices);
+    } catch {
+      logPersistence("voice_hydrate_fail", { error: "loadAllVoices threw" });
+    } finally {
+      useVoiceStore.getState().setHydrated(true);
+    }
+  }, []);
+
+  const runStartup = useCallback(async () => {
+    if (startupRunning.current) return;
+    startupRunning.current = true;
+    try {
+      let failed = false;
+      try {
+        const outcome = await runOneEntityMigration();
+        failed = outcome.status === "failed";
+      } catch {
+        // The migration records its own failure before rethrowing, so the row
+        // on disk is the honest account of what went wrong.
+        failed = true;
+      }
+
+      if (failed) {
+        const record = await readMigrationRecord().catch(() => undefined);
+        setMigrationRecord(record);
+        setMigrationFailed(true);
+        return;
+      }
+
+      setMigrationFailed(false);
+      await hydrate();
+    } finally {
+      startupRunning.current = false;
+    }
+  }, [hydrate]);
+
+  const retryMigration = useCallback(() => {
+    // Down goes the blocking screen while the retry runs: the shell falls back
+    // to its loading state, which is the only feedback this button can give.
+    setMigrationFailed(false);
+    void runStartup();
+  }, [runStartup]);
+
   useEffect(() => {
     // Read-only migration tools, reachable as window.fragmentMigration. The
     // dry run has to run where the library lives, which is this browser.
     installMigrationConsole();
-
-    async function hydrate() {
-      try {
-        const allNotes = await loadAllNotes();
-        setNotes(allNotes);
-        if (allNotes.length > 0) {
-          setActiveNote(allNotes[0].id);
-        }
-      } catch {
-        // loadAllNotes already falls back to localStorage internally,
-        // so this catch is for truly catastrophic failures.
-        logPersistence("hydrate_fail", { error: "loadAllNotes threw" });
-        setNotes([]);
-      }
-      setHydrated(true);
-
-      // Hydrate the Content Engine (ideas + pieces) from IndexedDB. New
-      // tables, so an empty result on first load is the expected steady state.
-      try {
-        const [ideas, pieces, resources] = await Promise.all([
-          loadAllIdeas(),
-          loadAllContentPieces(),
-          loadAllResources(),
-        ]);
-        setIdeas(ideas);
-        setPieces(pieces);
-        setResources(resources);
-        // The restored note may be a draft of an idea. Ideas load after
-        // notes, so re-open the idea around it here — otherwise the session
-        // starts inside a draft with no idea context and no Write | Pieces
-        // toggle, even though the sidebar lists it under that idea.
-        const restoredNoteId = useAppStore.getState().activeNoteId;
-        if (restoredNoteId) {
-          const owner = pieces.find(
-            (piece) => piece.noteId === restoredNoteId && piece.deletedAt === undefined,
-          );
-          if (owner) useAppStore.getState().setActiveIdea(owner.ideaId);
-        }
-        setContentLoadFailed(false);
-      } catch (error) {
-        // The library could not be read. Do NOT leave the empty maps looking
-        // like an empty library: the agent-inbox importer reads them as "none
-        // of this exists yet", re-imports every pending handoff at its file
-        // status, and acks the source markdown out of the inbox — turning a
-        // failed read into permanent loss. loadFailed makes the importer stand
-        // down until a reload succeeds.
-        logPersistence("hydrate_fail", { error: "content-engine load threw" });
-        setContentLoadFailed(true);
-        useToastStore
-          .getState()
-          .showToast("Couldn't open your library — reload before editing");
-      } finally {
-        setContentHydrated(true);
-      }
-
-      // Request persistent storage so the OS won't evict IndexedDB/localStorage.
-      // Critical for Tauri (WKWebView) where storage is ephemeral by default.
-      try {
-        const persisted = await navigator.storage?.persist?.();
-        logPersistence("storage_persist_result", { granted: persisted ?? "unsupported" });
-      } catch {
-        logPersistence("storage_persist_result", { granted: "error" });
-      }
-
-      // After hydration, check for crash-recovery data in localStorage
-      try {
-        const recovered = await recoverFromCrash();
-        if (recovered > 0) {
-          logPersistence("note_recovery", { recoveredCount: recovered });
-          // Re-load notes to pick up recovered content
-          try {
-            const refreshed = await loadAllNotes();
-            setNotes(refreshed);
-          } catch {
-            // keep the notes we already loaded
-          }
-        }
-      } catch {
-        // crash recovery failed — not critical
-      }
-
-      // Hydrate Brand Voices from IndexedDB, running the one-shot
-      // writingStyle → Brand Voice migration. Waits for settings first so the
-      // migration reads real persisted values, not DEFAULT_SETTINGS.
-      try {
-        await waitForSettingsHydration();
-        const settingsStore = useSettingsStore.getState();
-        const bv = settingsStore.settings.brandVoice;
-        const voices = await loadAllVoices();
-        const seed = computeWritingStyleSeed({
-          migrated: bv.migratedFromWritingStyle,
-          voiceDescription: settingsStore.settings.writingStyle.voiceDescription,
-          existingCount: voices.length,
-          now: Date.now(),
-        });
-        if (seed) {
-          await saveVoice(seed);
-          voices.push(seed);
-          settingsStore.updateBrandVoiceSettings({
-            defaultVoiceId: bv.defaultVoiceId ?? seed.id,
-            migratedFromWritingStyle: true,
-          });
-        } else if (!bv.migratedFromWritingStyle) {
-          settingsStore.updateBrandVoiceSettings({ migratedFromWritingStyle: true });
-        }
-        useVoiceStore.getState().setVoices(voices);
-      } catch {
-        logPersistence("voice_hydrate_fail", { error: "loadAllVoices threw" });
-      } finally {
-        useVoiceStore.getState().setHydrated(true);
-      }
-    }
-    hydrate();
+    void runStartup();
+    // Startup runs once per mount; runStartup guards itself against overlap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load versions when the note changes.
+  // Load versions when the fragment changes.
   useEffect(() => {
-    if (!activeNoteId || activeNoteId === prevNoteId.current) return;
-    prevNoteId.current = activeNoteId;
+    if (!activePieceId || activePieceId === prevPieceId.current) return;
+    prevPieceId.current = activePieceId;
 
     async function load() {
-      const versions = await loadVersionsForNote(activeNoteId!);
+      const versions = await loadVersionsForPiece(activePieceId!);
       setVersions(versions);
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeNoteId]);
+  }, [activePieceId]);
 
-  // Load the snippets in scope: the active note's, plus the open idea's (its
-  // pieces' snips have no note to hang off — see snip-scope.ts). Both, not
-  // either: inside an idea with a draft open, the bar shows one pile of parts
-  // whichever space you're in, and crossing Write <-> Pieces never empties it.
+  // Load the snippets in scope: the active fragment's, plus the open idea's
+  // (snips taken where no single fragment owns them, see snip-scope.ts). Both,
+  // not either: inside an idea with a draft open, the bar shows one pile of
+  // parts whichever space you're in, and crossing Write <-> Pieces never
+  // empties it.
   useEffect(() => {
-    if (activeNoteId === prevSnipScope.current.noteId && activeIdeaId === prevSnipScope.current.ideaId) return;
-    prevSnipScope.current = { noteId: activeNoteId, ideaId: activeIdeaId };
+    if (activePieceId === prevSnipScope.current.pieceId && activeIdeaId === prevSnipScope.current.ideaId) return;
+    prevSnipScope.current = { pieceId: activePieceId, ideaId: activeIdeaId };
 
     let cancelled = false;
     async function load() {
-      const [noteSnippets, ideaSnippets] = await Promise.all([
-        activeNoteId ? loadSnippetsForNote(activeNoteId) : Promise.resolve([]),
+      const [pieceSnippets, ideaSnippets] = await Promise.all([
+        activePieceId ? loadSnippetsForPiece(activePieceId) : Promise.resolve([]),
         activeIdeaId ? loadSnippetsForIdea(activeIdeaId) : Promise.resolve([]),
       ]);
       if (cancelled) return;
       // A snippet cut off a draft inside an idea is in both results.
-      const byId = new Map(noteSnippets.map((s) => [s.id, s]));
+      const byId = new Map(pieceSnippets.map((s) => [s.id, s]));
       for (const s of ideaSnippets) byId.set(s.id, s);
       setSnippets([...byId.values()]);
     }
     load();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeNoteId, activeIdeaId]);
+  }, [activePieceId, activeIdeaId]);
 
   // Load the comments for whichever single home is on screen (see
   // commentHome in comment-scope.ts) — a comment has one home for its whole
   // life, unlike a snippet's dual-carry, so this is a single scoped read
   // rather than the merge above.
   useEffect(() => {
-    const home = commentHome(activeNoteId, activeIdeaId, activeIdeaSpace);
-    const key = home ? `${home.noteId ?? ""}:${home.ideaId ?? ""}` : "";
+    const home = commentHome(activePieceId, activeIdeaId, activeIdeaSpace);
+    const key = home ? `${home.pieceId ?? ""}:${home.ideaId ?? ""}` : "";
     if (key === prevCommentHomeKey.current) return;
     prevCommentHomeKey.current = key;
 
     let cancelled = false;
     async function load() {
       if (!home) {
-        setComments([]);
+        useDataStore.getState().setComments([]);
         return;
       }
-      const comments = home.noteId
-        ? await loadCommentsForNote(home.noteId)
+      const comments = home.pieceId
+        ? await loadCommentsForPiece(home.pieceId)
         : await loadCommentsForIdea(home.ideaId!);
       if (cancelled) return;
-      setComments(comments);
+      useDataStore.getState().setComments(comments);
     }
     load();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeNoteId, activeIdeaId, activeIdeaSpace]);
+  }, [activePieceId, activeIdeaId, activeIdeaSpace]);
 
   // Save on tab close / visibility change
   useEffect(() => {
     function flushAll() {
-      const dataState = useDataStore.getState();
-      const appState = useAppStore.getState();
-      const id = appState.activeNoteId;
-      const liveId = appState.liveEditorNoteId;
+      const app = useAppStore.getState();
+      const content = useContentStore.getState();
 
-      // Save the note the editor is tracking (may differ from activeNoteId
-      // during a note switch, before the editor effect runs).
-      if (liveId && liveId !== id && dataState.notes[liveId] && typeof appState.liveEditorContent === "string") {
-        const liveNote = dataState.notes[liveId];
-        // Don't overwrite real content with empty — guard against stale liveEditorContent
-        const liveContent = appState.liveEditorContent.trim() || liveNote.content.trim()
-          ? appState.liveEditorContent || liveNote.content
-          : "";
-        saveNote({ ...liveNote, content: liveContent, updatedAt: Date.now() });
-        try { localStorage.removeItem(`fragment:recovery:${liveId}`); } catch { /* silent */ }
-      }
+      function flush(pieceId: string) {
+        const piece = content.pieces[pieceId];
+        if (!piece) return;
+        // The editor debounces saves by 500ms, so the store can be a keystroke
+        // or two behind. liveEditorContent moves on every keystroke, so it is
+        // what reaches disk here, except when it is empty against a fragment
+        // that has text: that combination is a stale buffer, never a deletion.
+        const live =
+          app.liveEditorPieceId === pieceId && typeof app.liveEditorContent === "string"
+            ? app.liveEditorContent
+            : null;
+        const body = live !== null && (live.trim() || !piece.body.trim()) ? live : piece.body;
+        content.updatePiece(pieceId, { body });
 
-      if (id && dataState.notes[id]) {
-        const note = dataState.notes[id];
-        // The editor debounces saves by 500ms, so the store may be stale.
-        // Use liveEditorContent (updated on every keystroke) to ensure
-        // the latest content is persisted on tab close / visibility change.
-        if (liveId === id && typeof appState.liveEditorContent === "string") {
-          // Don't overwrite real content with empty — guard against stale liveEditorContent
-          const contentToSave = !appState.liveEditorContent.trim() && note.content.trim()
-            ? note.content
-            : appState.liveEditorContent;
-          saveNote({ ...note, content: contentToSave, updatedAt: Date.now() });
-        } else {
-          saveNote(note);
-        }
-
-        // Clean up recovery entry — the note was saved cleanly
+        // The fragment was saved cleanly, so its recovery buffer has nothing
+        // left to say.
         try {
-          localStorage.removeItem(`fragment:recovery:${id}`);
+          localStorage.removeItem(`${RECOVERY_PREFIX}${pieceId}`);
         } catch {
           // silent
         }
       }
+
+      // The editor may still be tracking the fragment you just navigated away
+      // from, so both get flushed.
+      const liveId = app.liveEditorPieceId;
+      if (liveId && liveId !== app.activePieceId) flush(liveId);
+      if (app.activePieceId) flush(app.activePieceId);
     }
 
     function handleVisibilityChange() {
@@ -273,7 +323,8 @@ export function usePersistence() {
       window.removeEventListener("beforeunload", flushAll);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-    // flushAll reads state via getState() — no render-time dependencies needed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // flushAll reads state via getState(), no render-time dependencies needed.
   }, []);
+
+  return { migrationFailed, migrationRecord, retryMigration };
 }

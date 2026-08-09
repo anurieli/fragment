@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Dexie from "dexie";
+import Dexie, { type Table } from "dexie";
 
 import { db } from "@/lib/db";
+import type { LegacyPiece } from "@/lib/migration/plan";
 import {
   captureSnapshot,
   closeMigrationBackupDb,
@@ -20,6 +21,13 @@ import { dryRunFromSnapshot, formatDryRunReport } from "@/lib/migration/dry-run"
  * chain, so a snapshot taken in this file exercises the same code path a
  * writer's browser will.
  */
+
+/**
+ * The fragments table as it exists before the migration: rows written by the
+ * old code still carry the retired `noteId` column, which is exactly the shape
+ * a pre-migration snapshot has to capture.
+ */
+const legacyPieces = db.contentPieces as unknown as Table<LegacyPiece, string>;
 
 async function seedLibrary() {
   await db.notes.bulkPut([
@@ -58,7 +66,7 @@ async function seedLibrary() {
     updatedAt: 5,
   });
 
-  await db.contentPieces.bulkPut([
+  await legacyPieces.bulkPut([
     {
       id: "p-draft",
       ideaId: "i1",

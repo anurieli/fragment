@@ -1,14 +1,14 @@
 "use client";
 
 import { Trash2, Copy } from "lucide-react";
-import type { NoteVersion } from "@/lib/types";
+import type { PieceVersion } from "@/lib/types";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
 
 interface VersionEntryProps {
-  version: NoteVersion;
+  version: PieceVersion;
 }
 
 export function VersionEntry({ version }: VersionEntryProps) {
@@ -38,7 +38,7 @@ export function VersionEntry({ version }: VersionEntryProps) {
   function handleDuplicate() {
     const newId = duplicateFromVersion(version.id);
     if (newId) {
-      showToast("Note created from snapshot");
+      showToast("Draft created from snapshot");
     }
   }
 
@@ -81,7 +81,7 @@ export function VersionEntry({ version }: VersionEntryProps) {
         <button
           onClick={handleDuplicate}
           className="p-1.5 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-3 transition-all duration-150"
-          title="Duplicate as new note"
+          title="Duplicate as new draft"
         >
           <Copy size={12} />
         </button>

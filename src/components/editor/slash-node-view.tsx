@@ -6,7 +6,7 @@ import type { NodeViewProps } from "@tiptap/react";
 import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { Loader2, Check, X, RotateCcw, Square } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { useDataStore } from "@/stores/data-store";
+import { useContentStore } from "@/stores/content-store";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import markdownit from "markdown-it";
 
@@ -19,9 +19,9 @@ const SLASH_PLACEHOLDERS = [
 ];
 
 export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
-  const notes = useDataStore((s) => s.notes);
-  const note = activeNoteId ? notes[activeNoteId] : null;
+  const activePieceId = useAppStore((s) => s.activePieceId);
+  const pieces = useContentStore((s) => s.pieces);
+  const piece = activePieceId ? pieces[activePieceId] : null;
   const { generateStream, abort, enabled: slashEnabled } = useSlashCommand();
 
   const [prompt, setPrompt] = useState("");
@@ -100,7 +100,7 @@ export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
   }, [editor, getNodePos, node, preview]);
 
   const submit = useCallback(async () => {
-    if (!note || !prompt.trim() || !slashEnabled) return;
+    if (!piece || !prompt.trim() || !slashEnabled) return;
 
     setLoading(true);
     setError(false);
@@ -119,10 +119,10 @@ export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
     await generateStream(
       contextAbove,
       contextBelow,
-      note.goal,
-      note.audience ?? "",
-      note.tone ?? "",
-      note.remember ?? "",
+      piece.goal ?? "",
+      piece.audience ?? "",
+      piece.tone ?? "",
+      piece.remember ?? "",
       prompt,
       {
         onChunk: (accumulated) => {
@@ -140,10 +140,10 @@ export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
           setTimeout(() => setError(false), 3000);
         },
       },
-      activeNoteId ?? undefined,
-      note.voiceId,
+      activePieceId ?? undefined,
+      piece.voiceId,
     );
-  }, [editor, note, prompt, generateStream, getNodePos, slashEnabled]);
+  }, [editor, piece, prompt, generateStream, getNodePos, slashEnabled]);
 
   const stopGeneration = useCallback(() => {
     abort();

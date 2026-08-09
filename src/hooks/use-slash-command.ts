@@ -44,7 +44,7 @@ export function useSlashCommand() {
       remember: string,
       userInstruction: string,
       callbacks: StreamCallbacks,
-      noteId?: string,
+      pieceId?: string,
       voiceId?: string | null,
     ): Promise<void> => {
       if (!settings.slashCommand.enabled) {
@@ -144,7 +144,7 @@ export function useSlashCommand() {
             error: message,
             promptLength,
             responseLength: 0,
-          }, noteId).catch(() => {});
+          }, pieceId).catch(() => {});
           callbacks.onError(message);
           return;
         }
@@ -188,7 +188,7 @@ export function useSlashCommand() {
             promptTokens: usage?.promptTokens,
             completionTokens: usage?.completionTokens,
             totalTokens: usage?.totalTokens,
-          }, noteId).catch(() => {});
+          }, pieceId).catch(() => {});
           captureEvent("slash_command_used", { model });
           callbacks.onDone(accumulated);
         }
@@ -201,7 +201,7 @@ export function useSlashCommand() {
           error: "Generation failed",
           promptLength,
           responseLength: 0,
-        }, noteId).catch(() => {});
+        }, pieceId).catch(() => {});
         useToastStore.getState().showToast("Generation failed. Check your connection.");
         callbacks.onError("Generation failed");
       }

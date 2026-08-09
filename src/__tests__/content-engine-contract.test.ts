@@ -7,7 +7,6 @@ import {
   contentPieceSchema,
   isLongformFormat,
   parsePieceHandoffJson,
-  pieceContentHome,
 } from "@/lib/content-engine";
 import type { ContentPiece, Idea } from "@/lib/content-engine";
 
@@ -102,20 +101,23 @@ describe("content-engine — stored piece rules", () => {
     updatedAt: 1,
   };
 
-  it("requires exactly one content home", () => {
+  it("requires a body on every stored fragment", () => {
     expect(contentPieceSchema.safeParse(basePiece).success).toBe(true);
-    expect(
-      contentPieceSchema.safeParse({ ...basePiece, noteId: "n1" }).success,
-    ).toBe(false);
-    const { body: _body, ...noHome } = basePiece;
-    expect(contentPieceSchema.safeParse(noHome).success).toBe(false);
+    const { body: _body, ...noBody } = basePiece;
+    expect(contentPieceSchema.safeParse(noBody).success).toBe(false);
   });
 
-  it("pieceContentHome names the home and throws on violations", () => {
-    expect(pieceContentHome({ body: "x" })).toBe("body");
-    expect(pieceContentHome({ noteId: "n1" })).toBe("note");
-    expect(() => pieceContentHome({})).toThrow(ContractError);
-    expect(() => pieceContentHome({ noteId: "n1", body: "x" })).toThrow(ContractError);
+  it("accepts a fragment nobody has written in yet", () => {
+    // "" is a fragment with no words in it, which is an ordinary state. The
+    // absent case is the broken one, hence the test above.
+    expect(contentPieceSchema.safeParse({ ...basePiece, body: "" }).success).toBe(true);
+  });
+
+  it("keeps the note a migrated fragment absorbed, so old links still resolve", () => {
+    const migrated = { ...basePiece, legacyNoteId: "n1" };
+    const parsed = contentPieceSchema.safeParse(migrated);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.legacyNoteId).toBe("n1");
   });
 });
 

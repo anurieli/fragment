@@ -34,7 +34,7 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function buildMetadata(activeNoteId: string | null) {
+function buildMetadata(activePieceId: string | null) {
   return {
     appVersion: "1.0.0",
     platform: typeof navigator !== "undefined" ? navigator.platform : "unknown",
@@ -44,7 +44,7 @@ function buildMetadata(activeNoteId: string | null) {
       typeof window !== "undefined"
         ? `${window.screen.width}x${window.screen.height}`
         : "unknown",
-    ...(activeNoteId ? { activeNoteId } : {}),
+    ...(activePieceId ? { activePieceId } : {}),
   };
 }
 
@@ -203,7 +203,7 @@ export function FeedbackRecordingBar({
 
 export function FeedbackPanel() {
   const closeFeedback = useAppStore((s) => s.closeFeedback);
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const activePieceId = useAppStore((s) => s.activePieceId);
   const showToast = useToastStore((s) => s.showToast);
   const deviceId = useDeviceId();
 
@@ -260,7 +260,7 @@ export function FeedbackPanel() {
       screenshot: media.attachments.screenshot ?? undefined,
       screenRecording: media.attachments.screenRecording ?? undefined,
       voiceNote: media.attachments.voiceNote ?? undefined,
-      metadata: buildMetadata(activeNoteId),
+      metadata: buildMetadata(activePieceId),
       status: "pending",
       createdAt: Date.now(),
     };
@@ -283,7 +283,7 @@ export function FeedbackPanel() {
           appVersion: item.metadata.appVersion,
           screenResolution: item.metadata.screenResolution,
           userAgent: item.metadata.userAgent,
-          activeNoteId: item.metadata.activeNoteId,
+          activePieceId: item.metadata.activePieceId,
         },
         {
           screenshot: item.screenshot,
@@ -312,7 +312,7 @@ export function FeedbackPanel() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [hasContent, isSubmitting, type, message, media, activeNoteId, deviceId, closeFeedback, showToast]);
+  }, [hasContent, isSubmitting, type, message, media, activePieceId, deviceId, closeFeedback, showToast]);
 
   const hasAttachments =
     media.attachments.voiceNote || media.attachments.screenRecording || media.attachments.screenshot;

@@ -1,11 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Plus,
   PanelLeftClose,
-  FileText,
-  Trash2,
   Settings,
   Search,
   HelpCircle,
@@ -24,7 +21,6 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
 import { draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
@@ -33,12 +29,10 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncStore } from "@/stores/sync-store";
 import { hasAnyWorkingProvider } from "@/lib/ai/connection-status";
 import { isTauri } from "@/lib/ai-client";
-import { formatDate } from "@/lib/utils";
 import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
 import type { Idea, Priority } from "@/lib/content-engine";
-import { downloadAsMarkdown, latestNoteContentForExport } from "@/lib/export";
 import {
   ContextMenu,
   ContextMenuItem,
@@ -88,9 +82,20 @@ function sortIdeas(ideas: Idea[], mode: IdeaSortMode): Idea[] {
   return [...pinned, ...sortedRest];
 }
 
-function ideaMatches(idea: Idea, query: string): boolean {
+/**
+ * Does this idea answer the search? Its own words first, then the words of the
+ * fragments inside it: the sidebar is the only list left, so a search that read
+ * titles alone would have no way of finding the sentence you remember writing.
+ * `fragmentText` is the pre-lowercased body of everything the idea holds, built
+ * once per keystroke rather than per row (see fragmentTextByIdea).
+ */
+function ideaMatches(idea: Idea, query: string, fragmentText: string): boolean {
   const q = query.toLowerCase();
-  return idea.title.toLowerCase().includes(q) || (idea.summary ?? "").toLowerCase().includes(q);
+  return (
+    idea.title.toLowerCase().includes(q) ||
+    (idea.summary ?? "").toLowerCase().includes(q) ||
+    fragmentText.includes(q)
+  );
 }
 
 /**
@@ -171,20 +176,21 @@ function IdeaMenuItem({
 }
 
 export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs }: SidebarProps) {
-  const { activeNoteId, setActiveNote, toggleSidebar } = useAppStore();
+  const { toggleSidebar } = useAppStore();
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
+  const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
   const isFeedbackOpen = useAppStore((s) => s.isFeedbackOpen);
   const openFeedback = useAppStore((s) => s.openFeedback);
   const toggleCommentsPanel = useAppStore((s) => s.toggleCommentsPanel);
-  const { notes, createNote, deleteNote } = useDataStore();
   const ideas = useContentStore((s) => s.ideas);
   const pieces = useContentStore((s) => s.pieces);
   const createIdea = useContentStore((s) => s.createIdea);
+  const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
+  const createPiece = useContentStore((s) => s.createPiece);
   const updateIdea = useContentStore((s) => s.updateIdea);
   const pinIdea = useContentStore((s) => s.pinIdea);
   const unpinIdea = useContentStore((s) => s.unpinIdea);
-  const linkNoteToIdea = useContentStore((s) => s.linkNoteToIdea);
   const deleteIdeaCascade = useContentStore((s) => s.deleteIdeaCascade);
   const restoreIdeaCascade = useContentStore((s) => s.restoreIdeaCascade);
   const showToast = useToastStore((s) => s.showToast);
@@ -205,10 +211,6 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // default here is the shortest list that still shows every idea you have.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [noteContextMenu, setNoteContextMenu] = useState<{
-    noteId: string;
-    position: Point;
-  } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -240,49 +242,41 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
 
   const rootIdeas = useMemo(() => allIdeas.filter((i) => !i.parentId), [allIdeas]);
 
+  /** Every idea's fragments as one lowercased haystack, so searching the text
+   * of what you wrote costs one pass over the library instead of one per row. */
+  const fragmentTextByIdea = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const piece of allPieces) {
+      if (piece.deletedAt !== undefined) continue;
+      const text = `${piece.title ?? ""}\n${piece.body}`.toLowerCase();
+      const existing = map.get(piece.ideaId);
+      map.set(piece.ideaId, existing ? `${existing}\n${text}` : text);
+    }
+    return map;
+  }, [allPieces]);
+
+  const matches = useCallback(
+    (idea: Idea, query: string) => ideaMatches(idea, query, fragmentTextByIdea.get(idea.id) ?? ""),
+    [fragmentTextByIdea],
+  );
+
   const visibleRoots = useMemo(() => {
     const q = searchQuery.trim();
     let roots = rootIdeas;
     if (q) {
       roots = roots.filter(
-        (r) => ideaMatches(r, q) || (childrenByParent.get(r.id) ?? []).some((c) => ideaMatches(c, q)),
+        (r) => matches(r, q) || (childrenByParent.get(r.id) ?? []).some((c) => matches(c, q)),
       );
     }
     return sortIdeas(roots, ideaSort);
-  }, [rootIdeas, childrenByParent, searchQuery, ideaSort]);
+  }, [rootIdeas, childrenByParent, searchQuery, ideaSort, matches]);
 
   function childrenFor(idea: Idea): Idea[] {
     const kids = childrenByParent.get(idea.id) ?? [];
     const q = searchQuery.trim();
-    const filtered = q && !ideaMatches(idea, q) ? kids.filter((c) => ideaMatches(c, q)) : kids;
+    const filtered = q && !matches(idea, q) ? kids.filter((c) => matches(c, q)) : kids;
     return sortIdeas(filtered, ideaSort);
   }
-
-  // A note is "idea-less" (standalone) unless some content piece links it as
-  // its long-form home (piece.noteId). Notes tied to an idea are reached by
-  // selecting that idea, not listed separately here.
-  const notesWithIdea = useMemo(() => {
-    const set = new Set<string>();
-    for (const piece of allPieces) {
-      if (piece.noteId && piece.deletedAt === undefined) set.add(piece.noteId);
-    }
-    return set;
-  }, [allPieces]);
-
-  const sortedNotes = useMemo(() => {
-    let list = Object.values(notes)
-      .filter((n) => !notesWithIdea.has(n.id))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (n) =>
-          n.title.toLowerCase().includes(q) ||
-          n.content.toLowerCase().includes(q),
-      );
-    }
-    return list;
-  }, [notes, notesWithIdea, searchQuery]);
 
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
 
@@ -293,85 +287,51 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   }
 
   /** Closing also clears the query: a hidden filter on the list would look
-   * like data loss ("where did my notes go?"), not like a remembered search. */
+   * like data loss ("where did my ideas go?"), not like a remembered search. */
   function closeSearch() {
     setSearchOpen(false);
     setSearchQuery("");
   }
 
-  function handleNewNote() {
-    const id = createNote();
-    setActiveNote(id);
-    setActiveIdea(null);
-    setShowCreationFlow(true);
-  }
-
+  /** New idea, with the first fragment to write in already inside it. Every
+   * fragment belongs to an idea, so "start something new" is one action, not a
+   * container you then have to remember to fill. */
   function handleNewIdea() {
-    const id = createIdea({ title: "Untitled idea" });
-    if (!id) return;
-    setActiveIdea(id);
-    setActiveNote(null);
-    // Straight into rename — an idea called "Untitled idea" is worthless as a
-    // container, and naming it is the whole point of creating one.
-    startRename(id, "Untitled idea");
-  }
-
-  function deleteStandaloneNote(noteId: string) {
-    const nextId = deleteNote(noteId);
-    if (activeNoteId === noteId) {
-      setActiveNote(nextId);
-    }
-  }
-
-  function handleDelete(e: React.MouseEvent, noteId: string) {
-    e.stopPropagation();
-    deleteStandaloneNote(noteId);
-  }
-
-  function handleOpenNoteFromMenu(noteId: string) {
-    setNoteContextMenu(null);
-    setActiveIdea(null);
-    setActiveNote(noteId);
-  }
-
-  function handleExportNote(noteId: string) {
-    const note = notes[noteId];
-    setNoteContextMenu(null);
-    if (!note) return;
-    const app = useAppStore.getState();
-    const content = latestNoteContentForExport(
-      noteId,
-      note.content,
-      app.liveEditorNoteId,
-      app.liveEditorContent,
-    );
-    downloadAsMarkdown(content, note.title || "Untitled");
-  }
-
-  function handleDeleteNoteFromMenu(noteId: string) {
-    setNoteContextMenu(null);
-    deleteStandaloneNote(noteId);
+    const { ideaId, pieceId } = createIdeaWithFragment();
+    if (!ideaId) return;
+    setActiveIdea(ideaId);
+    setActivePiece(pieceId || null);
+    setShowCreationFlow(true);
+    // Straight into rename: an untitled idea is worthless as a container, and
+    // naming it is the whole point of creating one. The box opens empty rather
+    // than pre-filled, so the first keystroke is the name.
+    startRename(ideaId, "");
   }
 
   /** Select an idea, and with it a draft to write in: the one asked for, else
    * the idea's first draft, else nothing (the editor then offers to start one). */
-  function handleSelectIdea(ideaId: string, noteId?: string) {
+  function handleSelectIdea(ideaId: string, pieceId?: string) {
     setActiveIdea(ideaId);
-    if (noteId) {
-      setActiveNote(noteId);
+    if (pieceId) {
+      setActivePiece(pieceId);
       return;
     }
     const drafts = draftsForIdea(ideaId, allPieces);
-    setActiveNote(drafts[0]?.noteId ?? null);
+    setActivePiece(drafts[0]?.id ?? null);
   }
 
-  /** Start a fresh long-form draft inside an idea, linked to it from birth. */
+  /** Start a fresh long-form fragment inside an idea. */
   function handleNewDraft(ideaId: string) {
-    const noteId = createNote();
-    if (!noteId) return;
-    linkNoteToIdea(ideaId, noteId);
+    const pieceId = createPiece({
+      ideaId,
+      format: "essay",
+      origin: "user",
+      status: "in-progress",
+      seen: true,
+    });
+    if (!pieceId) return;
     setActiveIdea(ideaId);
-    setActiveNote(noteId);
+    setActivePiece(pieceId);
     setShowCreationFlow(true);
     setExpanded((prev) => new Set(prev).add(ideaId));
   }
@@ -381,7 +341,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     if (!cascade.ideaIds.length) return;
     if (cascade.ideaIds.includes(activeIdeaId ?? "")) {
       setActiveIdea(null);
-      setActiveNote(null);
+      setActivePiece(null);
     }
     showToast(`Deleted "${idea.title || "Untitled idea"}"`, {
       label: "Undo",
@@ -425,7 +385,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
       kids.some((k) => k.id === activeIdeaId);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
-    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}`;
+    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "fragment" : "fragments"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}`;
     const hasUnseenAgent = shortPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
@@ -500,7 +460,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                   <IdeaMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
                   <IdeaMenuItem
                     label="New draft"
-                    hint="A long-form note in this idea"
+                    hint="A long-form fragment in this idea"
                     onClick={() => { setOpenMenuId(null); handleNewDraft(idea.id); }}
                   />
                   {depth === 0 && (
@@ -524,7 +484,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                   <div className="my-1 border-t border-border" />
                   <IdeaMenuItem
                     label="Delete idea"
-                    hint="Drafts return to Notes"
+                    hint="Takes its drafts and fragments with it"
                     destructive
                     onClick={() => { setOpenMenuId(null); handleDeleteIdea(idea); }}
                   />
@@ -590,16 +550,18 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             </div>
           </div>
 
-          {/* New note + new idea + search, one row. The search is a square
-              button until clicked; open, it grows to fill the row and the two
-              create buttons collapse to zero width under it. Every state
-              change is width/flex/margin only, so the whole swap is one
-              smooth slide. */}
+          {/* New idea + search, one row. The search is a square button until
+              clicked; open, it grows to fill the row and the create button
+              collapses to zero width under it. Every state change is
+              width/flex/margin only, so the whole swap is one smooth slide.
+              One create button, not two: an idea and the fragment you write in
+              are made together now, so there is nothing else to start. */}
           <div className="px-5 pb-3">
             <div className="flex items-center gap-2">
               <button
-                onClick={handleNewNote}
+                onClick={handleNewIdea}
                 tabIndex={searchOpen ? -1 : 0}
+                title="New idea: a home for its drafts and its short-form fragments"
                 className={`flex items-center gap-3 py-3 rounded-[var(--radius-lg)] text-[13px] font-medium
                   bg-surface-2 text-text-secondary border
                   hover:bg-surface-3 hover:text-text-primary hover:border-gold/20
@@ -608,22 +570,8 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                     ? "flex-[0_1_0%] px-0 opacity-0 border-transparent pointer-events-none"
                     : "flex-[1_1_0%] px-4 border-border-strong"}`}
               >
-                <Plus size={15} strokeWidth={2} className="shrink-0" />
-                New note
-              </button>
-              <button
-                onClick={handleNewIdea}
-                tabIndex={searchOpen ? -1 : 0}
-                title="New idea — a home for an idea's long-form draft and its short-form pieces"
-                className={`shrink-0 flex items-center justify-center h-11 rounded-[var(--radius-lg)]
-                  bg-surface-2 text-text-secondary border
-                  hover:bg-surface-3 hover:text-gold hover:border-gold/20
-                  transition-all duration-300 overflow-hidden
-                  ${searchOpen
-                    ? "w-0 -ml-2 opacity-0 border-transparent pointer-events-none"
-                    : "w-11 border-border-strong"}`}
-              >
                 <Lightbulb size={15} strokeWidth={2} className="shrink-0" />
+                New idea
               </button>
               <div
                 role={searchOpen ? undefined : "button"}
@@ -632,7 +580,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 onKeyDown={searchOpen ? undefined : (e) => {
                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSearch(); }
                 }}
-                title={searchOpen ? undefined : "Search notes & ideas"}
+                title={searchOpen ? undefined : "Search ideas and fragments"}
                 className={`flex items-center h-11 rounded-[var(--radius-lg)] bg-surface-2 border overflow-hidden
                   transition-all duration-300
                   ${searchOpen
@@ -648,7 +596,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
-                      placeholder="Search notes & ideas..."
+                      placeholder="Search ideas and fragments..."
                       className="flex-1 min-w-0 bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
                     />
                     <button
@@ -664,7 +612,8 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             </div>
           </div>
 
-          {/* Idea + note list */}
+          {/* Idea list. Every fragment lives inside one, so this is the whole
+              library: there is no second list of homeless documents. */}
           <div className="flex-1 overflow-y-auto px-5 py-2">
             {/* Ideas section */}
             <div className="flex items-center justify-between px-1 mb-1.5">
@@ -689,12 +638,12 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               <p className="px-1 pb-3 text-[12px] text-text-faint leading-relaxed">
                 {searchQuery.trim()
                   ? "No matching ideas"
-                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit the bulb above to make one."}
+                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit New idea above to make one."}
               </p>
             ) : (
               <>
                 <p className="px-1 pb-2 text-[11px] text-text-faint leading-relaxed">
-                  Open an idea to work inside it — its drafts and pieces appear in the panel
+                  Open an idea to work inside it: its drafts and fragments appear in the panel
                   beside this one. Right-click or use ⋯ to rename, add, or delete.
                 </p>
                 <div className="space-y-1 mb-4">
@@ -702,110 +651,8 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 </div>
               </>
             )}
-
-            {/* Standalone notes section */}
-            <div className="px-1 mb-1.5 mt-2">
-              <span className="text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)]">
-                Notes
-              </span>
-              <p className="text-[11px] text-text-faint leading-relaxed mt-0.5">
-                Notes that don&apos;t belong to any idea.
-              </p>
-            </div>
-            {sortedNotes.length === 0 ? (
-              <div className="px-4 py-10 text-center">
-                <FileText size={22} className="mx-auto mb-3 text-text-faint opacity-40" />
-                <p className="text-[13px] text-text-muted">
-                  {searchQuery.trim() ? "No matches" : "No standalone notes"}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {sortedNotes.map((note) => {
-                  const isActive = note.id === activeNoteId && !activeIdeaId;
-                  const title = note.title || "Untitled";
-                  const preview = note.content
-                    ? note.content.replace(/[#*_`>\-\[\]]/g, "").slice(0, 60)
-                    : "Empty note";
-
-                  return (
-                    <div
-                      key={note.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => { setActiveIdea(null); setActiveNote(note.id); }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setNoteContextMenu({
-                          noteId: note.id,
-                          position: { x: event.clientX, y: event.clientY },
-                        });
-                      }}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveIdea(null); setActiveNote(note.id); } }}
-                      className={`group relative flex flex-col w-full text-left px-4 py-3.5 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
-                        ${
-                          isActive
-                            ? "bg-surface-3 border border-border-strong"
-                            : "hover:bg-surface-2"
-                        }`}
-                    >
-                      {isActive && (
-                        <div className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-gold" />
-                      )}
-                      <div className="flex items-center justify-between gap-3">
-                        <span
-                          className={`text-[13px] font-medium truncate ${isActive ? "text-text-primary" : "text-text-secondary"}`}
-                        >
-                          {title}
-                        </span>
-                        <button
-                          onClick={(e) => handleDelete(e, note.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-[11px] text-text-muted truncate">
-                          {preview}
-                        </span>
-                        <span className="text-[10px] text-text-faint shrink-0 font-[family-name:var(--font-mono)]">
-                          {formatDate(note.updatedAt)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
-          {noteContextMenu && notes[noteContextMenu.noteId] && (
-            <ContextMenu
-              position={noteContextMenu.position}
-              onClose={() => setNoteContextMenu(null)}
-              ariaLabel="Note actions"
-            >
-              <ContextMenuItem
-                label="Open"
-                icon={<FileText size={13} />}
-                onSelect={() => handleOpenNoteFromMenu(noteContextMenu.noteId)}
-              />
-              <ContextMenuItem
-                label="Export as Markdown..."
-                icon={<Download size={13} />}
-                onSelect={() => handleExportNote(noteContextMenu.noteId)}
-              />
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                label="Delete Note"
-                icon={<Trash2 size={13} />}
-                destructive
-                onSelect={() => handleDeleteNoteFromMenu(noteContextMenu.noteId)}
-              />
-            </ContextMenu>
-          )}
 
           {/* Compact recording bar */}
           {showCompactBar && (

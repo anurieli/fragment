@@ -56,7 +56,7 @@ export function GenerationSettings() {
             />
           </div>
           <p className="text-[11px] text-text-faint leading-relaxed">
-            Powers both Flow (type <span className="font-[family-name:var(--font-mono)] text-text-muted">/</span> inline in the editor to generate text mid-document) and &quot;Generate with AI&quot; when creating a note. The provider and model below apply to both.
+            Powers both Flow (type <span className="font-[family-name:var(--font-mono)] text-text-muted">/</span> inline in the editor to generate text mid-document) and &quot;Generate with AI&quot; when creating a draft. The provider and model below apply to both.
           </p>
         </div>
 

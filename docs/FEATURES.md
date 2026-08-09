@@ -1,6 +1,17 @@
-# Fragment — Feature Guide & QA Reference
+# Fragment: Feature Guide & QA Reference
 
 This document describes every feature in Fragment, how it works, how to test it, and what to look for during QA. Update this when features change.
+
+> **Which model this describes:** the **one-entity model**. There is no `Note`
+> entity. Everything you write is a **fragment** inside an **idea**; a fragment
+> whose format is long-form (`essay`, `substack`, `script`) is a **draft**, and
+> a **snip** is a cut of text parked in the Snip Bar. A fragment and a draft are
+> the same object at different sizes, so there is no convert step between them.
+> The product spec is [`PRD.md`](../PRD.md); the on-disk shape is
+> [`docs/DATA-MODEL.md`](./DATA-MODEL.md). The sync wire and the MCP contract
+> still say `piece` where the UI says fragment, deliberately; where this document
+> says "piece" (mostly in section 19, which tracks the code closely) it means the
+> same object as "fragment".
 
 ### Core Feature Names
 
@@ -16,10 +27,10 @@ Fragment's three headline features have user-facing names used on the website an
 
 ## Table of Contents
 
-1. [Note Management](#1-note-management)
+1. [Idea and Fragment Management](#1-idea-and-fragment-management)
 2. [Live Markdown Editor](#2-live-markdown-editor)
-3. [Snippets — Creating from Editor (Snip)](#3-snippets--creating-from-editor-snip)
-4. [Snippets — Dragging Back to Editor (Snip)](#4-snippets--dragging-back-to-editor-snip)
+3. [Snippets: Creating from Editor (Snip)](#3-snippets--creating-from-editor-snip)
+4. [Snippets: Dragging Back to Editor (Snip)](#4-snippets--dragging-back-to-editor-snip)
 5. [Snippet Reordering (Snip)](#5-snippet-reordering-snip)
 6. [Snippet Hover Preview (Snip)](#6-snippet-hover-preview-snip)
 7. [AI Snippet Labeling (Snip)](#7-ai-snippet-labeling-snip)
@@ -39,61 +50,65 @@ Fragment's three headline features have user-facing names used on the website an
 
 ---
 
-## 1. Note Management
+## 1. Idea and Fragment Management
 
 ### How it works
-- Click "New note" in the sidebar to create a blank note
-- Notes appear in the sidebar sorted by last modified (newest first)
-- Each note has a title, goal, and markdown content
-- Click a note to open it in the editor
-- Hover over a note in the sidebar to reveal the trash icon — click to delete
+- Click "New idea" in the sidebar to create an idea **and its first fragment** in one step, then drop straight into naming it
+- The sidebar lists ideas only. There is no standalone-notes section, because a fragment cannot exist outside an idea
+- Each fragment has a title, a markdown body, a format, a status, and an optional brief (goal, audience, tone, remember)
+- A fragment whose format is long-form (`essay`, `substack`, `script`) is a **draft** and opens in the editor; every other fragment renders as a card in the idea's feed. Both are the same object, filtered by format
+- Opening an idea adds the idea workspace column, which lists that idea's drafts and its fragments
+- Right-click an idea row (or use `⋯`) for Rename, New draft, New sub-idea, Pin, and Delete idea
+- Deleting a fragment tombstones it and its snips, with an Undo toast, and selects the next fragment in the same idea
 
 ### How to test
-1. Click "New note" — a new entry should appear at the top of the sidebar
-2. Type in the title field — the sidebar item should update its title in real-time
-3. Type in the editor — the sidebar preview text should update
-4. Create 3+ notes, switch between them — content should persist per note
-5. Delete a note — it should disappear, and the next most recent note should become active
-6. Delete the last note — the editor should show the empty state ("Select or create a note")
+1. Click "New idea": a new idea should appear in the sidebar in rename mode, with one empty fragment already inside it
+2. Type a title; the sidebar row should update in real time
+3. Type in the fragment; the idea workspace row should update
+4. Create 3+ fragments in one idea and switch between them; content should persist per fragment
+5. Change a fragment's format to `essay`: it should leave the feed, appear under Drafts, and open in the editor with the exact same text, id, and history
+6. Change it back to a short-form format: it should return to the feed with its body byte-for-byte intact
+7. Delete a fragment: it should disappear, and the next fragment in that idea should become active
+8. Delete the last fragment in an idea: the center panel should show the idea's empty state
+9. Delete an idea: its sub-ideas and fragments should go with it under a single Undo toast
 
 ### QA checklist
-- [ ] New note appears immediately at the top of the sidebar
-- [ ] Title updates in sidebar as you type
-- [ ] Content preview in sidebar strips markdown characters
+- [ ] "New idea" creates the idea and its first fragment together, and opens rename
+- [ ] The sidebar lists ideas only; no standalone-notes section exists anywhere in the UI
+- [ ] The word "note" does not appear in any user-visible string
+- [ ] Title updates in the sidebar and workspace as you type
+- [ ] Fragment preview in the workspace strips markdown characters
 - [ ] Timestamp shows relative time and updates
-- [ ] Switching notes preserves content of both notes
-- [ ] Deleting active note selects the next note
-- [ ] Deleting all notes shows empty state
-- [ ] Notes survive a page refresh (IndexedDB persistence)
+- [ ] Switching fragments preserves the content of both
+- [ ] Changing format between long-form and short-form moves the fragment between the editor and the feed with no copy, no new id, and no lost snips or versions
+- [ ] Deleting the active fragment selects the next one in the same idea
+- [ ] Deleting every fragment in an idea shows the empty state
+- [ ] Ideas and fragments survive a page refresh (IndexedDB persistence)
 
 ---
 
 ## 2. Live Markdown Editor
 
 ### How it works
-The editor uses Tiptap 3 with `tiptap-markdown` for live rendering. As you type markdown syntax, it renders immediately — no preview pane needed.
-
-Selected text is movable in place: drag a highlight to another point in the same editor to reorder it, or continue into the Snip Bar to turn it into a snippet. In-editor moves use ProseMirror's native selection-replacement rules, so formatting survives while mixed boundaries such as a full heading moved into a paragraph adopt a schema-valid destination structure. These moves stay local. AI labeling starts only after a Snip Bar drop has created the snippet.
+The editor uses Tiptap 3 with `tiptap-markdown` for live rendering. As you type markdown syntax, it renders immediately: no preview pane needed.
 
 Supported markdown:
-- `# Heading 1` / `## Heading 2` / `### Heading 3` — rendered in DM Serif Display font
-- `**bold**` — rendered bold
-- `*italic*` — rendered italic
-- `` `inline code` `` — rendered with mono font and background
-- `> blockquote` — rendered with gold left border
-- `- item` or `1. item` — bullet/numbered lists
-- `---` — horizontal rule
-- `[text](url)` — rendered as gold link
+- `# Heading 1` / `## Heading 2` / `### Heading 3`: rendered in DM Serif Display font
+- `**bold**`: rendered bold
+- `*italic*`: rendered italic
+- `` `inline code` ``: rendered with mono font and background
+- `> blockquote`: rendered with gold left border
+- `- item` or `1. item`: bullet/numbered lists
+- `---`: horizontal rule
+- `[text](url)`: rendered as gold link
 
 ### How to test
-1. Type `## Hello` — should immediately render as a styled heading
-2. Type `**bold text**` — should render bold (not show the asterisks)
-3. Type `` `code` `` — should render with mono background
-4. Type `> quote` — should render with gold left border
-5. Type `- item 1` then Enter — should continue the list
+1. Type `## Hello`: should immediately render as a styled heading
+2. Type `**bold text**`: should render bold (not show the asterisks)
+3. Type `` `code` ``: should render with mono background
+4. Type `> quote`: should render with gold left border
+5. Type `- item 1` then Enter: should continue the list
 6. Select text and check the gold selection highlight
-7. Drag the selection to another paragraph; it should move there with its formatting intact
-8. Select a whole heading through the start of the following paragraph, then drag it into paragraph text; the destination should remain a paragraph instead of turning into a heading
 
 ### QA checklist
 - [ ] `##` + space triggers heading (H2 in display font)
@@ -104,68 +119,66 @@ Supported markdown:
 - [ ] Links render as gold underlined text
 - [ ] Gold caret visible
 - [ ] Gold selection highlight on text select
-- [ ] Dragging selected text within the editor moves it to the drop point without flattening its formatting
-- [ ] Cross-block moves preserve valid heading and paragraph boundaries at the destination
 - [ ] Placeholder text "Start writing..." shows when editor is empty
 - [ ] Bottom padding provides breathing room (writing line not at screen bottom)
 
 ---
 
-## 3. Snippets — Creating from Editor (Snip)
+## 3. Snippets: Creating from Editor (Snip)
 
 ### How it works
 Two methods:
 
-**Method A — Snip button:**
+**Method A: Snip button:**
 1. Select text in the editor
 2. A "Snip" button appears in the toolbar (scissors icon)
-3. Click it: text is cut into the Snip Bar as a snippet
-4. The original selection is removed from the editor
+3. Click it: text is copied to the Snip Bar as a snippet
+4. Original text stays in the editor
 
-**Method B — Drag and drop:**
+**Method B: Drag and drop:**
 1. Select text in the editor
 2. Drag the selection toward the right panel
 3. Snip Bar shows gold drop feedback
-4. Release: the snippet is created at the drop position
-5. The original selection is removed from the editor
+4. Release: snippet is created at the drop position
+5. Original text stays in the editor
 
 ### How to test
-1. Write a paragraph, select a sentence, click "Snip": the snippet should appear in the Snip Bar
-2. Verify the selected text was removed from the editor
+1. Write a paragraph, select a sentence, click "Snip": snippet should appear in the Snip Bar
+2. Verify the text is still in the editor (not removed)
 3. Write more text, select it, drag toward the Snip Bar: gold background should appear
-4. Drop it: the snippet card should animate in
+4. Drop it: snippet card should animate in
 5. If the Snip Bar was closed, clicking "Snip" should open it automatically
-6. Create multiple snippets — they should stack vertically
+6. Create multiple snippets: they should stack vertically
 
 ### QA checklist
 - [ ] Snip button appears only when text is selected
 - [ ] Snip button disappears when selection is cleared
 - [ ] Snip button has fadeIn animation
 - [ ] Clicking Snip creates a snippet card in the helper bar
-- [ ] Text is removed from the editor after snipping (cut, not copy)
+- [ ] Text remains in editor after snipping (copy, not cut)
 - [ ] Dragging selected text to helper bar shows gold drop feedback
 - [ ] Dropping creates a snippet at the dropped position (not always at end)
 - [ ] Snip Bar opens automatically if it was closed
-- [ ] AI labeling starts after the snippet is created
+- [ ] AI labeling fires immediately (loading spinner visible)
 
 ---
 
-## 4. Snippets — Dragging Back to Editor (Snip)
+## 4. Snippets: Dragging Back to Editor (Snip)
 
 ### How it works
 1. Grab a snippet card in the Snip Bar
 2. Drag it over the editor
 3. A gold drop cursor (line) appears in the editor showing the insertion point
-4. Release — the snippet's text is inserted at that exact position
+4. Release: the snippet's text is inserted at that exact position
 5. The snippet stays in the helper bar (reusable)
 
 ### How to test
 1. Create a snippet
 2. Drag it from the Snip Bar to the middle of some text in the editor
 3. Verify the gold drop cursor appears
-4. Drop it — text should insert at the cursor position, not at the end
+4. Drop it: text should insert at the cursor position, not at the end
 5. Verify the snippet card still exists in the helper bar
-6. Drag the same snippet again to a different position — should work again
+6. Drag the same snippet again to a different position: should work again
 
 ### QA checklist
 - [ ] Snippet card shows grab cursor on hover, grabbing on drag
@@ -188,9 +201,9 @@ Snippets can be dragged to reorder within the Snip Bar:
 
 ### How to test
 1. Create 3+ snippets
-2. Drag the third snippet above the first — gold line should appear between cards
-3. Drop it — order should update, the dragged snippet now appears at the top
-4. Refresh the page — new order should persist
+2. Drag the third snippet above the first: gold line should appear between cards
+3. Drop it: order should update, the dragged snippet now appears at the top
+4. Refresh the page: new order should persist
 
 ### QA checklist
 - [ ] Gold insertion line appears between cards during drag
@@ -214,11 +227,11 @@ For snippets with long content (>5 lines or >200 characters):
 
 ### How to test
 1. Create a snippet with 10+ lines of text
-2. Hover over it for ~half a second — popup should appear to the left
-3. Move mouse into the popup — it should stay open
+2. Hover over it for ~half a second: popup should appear to the left
+3. Move mouse into the popup: it should stay open
 4. Scroll within the popup if content overflows
-5. Move mouse away from both — popup should close
-6. Create a short snippet (1 line) — hovering should NOT show a popup
+5. Move mouse away from both: popup should close
+6. Create a short snippet (1 line): hovering should NOT show a popup
 
 ### QA checklist
 - [ ] Popup only appears for long snippets (>5 lines or >200 chars)
@@ -241,15 +254,15 @@ When a snippet is created, an async AI request fires to generate a 5-10 word lab
 - On error: alert icon + "Label failed"
 - If labeling is disabled in settings: shows "—"
 
-The AI receives: the snippet text + the full essay content (up to a configurable limit) + the note's goal field.
+The AI receives: the snippet text + the full draft content (up to a configurable limit) + the fragment's goal field.
 
 ### How to test
 1. Set your Gemini API key (in Settings or `.env.local`)
 2. Write some text, set a goal, create a snippet
 3. Watch the loading spinner appear, then the label
-4. Create a snippet without an API key — should show "AI labeling unavailable"
-5. In Settings, toggle snippet labeling off — create a snippet — should show "—"
-6. In Settings, change the model or prompt template — create a new snippet — should use new config
+4. Create a snippet without an API key: should show "AI labeling unavailable"
+5. In Settings, toggle snippet labeling off: create a snippet: should show "—"
+6. In Settings, change the model or prompt template: create a new snippet: should use new config
 
 ### QA checklist
 - [ ] Loading spinner appears immediately on snippet creation
@@ -269,7 +282,7 @@ The AI receives: the snippet text + the full essay content (up to a configurable
 1. On an empty line, type `/`
 2. An inline input field appears with a gold border
 3. Type your instruction (e.g., "write a transition paragraph")
-4. Press Enter to generate — loading spinner appears
+4. Press Enter to generate: loading spinner appears
 5. A **preview panel** appears showing the generated content before it's inserted
 6. Review and choose: **Insert** (`Enter`), **Discard** (`Esc`), or **Redo** (`⌘R`)
 7. On Insert, the text is placed at the cursor position as editable content
@@ -277,21 +290,21 @@ The AI receives: the snippet text + the full essay content (up to a configurable
 9. On Redo, the AI regenerates with the same prompt
 10. Press Escape at any point to cancel entirely
 
-The AI receives: content above the cursor, content below the cursor, the note's goal, and your instruction.
+The AI receives: content above the cursor, content below the cursor, the fragment's goal, and your instruction.
 
 ### How to test
 1. Set your API key in Settings
 2. Write a paragraph, press Enter to start a new line
-3. Type `/` — the inline input should appear
+3. Type `/`: the inline input should appear
 4. Type "add a concluding sentence" and press Enter
 5. Verify the loading state appears
 6. Verify a **preview panel** appears with the generated content
 7. Verify the preview shows your prompt, the generated text, and action buttons (Insert, Discard, Redo)
-8. Press Enter — verify text inserts at the correct position
-9. Repeat and press Escape in the preview — verify it returns to the prompt input
-10. Repeat and press `⌘R` — verify it regenerates with the same prompt
-11. Type `/` then press Escape before submitting — input should dismiss, no generation
-12. In Settings, disable slash commands — `/` should type normally
+8. Press Enter: verify text inserts at the correct position
+9. Repeat and press Escape in the preview: verify it returns to the prompt input
+10. Repeat and press `⌘R`: verify it regenerates with the same prompt
+11. Type `/` then press Escape before submitting: input should dismiss, no generation
+12. In Settings, disable slash commands: `/` should type normally
 
 ### QA checklist
 - [ ] `/` at line start triggers the slash command input
@@ -308,8 +321,8 @@ The AI receives: content above the cursor, content below the cursor, the note's 
 - [ ] Discard button / Escape dismisses preview and returns to prompt input
 - [ ] Redo button / ⌘R regenerates with the same prompt
 - [ ] Escape from the prompt input (before generating) cancels and refocuses the editor
-- [ ] Preview is dismissed when switching notes
-- [ ] Error state shows "Failed — try again" with red styling
+- [ ] Preview is dismissed when switching fragments
+- [ ] Error state shows "Failed: try again" with red styling
 - [ ] Disabling in settings makes `/` type as normal text
 - [ ] Context above and below are correctly extracted
 
@@ -318,52 +331,54 @@ The AI receives: content above the cursor, content below the cursor, the note's 
 ## 9. Sidebar Search (Local Filter)
 
 ### How it works
-A search input in the sidebar filters the note list as you type. Matches against both title and content.
+A search input in the sidebar filters the idea list as you type. Matches against an idea's title and the fragments inside it. Sub-ideas expand automatically while a search is active.
 
 ### How to test
-1. Create 5+ notes with different titles and content
-2. Type in the filter input — list should narrow to matching notes
-3. Clear the input — all notes should reappear
-4. Search for a word that's only in the content (not the title) — should still match
-5. Search for something with no matches — "No matches" empty state should show
+1. Create 5+ ideas with different titles and fragment content
+2. Type in the filter input: the list should narrow to matching ideas
+3. Clear the input: all ideas should reappear
+4. Search for a word that only appears inside a fragment, not in any idea title; the idea holding it should still match
+5. Search for something with no matches: "No matches" empty state should show
 
 ### QA checklist
 - [ ] Filter updates instantly as you type
-- [ ] Matches on title
-- [ ] Matches on content
+- [ ] Matches on idea title
+- [ ] Matches on fragment content
 - [ ] Case insensitive
 - [ ] Clearing input restores full list
 - [ ] "No matches" shows when nothing matches
-- [ ] Active note stays highlighted even when filtered
+- [ ] The open idea stays highlighted even when filtered
+- [ ] Collapsed sub-ideas expand while a search is active
 
 ---
 
 ## 10. Global Search
 
 ### How it works
-`Cmd+Shift+F` opens a centered overlay that searches across ALL notes:
-- Type to search — results update as you type
-- Each result shows the note title, a content snippet with context, and the timestamp
-- Click a result to open that note and close the overlay
+`Cmd+Shift+F` opens a centered overlay that searches across ALL fragments:
+- Type to search: results update as you type
+- Each result shows the fragment title, a content snippet with context, the idea it belongs to, and the timestamp
+- Click a result to open that fragment and close the overlay
 - Escape closes the overlay
 
 ### How to test
-1. Create 5+ notes with different content
-2. Press `Cmd+Shift+F` — overlay should appear with autofocused input
-3. Type a word — matching notes should appear as results
-4. Click a result — the note should open in the editor and the overlay should close
-5. Press Escape — overlay should close without changing the active note
-6. Click outside the overlay — should close
+1. Create 5+ fragments across different ideas, with different content
+2. Press `Cmd+Shift+F`: overlay should appear with autofocused input
+3. Type a word: matching fragments should appear as results
+4. Click a result: a draft should open in the editor, a short-form fragment should open focused in its idea's feed, and the overlay should close
+5. Press Escape: overlay should close without changing what is open
+6. Click outside the overlay: should close
 
 ### QA checklist
 - [ ] `Cmd+Shift+F` opens the overlay
 - [ ] Input is autofocused
 - [ ] Results update as you type
-- [ ] Results show title, content snippet, and timestamp
-- [ ] Clicking a result opens the note and closes overlay
+- [ ] Results show title, content snippet, owning idea, and timestamp
+- [ ] Clicking a result opens that fragment and closes the overlay
+- [ ] A long-form result opens in the editor; a short-form result opens focused in the feed
 - [ ] Escape closes the overlay
 - [ ] Clicking outside closes the overlay
-- [ ] "No notes match" shows for zero results
+- [ ] "No fragments match" shows for zero results
 - [ ] Results are sorted by most recently modified
 
 ---
@@ -373,9 +388,9 @@ A search input in the sidebar filters the note list as you type. Matches against
 ### How it works
 Click the gear icon at the bottom of the sidebar to open settings. Settings takes over the entire three-panel layout:
 
-- **Left panel**: Settings navigation (replaces sidebar) — Writing Style, Photo Generation, AI
+- **Left panel**: Settings navigation (replaces sidebar): Writing Style, Photo Generation, AI
 - **Center panel**: Active settings section content (replaces editor)
-- **Right panel**: User Profile (replaces Snip Bar) — always visible when settings is open
+- **Right panel**: User Profile (replaces Snip Bar): always visible when settings is open
 
 Press Escape or click the back arrow to return to the editor.
 
@@ -385,13 +400,13 @@ Press Escape or click the back arrow to return to the editor.
 - All fields auto-save on change
 
 **Writing Style (center, via nav):**
-- Voice description textarea — describe your writing tone/style for AI personalization
+- Voice description textarea: describe your writing tone/style for AI personalization
 - Writing sample uploads placeholder (coming soon)
 
 **Photo Generation (center, via nav):**
-- Style presets — 6 built-in (Editorial, Photorealistic, Sketch, Diagram, Minimalist, Watercolor) + custom presets
-- Theme description textarea — natural language style directive prepended to image prompts
-- "Create your own" — form to add custom style presets (name + description)
+- Style presets: 6 built-in (Editorial, Photorealistic, Sketch, Diagram, Minimalist, Watercolor) + custom presets
+- Theme description textarea: natural language style directive prepended to image prompts
+- "Create your own": form to add custom style presets (name + description)
 - Reference images placeholder (coming soon)
 
 **AI (center, via nav):**
@@ -405,21 +420,21 @@ Has its own sub-navigation (Providers, Labeling, Commands, Inline Edit). All fou
 All settings auto-save on change (no save button). Stored in IndexedDB.
 
 ### How to test
-1. Click the gear icon in the sidebar — all three panels should transform to settings
+1. Click the gear icon in the sidebar: all three panels should transform to settings
 2. Left panel should show settings nav, right panel should show user profile
-3. Fill in user profile fields — should persist on page refresh
-4. Click "Writing Style" — center panel should show voice description
-5. Click "Photo Generation" — center panel should show presets, theme, create-your-own
-6. Select a style preset — should highlight with gold border
-7. Create a custom preset — should appear in the grid and be selectable
-8. Delete a custom preset — should remove and fall back to "editorial"
-9. Click "AI" — center panel should show API/Labeling/Commands with sub-nav
+3. Fill in user profile fields: should persist on page refresh
+4. Click "Writing Style": center panel should show voice description
+5. Click "Photo Generation": center panel should show presets, theme, create-your-own
+6. Select a style preset: should highlight with gold border
+7. Create a custom preset: should appear in the grid and be selectable
+8. Delete a custom preset: should remove and fall back to "editorial"
+9. Click "AI": center panel should show API/Labeling/Commands with sub-nav
 10. Sub-nav items should scroll to their section when clicked
-11. Toggle snippet labeling off, create a snippet — should show "—"
-12. Toggle back on, change model, create a snippet — should use new model
-13. Toggle slash command off, type `/` — should type normally
-14. Press Escape — should return to editor view
-15. Reopen settings — values should persist across page refresh
+11. Toggle snippet labeling off, create a snippet: should show "—"
+12. Toggle back on, change model, create a snippet: should use new model
+13. Toggle slash command off, type `/`: should type normally
+14. Press Escape: should return to editor view
+15. Reopen settings: values should persist across page refresh
 
 ### QA checklist
 - [ ] Gear icon opens full-page settings (takes over all three panels)
@@ -462,13 +477,13 @@ All settings auto-save on change (no save button). Stored in IndexedDB.
 | `Cmd+Shift+Z` | Redo (Tiptap) |
 
 ### How to test
-1. Press `Cmd+H` — Snip Bar should toggle
-2. Press `Cmd+\` — sidebar should toggle
-3. Press `Cmd+Shift+F` — global search should open
-4. With global search open, press Escape — should close
-5. With settings open, press Escape — should close
-6. On an empty line, type `/` — slash command should trigger
-7. In slash command input, press Escape — should cancel
+1. Press `Cmd+H`: Snip Bar should toggle
+2. Press `Cmd+\`: sidebar should toggle
+3. Press `Cmd+Shift+F`: global search should open
+4. With global search open, press Escape: should close
+5. With settings open, press Escape: should close
+6. On an empty line, type `/`: slash command should trigger
+7. In slash command input, press Escape: should cancel
 
 ### QA checklist
 - [ ] All shortcuts work on first press
@@ -492,7 +507,7 @@ All settings auto-save on change (no save button). Stored in IndexedDB.
 - Reopen via the PanelLeftOpen icon in the editor toolbar, or `Cmd+\`
 - Open/closed state persists across page refreshes and app restarts (saved to localStorage)
 
-**Snip Bar (right panel) — hover-reveal system**
+**Snip Bar (right panel): hover-reveal system**
 The Snip Bar uses a hover-driven open/close in both full-screen and compact window sizes:
 - A small pull-tab (puzzle icon) sits at the right screen edge whenever the panel is closed
 - **Hover to open:** moving the mouse over the pull-tab opens the panel immediately
@@ -502,7 +517,7 @@ The Snip Bar uses a hover-driven open/close in both full-screen and compact wind
 
 **Compact window mode (< 960 px wide)**
 - The snippets panel renders as a floating overlay that slides in from the right, so it never squeezes the editor
-- The sidebar (left) stays open independently — it is not affected by the snippets panel state
+- The sidebar (left) stays open independently: it is not affected by the snippets panel state
 - Snippets panel additionally closes on click-outside and on `Escape`
 - When dragging selected text from the editor, the snippets overlay auto-reveals as a drop target; it collapses again once the drag ends (if not manually opened)
 
@@ -511,15 +526,15 @@ The Snip Bar uses a hover-driven open/close in both full-screen and compact wind
 
 ### How to test
 1. Close the snippets panel (`Cmd+H` or the X button inside it)
-2. Hover over the pull-tab at the right screen edge — panel should slide open
-3. Move the mouse out of the panel — panel should collapse after ~300 ms
-4. Move the mouse back in before 300 ms — collapse should cancel
-5. Use `Cmd+H` — helper bar should toggle
-6. Use `Cmd+\` — sidebar should toggle
-7. Close sidebar, reload — sidebar should remain closed (persistence)
-8. Narrow the window below 960 px — snippets panel should become an overlay
-9. In compact mode, hover pull-tab to open overlay, click outside — should close
-10. In compact mode, drag selected text from editor — snippets overlay should auto-appear
+2. Hover over the pull-tab at the right screen edge: panel should slide open
+3. Move the mouse out of the panel: panel should collapse after ~300 ms
+4. Move the mouse back in before 300 ms: collapse should cancel
+5. Use `Cmd+H`: helper bar should toggle
+6. Use `Cmd+\`: sidebar should toggle
+7. Close sidebar, reload: sidebar should remain closed (persistence)
+8. Narrow the window below 960 px: snippets panel should become an overlay
+9. In compact mode, hover pull-tab to open overlay, click outside: should close
+10. In compact mode, drag selected text from editor: snippets overlay should auto-appear
 
 ### QA checklist
 - [ ] Pull-tab visible at right edge when snippets panel is closed
@@ -540,32 +555,34 @@ The Snip Bar uses a hover-driven open/close in both full-screen and compact wind
 
 ### How it works
 All data is stored in IndexedDB via Dexie:
-- **Notes** (id, title, content, goal, timestamps)
-- **Snippets** (id, noteId, content, label, order)
+- **Ideas** (id, title, parentId, priority, timestamps)
+- **Fragments** (id, ideaId, title, body, format, status, brief fields, timestamps) in the `contentPieces` table
+- **Snippets** (id, pieceId, content, label, order)
 - **Settings** (API key, AI config, prompt templates)
 
 Content saves are debounced (500ms). Structural changes (create, delete, reorder) save immediately. Additional save guards fire on `beforeunload` and `visibilitychange`.
 
 ### How to test
-1. Create a note, type content, refresh the page — content should be there
-2. Create snippets, refresh — snippets should be there with their labels
-3. Change settings, refresh — settings should persist
-4. Reorder snippets, refresh — order should persist
-5. Switch to another browser tab and back — no data loss
-6. Close the tab entirely, reopen — all data should be intact
-7. Create a note in one session, open a new tab — note should appear (same IndexedDB)
+1. Create an idea, type content into its fragment, refresh the page: content should be there
+2. Create snippets, refresh: snippets should be there with their labels
+3. Change settings, refresh: settings should persist
+4. Reorder snippets, refresh: order should persist
+5. Switch to another browser tab and back: no data loss
+6. Close the tab entirely, reopen: all data should be intact
+7. Create an idea in one session, open a new tab: it should appear (same IndexedDB)
 
 ### QA checklist
-- [ ] Notes persist across refresh
+- [ ] Ideas and fragments persist across refresh
 - [ ] Snippets persist across refresh
 - [ ] Snippet order persists across refresh
 - [ ] Snippet labels persist across refresh
 - [ ] Settings persist across refresh
 - [ ] No data loss on tab switch (visibilitychange save)
 - [ ] No data loss on tab close (beforeunload save)
-- [ ] Active note restores on reload (most recent)
-- [ ] Deleting a note also deletes its snippets from IndexedDB
-- [ ] Deleting a note also deletes its version snapshots from IndexedDB
+- [ ] The active fragment and its idea both restore on reload
+- [ ] Deleting a fragment also removes its snippets from IndexedDB
+- [ ] Deleting a fragment also removes its version snapshots from IndexedDB
+- [ ] The one-entity migration runs once at startup before hydration; a failed run blocks the UI with the migration-failed screen instead of rendering a partial library
 
 ---
 
@@ -574,25 +591,25 @@ Content saves are debounced (500ms). Structural changes (create, delete, reorder
 ### How it works
 The export menu provides four ways to share your writing. Click the **Share icon** in the editor toolbar to open the dropdown:
 
-- **Copy as Markdown** — copies the raw markdown to your clipboard
-- **Copy as HTML** — copies rendered HTML to your clipboard (paste into rich-text editors, emails, etc.)
-- **Download as .md** — downloads a markdown file named after your note title
-- **Download as .html** — downloads a styled HTML file matching Fragment's visual identity (dark theme, DM Serif Display headings, gold accents)
+- **Copy as Markdown**: copies the raw markdown to your clipboard
+- **Copy as HTML**: copies rendered HTML to your clipboard (paste into rich-text editors, emails, etc.)
+- **Download as .md**: downloads a markdown file named after your draft's title
+- **Download as .html**: downloads a styled HTML file matching Fragment's visual identity (dark theme, DM Serif Display headings, gold accents)
 
 **Every export action automatically creates a version snapshot** in the timeline, so you always know what you exported and when.
 
 ### How to test
-1. Write some content in a note with a title
-2. Click the Share icon in the toolbar — dropdown should appear
-3. Click "Copy as Markdown" — paste in a text editor, verify raw markdown
-4. Click "Copy as HTML" — paste in Google Docs or email, verify formatted text
-5. Click "Download as .md" — verify file downloads with correct filename and content
-6. Click "Download as .html" — open the file in a browser, verify it renders with Fragment styling
-7. After each export, open the Timeline (`Cmd+T`) — verify a version snapshot was created
-8. Click outside the dropdown — it should close
+1. Write some content in a draft with a title
+2. Click the Share icon in the toolbar: dropdown should appear
+3. Click "Copy as Markdown": paste in a text editor, verify raw markdown
+4. Click "Copy as HTML": paste in Google Docs or email, verify formatted text
+5. Click "Download as .md": verify file downloads with correct filename and content
+6. Click "Download as .html": open the file in a browser, verify it renders with Fragment styling
+7. After each export, open the Timeline (`Cmd+T`): verify a version snapshot was created
+8. Click outside the dropdown: it should close
 
 ### QA checklist
-- [ ] Share icon visible in toolbar when a note is active
+- [ ] Share icon visible in toolbar when a draft is open
 - [ ] Dropdown opens on click, closes on click outside
 - [ ] Copy as Markdown copies correct markdown to clipboard
 - [ ] Copy as HTML copies rendered HTML to clipboard
@@ -612,7 +629,7 @@ The timeline tracks the history of your document through named snapshots. It rep
 
 **Creating versions:**
 - **Manual snapshots**: Click "Save snapshot" in the timeline panel, name it, press Enter
-- **Quick save**: Press `Cmd+S` — creates a "Quick save" snapshot instantly
+- **Quick save**: Press `Cmd+S`: creates a "Quick save" snapshot instantly
 - **Auto-snapshots on export**: Every export action (copy or download) creates a version with the export type as the name
 
 **Viewing the timeline:**
@@ -635,20 +652,22 @@ The timeline tracks the history of your document through named snapshots. It rep
 
 **Deleting versions:**
 - Hover over a version, click the three-dot menu, click "Delete"
-- Deleting a note cascade-deletes all its versions
+- Deleting a fragment cascade-deletes all its versions
+
+Versions are keyed by fragment (`pieceVersions`). A fragment migrated from the old note model carries its old timeline forward through `legacyNoteId`, so its history stays continuous across the switchover.
 
 ### How to test
-1. Open a note and press `Cmd+T` — timeline panel should appear
-2. Click "Save snapshot", name it "First draft", press Enter — version should appear
-3. Make edits, press `Cmd+S` — "Quick save" snapshot should appear with toast
-4. Export via Share menu — export-triggered version should appear (outlined dot)
-5. Click a version — editor should become read-only with preview banner
-6. Click "Back to current" — editor should return to live document
-7. Click "Restore this version" — content should change, toast should confirm, a "Before restore" snapshot should appear
-8. Hover a version, click three-dot menu, click "Delete" — version should be removed
-9. Press `Cmd+H` — should switch from timeline to helper bar
-10. Refresh the page, reopen timeline — versions should persist
-11. Delete the note — all versions should be deleted too
+1. Open a draft and press `Cmd+T`: timeline panel should appear
+2. Click "Save snapshot", name it "First draft", press Enter: version should appear
+3. Make edits, press `Cmd+S`: "Quick save" snapshot should appear with toast
+4. Export via Share menu: export-triggered version should appear (outlined dot)
+5. Click a version: editor should become read-only with preview banner
+6. Click "Back to current": editor should return to live document
+7. Click "Restore this version": content should change, toast should confirm, a "Before restore" snapshot should appear
+8. Hover a version, click three-dot menu, click "Delete": version should be removed
+9. Press `Cmd+H`: should switch from timeline to helper bar
+10. Refresh the page, reopen timeline: versions should persist
+11. Delete the fragment: all versions should be deleted too
 
 ### QA checklist
 - [ ] Clock icon toggles timeline panel
@@ -671,7 +690,8 @@ The timeline tracks the history of your document through named snapshots. It rep
 - [ ] Version context menu has Restore and Delete options
 - [ ] Deleting a version removes it from the list
 - [ ] Versions persist across page refresh
-- [ ] Deleting a note cascade-deletes its versions
+- [ ] Deleting a fragment cascade-deletes its versions
+- [ ] A migrated fragment shows the versions it had as a note, in one continuous timeline
 - [ ] Empty state shows when no versions exist
 - [ ] Timeline panel matches Fragment's design system
 
@@ -690,12 +710,12 @@ The help panel shows:
 - Brief descriptions of how each feature works
 
 ### How to test
-1. Click the `?` button in the sidebar — help overlay should open
-2. Press `Cmd+/` — help overlay should open
+1. Click the `?` button in the sidebar: help overlay should open
+2. Press `Cmd+/`: help overlay should open
 3. Verify all shortcuts are listed and accurate
 4. Verify feature descriptions match actual behavior
-5. Press Escape — overlay should close
-6. Click outside — overlay should close
+5. Press Escape: overlay should close
+6. Click outside: overlay should close
 
 ### QA checklist
 - [ ] Help button visible in sidebar
@@ -711,31 +731,33 @@ The help panel shows:
 ## 18. Inline Editing (Refine)
 
 ### How it works
-When you select text in the editor, a floating toolbar (bubble menu) appears above the selection with four actions:
+When you select text in the editor, a floating toolbar (bubble menu) appears above the selection with five actions:
 
-1. **Snip** — Adds the selected text as a snippet to the Snip Bar (same behavior as the old toolbar Snip button, now integrated into the Refine menu)
-2. **Concise** — AI rewrites the selection to be tighter, removing redundancy while preserving meaning
-3. **Elaborate** — AI expands the selection with more detail, examples, or nuance while keeping the same voice
-4. **Edit** — Opens a custom text input field where you type any instruction (e.g., "make this funnier", "rewrite as a question", "add a statistic")
+1. **Snip**: Adds the selected text as a snippet to the Snip Bar (same behavior as the old toolbar Snip button, now integrated into the Refine menu)
+2. **Idea**: Files the selection as a new idea of its own, holding one fragment with that text. Non-destructive: the draft is left exactly as it was, and the confirmation toast offers a jump rather than performing one
+3. **Concise**: AI rewrites the selection to be tighter, removing redundancy while preserving meaning
+4. **Elaborate**: AI expands the selection with more detail, examples, or nuance while keeping the same voice
+5. **Edit**: Opens a custom text input field where you type any instruction (e.g., "make this funnier", "rewrite as a question", "add a statistic")
 
-All AI edits are **context-aware** — they receive the text before the selection, the text after the selection, and the note's goal/audience/tone/remember fields. This means the AI understands the full document when making changes, not just the highlighted text. That's the money.
+All AI edits are **context-aware**: they receive the text before the selection, the text after the selection, and the fragment's goal/audience/tone/remember fields, plus the resolved brand voice. This means the AI understands the full document when making changes, not just the highlighted text. That's the money.
 
-The edited text replaces the selection in place. It's a normal edit — you can undo it with `Cmd+Z`.
+The edited text replaces the selection in place. It's a normal edit: you can undo it with `Cmd+Z`.
 
 ### How to test
 1. Set your API key in Settings
 2. Write a few paragraphs, set a goal, audience, and tone
 3. Select a sentence and verify the floating toolbar appears above the selection
-4. Click **Snip** — verify the text is added as a snippet to the Snip Bar
-5. Select another sentence, click **Concise** — verify loading state appears, then the sentence is replaced with a shorter version
-6. Select text, click **Elaborate** — verify it's replaced with a more detailed version
-7. Select text, click **Edit** — verify the custom input appears
-8. Type "rewrite as a question" and press Enter — verify the text is replaced
-9. Press `Cmd+Z` after any edit — verify undo works (original text is restored)
-10. Click away (deselect) — verify the toolbar disappears
-11. In Settings, disable Inline Edit — verify the toolbar does not appear on selection
-12. In Settings, change the model or prompt template — verify new edits use the new config
-13. Try with no API key — verify the toolbar still shows but edits gracefully fail (no crash)
+4. Click **Snip**: verify the text is added as a snippet to the Snip Bar
+5. Select a multi-paragraph passage and click **Idea**: verify a new idea appears in the sidebar titled from the text, holding one fragment with that text as paragraphs; that the draft is unchanged; that you have not been navigated away; and that the toast's "Open" jumps to the new idea
+6. Select another sentence, click **Concise**: verify loading state appears, then the sentence is replaced with a shorter version
+7. Select text, click **Elaborate**: verify it's replaced with a more detailed version
+8. Select text, click **Edit**: verify the custom input appears
+9. Type "rewrite as a question" and press Enter: verify the text is replaced
+10. Press `Cmd+Z` after any edit: verify undo works (original text is restored)
+11. Click away (deselect): verify the toolbar disappears
+12. In Settings, disable Inline Edit: verify the toolbar does not appear on selection
+13. In Settings, change the model or prompt template: verify new edits use the new config
+14. Try with no API key: verify the toolbar still shows but edits gracefully fail (no crash)
 
 ### QA checklist
 - [ ] Floating toolbar appears above text selection
@@ -743,6 +765,10 @@ The edited text replaces the selection in place. It's a normal edit — you can 
 - [ ] Toolbar does not appear during version preview mode
 - [ ] Toolbar does not appear when Refine is disabled in settings
 - [ ] Snip button adds selection as snippet and opens Snip Bar
+- [ ] Idea button creates a new idea with one fragment holding the selected text
+- [ ] Idea leaves the draft byte-for-byte unchanged and does not navigate away
+- [ ] A multi-paragraph selection arrives as paragraphs, not one run-on line
+- [ ] The Idea toast's action opens the new idea
 - [ ] Concise replaces selection with shorter text
 - [ ] Elaborate replaces selection with expanded text
 - [ ] Edit opens custom input field
@@ -756,7 +782,7 @@ The edited text replaces the selection in place. It's a normal edit — you can 
 - [ ] No crash when API key is missing
 - [ ] Refine settings (provider, model, prompt, context limit) are applied
 - [ ] Toolbar has fadeIn animation and matches design system
-- [ ] Dividers separate Snip from edit actions and edit actions from custom Edit
+- [ ] Dividers separate Snip and Idea from edit actions, and edit actions from custom Edit
 
 ---
 
@@ -764,55 +790,53 @@ The edited text replaces the selection in place. It's a normal edit — you can 
 
 ### How it works
 
-Every idea gets a second writing space alongside its long-form note: **Write** (the editor covered above) and **Pieces**, a short-form feed for that idea's LinkedIn posts, tweets, Substack drafts, and other short-form content. Toggle between them with the **Write | Pieces** segmented control at the top of the center panel, or `⌘1` / `⌘2`.
+Every idea has two writing spaces: **Write**, the long-form editor covered above, and the **fragment feed**, holding that idea's LinkedIn posts, tweets, Substack drafts, and other short-form content. Toggle between them with the segmented control at the top of the center panel, or `⌘1` / `⌘2`.
 
-**Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **Piece** always belongs to an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` moves `inbox → in-progress → ready → published`.
+**Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **fragment** always belongs to an idea and always holds its own text in `body`: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` moves `inbox → in-progress → ready → published`. A fragment whose format is long-form (`essay`, `substack`, `script`) is a **draft** and belongs in the editor rather than the feed. Which space a fragment appears in is a function of its format and nothing else.
 
-**Three columns when an idea is open.** The sidebar navigates *across* ideas; opening one adds an **idea workspace** column beside it showing what's *inside* that idea — its drafts and its pieces — with the writing surface to the right of that:
+**Three columns when an idea is open.** The sidebar navigates *across* ideas; opening one adds an **idea workspace** column beside it showing what's *inside* that idea: its drafts and its short-form fragments: with the writing surface to the right of that:
 
 ```
-[ Sidebar: ideas + standalone notes ] [ Idea workspace: drafts + pieces ] [ Editor or Pieces feed ] [ Snip Bar ]
+[ Sidebar: ideas ] [ Idea workspace: drafts + fragments ] [ Editor or fragment feed ] [ Snip Bar ]
 ```
 
 The workspace mirrors where you are in the feed: the piece with roving focus gets the gold rail and a lit row, and hovering a card in the feed lights up its row here (and vice versa). Status is the dot on the left of each row: grey inbox, blue in progress, gold ready, green published.
 
-The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form notes with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Pieces** lists the short-form feed (rolled up through child ideas, newest first, capped at 12 with a "N more" link); clicking any of them opens the Pieces space. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace — `⌘\` brings the sidebar back.
+The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form fragments with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Fragments** lists the short-form feed (rolled up through child ideas, newest first, capped at 12 with a "N more" link); clicking any of them opens the feed. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace: `⌘\` brings the sidebar back.
 
-**Ideas in the sidebar (managing the container itself):** the bulb button beside "New note" creates an idea and drops straight into renaming it. Rows are a single line each and sub-ideas start collapsed, so a long list stays scannable; hovering a row shows `N drafts · M pieces` (short-form only — drafts are listed by name in the workspace instead of counted twice). A gold number on the right of a row counts pieces waiting in that idea's inbox. Sub-ideas expand automatically when one of them is the open idea, or while a search is active.
+**Ideas in the sidebar (managing the container itself):** "New idea" creates an idea *and its first fragment* in one step and drops straight into renaming it. The sidebar lists ideas only; there is no standalone-notes section, because there is nothing that can live outside an idea. Rows are a single line each and sub-ideas start collapsed, so a long list stays scannable; hovering a row shows `N drafts · M fragments` (short-form only: drafts are listed by name in the workspace instead of counted twice). A gold number on the right of a row counts fragments waiting in that idea's inbox. Sub-ideas expand automatically when one of them is the open idea, or while a search is active.
 
-Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and pieces with a single Undo toast; the underlying notes are never deleted, they just return to the standalone **Notes** list below.
+Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and fragments with a single Undo toast, and Undo restores exactly those.
 
-**How a note ends up inside an idea:** any note created while an idea is open belongs to that idea — blank, pasted, imported, or AI-generated. The link is itself a piece (`format: essay`, `status: in-progress`) whose content home is the note (`noteId`) rather than inline text. That's also why an idea's drafts never appear as cards in its Pieces feed: long-form text is edited in the editor, short-form text in a card. Notes belonging to an idea are filtered out of the standalone Notes list, since they're reachable under their idea.
+**Everything written inside an idea belongs to it.** A fragment created while an idea is open belongs to that idea, whether it was typed, pasted, imported, or AI-generated, and whether it ends up short or long. There is no separate document to link and no unfiled list to fall into. An idea's drafts never appear as cards in its feed because long-form text is edited in the editor and short-form text in a card, which is the same distinction the format field already makes.
 
-**Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default — see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
+**Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default: see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
 
-**Clearing the inbox.** An inbox is only worth having if it can reach zero, so the Pieces space opens on the **Inbox** filter whenever that idea has anything untriaged, and every inbox card carries a triage row of one-click exits:
+**Clearing the inbox.** An inbox is only worth having if it can reach zero, so the feed opens on the **Inbox** filter whenever that idea has anything untriaged, and every inbox card carries a triage row of one-click exits:
 
 | Action | What it does |
 |---|---|
 | **Work on it** | Status → `in-progress`. You're keeping it. |
 | **Ready to ship** | Status → `ready`, the publish queue. Good as it stands. |
 | **Dismiss** | Soft-deletes it, with an Undo toast. Same operation as `Backspace` on a focused card. |
-| **Make it a draft** | Long-form formats only (`essay`, `substack`, `script`). Moves the piece's text into a new note in this idea and opens the editor. |
+| **Make it a draft** | Long-form formats only (`essay`, `substack`, `script`). Opens the fragment in the editor. |
 
-**Make it a draft** is the answer to an agent dropping a 900-word Substack piece into a feed of tweets: the piece keeps its id, origin, `agentMeta`, priority and resources, and only its *content home* changes from `body` to `noteId` (`convertPieceToDraft` in `content-store.ts`). Because the exactly-one-content-home rule is what separates the two spaces, the swap alone removes it from the Pieces feed and lists it under **Drafts** — no copy, no duplicate, nothing orphaned. Undo reverts the body byte-for-byte and deletes the note it created (in that order: deleting a note tombstones every piece linking it).
+**Make it a draft** is the answer to an agent dropping a 900-word Substack piece into a feed of tweets. In the one-entity model this is not a conversion: the fragment already holds its own text, so nothing is created, copied, or moved. Its format is long-form, which is what makes it a draft, so it leaves the feed and appears under **Drafts** in the workspace with the same id, body, brief, voice, origin, `agentMeta`, priority, resources, snips, and version history it already had. The old model needed `convertPieceToDraft` to move a piece's text into a new note and swap its content home; that function and its `revertPieceToShortform` counterpart no longer exist, and neither does the exactly-one-content-home rule they served.
 
-The triage row only exists while a piece's status is `inbox`; once triaged, the card goes back to being just the piece. The idea workspace mirrors this, listing untriaged pieces under a gold **Inbox N · needs a decision** heading above the rest.
+The triage row only exists while a fragment's status is `inbox`; once triaged, the card goes back to being just the fragment. The idea workspace mirrors this, listing untriaged fragments under a gold **Inbox N · needs a decision** heading above the rest.
 
 **One piece per page.** The feed is a deck, not a scroll. Each piece fills the viewport: its meta row is pinned to the top, its triage row and footer to the bottom, and only its text moves in between. Run off the end of a long piece and the scroll chains outward and snaps to the next one (`scroll-snap-type: y mandatory` with `scroll-snap-stop: always`, so a fast flick can't skip a piece). The meta row carries a `3/12` locator. This replaced a continuous feed of hairline-separated cards, where reading one piece meant watching the next slide halfway into frame.
 
-**Reading vs editing a piece:** reading shows *rendered* markdown — headings, bold, lists, links, blockquotes, with single line breaks preserved as line breaks (X and LinkedIn post them verbatim). Clicking in swaps to the raw markdown in a plain textarea, so what you edit and publish is byte-exact; the stored string is never rewritten by a rendering pass, and the char count always reflects the raw text.
+**Reading vs editing a piece:** reading shows *rendered* markdown: headings, bold, lists, links, blockquotes, with single line breaks preserved as line breaks (X and LinkedIn post them verbatim). Clicking in swaps to the raw markdown in a plain textarea, so what you edit and publish is byte-exact; the stored string is never rewritten by a rendering pass, and the char count always reflects the raw text.
 
 **Live markdown while typing.** The editing textarea isn't bare. A highlighted copy of the same string is painted directly behind it (`src/lib/markdown-highlight.ts`): headings go gold, bold and italic and code and links get styled, and the `##`/`**`/`>`/bullet markers stay on screen but dim back. Two invariants make this safe, and both are enforced by tests:
 
 1. **The text is never touched.** `highlightMarkdown` only wraps spans; stripping them returns the source character for character. It is a highlighter, not a renderer.
 2. **No style may change a glyph's width.** The textarea on top is transparent (`-webkit-text-fill-color: transparent`) and still owns the caret, the selection, undo, spellcheck and IME. If the mirror behind it laid out one pixel differently, the caret would drift off the glyphs. So every `.md-*` rule in `globals.css` is restricted to colour, opacity, background, text-decoration and text-shadow. Faux bold is a `text-shadow`, never `font-weight`. Measured across a mixed-markdown fixture, no character moves more than 0.15px horizontally or at all vertically.
 
-Selected text can also be dragged to a new point within the same piece. The raw substring moves byte-for-byte, including markdown markers, spaces, CRLF line endings, and newlines; dropping over the Snip Bar keeps the existing behavior and cuts that selection into an idea-scoped snippet instead. If the piece changes while a drag is in flight, the stale drop is ignored rather than overwriting newer text.
+This is the reason short-form doesn't use Tiptap: a document model round-trips the text on every save, and "line one.\n\n\n\nline two" comes back as "line one.\n\nline two". For a tweet spaced on purpose, that's a rewrite. Fragments that *want* a document model are drafts, and drafts open in the Tiptap editor.
 
-This is the reason short-form doesn't use Tiptap: a document model round-trips the text on every save, and "line one.\n\n\n\nline two" comes back as "line one.\n\nline two". For a tweet spaced on purpose, that's a rewrite. Long-form pieces that *want* a document model have **Make it a draft**, which moves them into the Tiptap editor.
-
-**Unseen indicators:** a pulsing gold dot appears on an unseen piece's card, on the Pieces tab of the Write | Pieces toggle (rolled up through child ideas), and next to an idea's title in the sidebar — the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment it takes focus (click, `J`/`K`, or a jump from the idea workspace), since a focused card is readable without editing it.
+**Unseen indicators:** a pulsing gold dot appears on an unseen fragment's card, on the feed tab of the space toggle (rolled up through child ideas), and next to an idea's title in the sidebar: the sidebar dot only lights up for agent-origin unseen pieces, not ones you created yourself. A piece is marked seen the moment it takes focus (click, `J`/`K`, or a jump from the idea workspace), since a focused card is readable without editing it.
 
 **Triage keyboard shortcuts** (active while a piece card has roving focus, not while editing its text):
 
@@ -822,7 +846,7 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 | `K` / `↑` | Move focus to the previous card |
 | `Enter` | Open the focused card's textarea for editing |
 | `Esc` | Exit editing, back to roving focus |
-| `S` | Cycle status: inbox → in-progress → ready (never jumps to published — that requires an actual publish action) |
+| `S` | Cycle status: inbox → in-progress → ready (never jumps to published: that requires an actual publish action) |
 | `P` | Cycle priority |
 | `C` | Copy the focused piece's exact body text to the clipboard |
 | `N` | Create a new piece |
@@ -830,49 +854,49 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 | `Backspace` | Delete the focused piece (soft-delete, with an Undo toast) |
 | `⌘Enter` | While editing a piece's text, draft it via Flow |
 
-**Nested idea roll-up:** viewing a parent idea's Pieces space shows its own pieces plus its direct children's pieces in one feed (filter counts included). A run of pieces belonging to a child idea gets a small section header naming that child, so you can tell whose pieces you're looking at.
+**Nested idea roll-up:** viewing a parent idea's feed shows its own fragments plus its direct children's fragments in one feed (filter counts included). A run of pieces belonging to a child idea gets a small section header naming that child, so you can tell whose pieces you're looking at.
 
-**Resources & inheritance:** attach a link, note, or asset to an idea from the collapsible "Resources" rail at the top of the Pieces feed (or to a single piece from its card menu). A child idea's pieces see everything attached to their own idea *and* everything attached to the parent idea — inherited entries show a `from <parent idea>` tag and can't be removed or edited from the child's view (the source of truth stays on the parent).
+**Resources & inheritance:** attach a link, note, or asset to an idea from the collapsible "Resources" rail at the top of the fragment feed (or to a single fragment from its card menu). A child idea's pieces see everything attached to their own idea *and* everything attached to the parent idea: inherited entries show a `from <parent idea>` tag and can't be removed or edited from the child's view (the source of truth stays on the parent).
 
-**Draft with Flow, and getting out of it.** `⌘⏎` in a piece's textarea (or ⋯ → Draft with Flow) generates a first draft through the same provider plumbing as the editor's `/` command, streaming into the card. While it runs the piece is read-only and a **Stop** button sits in the footer: stopping keeps whatever has already streamed, the same bargain the long-form editor's Stop makes. The generating flag is cleared from the request promise's `finally`, not from its callbacks — an aborted generation deliberately settles neither `onDone` nor `onError` (see the note in `use-slash-command.ts`), and clearing in the callbacks alone left the piece read-only until the page was reloaded. A card that unmounts mid-stream aborts its own request.
+**Draft with Flow, and getting out of it.** `⌘⏎` in a piece's textarea (or ⋯ → Draft with Flow) generates a first draft through the same provider plumbing as the editor's `/` command, streaming into the card. While it runs the piece is read-only and a **Stop** button sits in the footer: stopping keeps whatever has already streamed, the same bargain the long-form editor's Stop makes. The generating flag is cleared from the request promise's `finally`, not from its callbacks: an aborted generation deliberately settles neither `onDone` nor `onError` (see the note in `use-slash-command.ts`), and clearing in the callbacks alone left the piece read-only until the page was reloaded. A card that unmounts mid-stream aborts its own request.
 
-**Menus stay on screen.** Every dropdown that hangs off a low-sitting trigger — a piece's Share and ⋯ menus (their footer is pinned to the bottom of the page), the editor's Share menu, a sidebar idea's ⋯ menu — measures itself against the space above and below before opening (`src/hooks/use-menu-placement.ts`). It prefers opening downward, flips up when down doesn't fit and there's more room above, and caps its height either way so a menu taller than the window scrolls inside itself instead of putting its last item out of reach. Re-measured on resize, on scroll, and when the menu's own content grows (submenus, the inline "Mark as published…" and "Schedule…" forms).
+**Menus stay on screen.** Every dropdown that hangs off a low-sitting trigger: a piece's Share and ⋯ menus (their footer is pinned to the bottom of the page), the editor's Share menu, a sidebar idea's ⋯ menu: measures itself against the space above and below before opening (`src/hooks/use-menu-placement.ts`). It prefers opening downward, flips up when down doesn't fit and there's more room above, and caps its height either way so a menu taller than the window scrolls inside itself instead of putting its last item out of reach. Re-measured on resize, on scroll, and when the menu's own content grows (submenus, the inline "Mark as published…" and "Schedule…" forms).
 
 **Publish by copy:** each piece's **Share ▾** menu offers platform-appropriate actions:
-- **Copy for X / LinkedIn / Substack** — copies the piece's body formatted for that platform. Tweet and LinkedIn copies are byte-for-byte the raw text, not even trimmed. Substack copies a rich HTML flavor (for pasting into Substack's editor) plus a plain-text fallback. Every copy shows the toast "Copied — whitespace preserved."
-- **Open X composer** / **Open Substack editor** — opens that platform's own compose page in a new tab, pre-filled where the platform's URL scheme allows it (X only).
-- **Publish to Substack** — copies the body, opens the Substack editor, and starts the verified-publish loop: Fragment polls your publication's RSS feed in the background and flips the piece to `published` (verified) once a matching title appears. No modal, no manual "did it go live" step — a gold "awaiting confirmation" badge shows while pending, becoming a gentle nudge after 24 hours.
-- **Publish to Kit (draft)** / **Schedule on Kit** — a real one-click call to Kit's (formerly ConvertKit) v4 API, gated on a Kit API key in Settings and only shown for long-form-ish formats (substack, essay, other). A draft doesn't flip status; scheduling does, immediately, since Kit's API response is itself the confirmation.
-- **Publish to LinkedIn** — a real call via Composio, gated on a Composio API key and a connected LinkedIn account in Settings → Integrations. Succeeds or fails in one round trip; success flips status to `published` immediately.
-- **Mark ready & copy**, **Mark as published…**, **Schedule…** — manual escape hatches that don't depend on any of the above.
+- **Copy for X / LinkedIn / Substack**: copies the piece's body formatted for that platform. Tweet and LinkedIn copies are byte-for-byte the raw text, not even trimmed. Substack copies a rich HTML flavor (for pasting into Substack's editor) plus a plain-text fallback. Every copy shows the toast "Copied: whitespace preserved."
+- **Open X composer** / **Open Substack editor**: opens that platform's own compose page in a new tab, pre-filled where the platform's URL scheme allows it (X only).
+- **Publish to Substack**: copies the body, opens the Substack editor, and starts the verified-publish loop: Fragment polls your publication's RSS feed in the background and flips the piece to `published` (verified) once a matching title appears. No modal, no manual "did it go live" step: a gold "awaiting confirmation" badge shows while pending, becoming a gentle nudge after 24 hours.
+- **Publish to Kit (draft)** / **Schedule on Kit**: a real one-click call to Kit's (formerly ConvertKit) v4 API, gated on a Kit API key in Settings and only shown for long-form-ish formats (substack, essay, other). A draft doesn't flip status; scheduling does, immediately, since Kit's API response is itself the confirmation.
+- **Publish to LinkedIn**: a real call via Composio, gated on a Composio API key and a connected LinkedIn account in Settings → Integrations. Succeeds or fails in one round trip; success flips status to `published` immediately.
+- **Mark ready & copy**, **Mark as published…**, **Schedule…**: manual escape hatches that don't depend on any of the above.
 
 ### How to test
 
 1. **Enable the agent inbox.** In `.env.local` (or your shell), set `FRAGMENT_LOCAL_INGRESS=true` and restart `npm run dev`. Leave `FRAGMENT_INGRESS_TOKEN` unset for a same-machine test.
 2. **Push a batch with the fragment-mcp CLI.** Build it once (`cd packages/fragment-mcp && npm install && npm run build`), then write a contract-format `.md` file (see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact frontmatter) and run `node dist/bin.js push <file.md>`. It should print `queued 1 piece(s); open Fragment to import.` If you point `FRAGMENT_INBOX_DIR` at the same directory the running app uses (default `~/.fragment/inbox`), the app picks the file up within ~10 seconds.
-3. **Watch the inbox badge appear.** Open the idea the piece landed under (or the new root idea it created, if you used `idea_title`) — its sidebar row and the Pieces tab of the Write | Pieces toggle should both show a pulsing gold dot.
-4. **Triage with the keyboard.** Switch to the Pieces space, use `J`/`K` to rove focus onto the new card (the dot should clear once you open it), `S` to cycle its status, `P` to cycle priority, `1`-`4` to jump filters.
-5. **Clear the inbox.** With several pieces in `inbox`, open the Pieces space — it should land on the Inbox filter. Send one to In progress, one to Ready, dismiss one (then Undo it), and on a `substack`-format piece hit **Make it a draft**: the editor should open with its text, the piece should leave the feed and appear under Drafts in the workspace, and the Undo toast should put it back exactly as it was.
-6. **Check byte-exact copy.** Give a piece a body with intentional double spaces, a trailing blank line, and mixed indentation. Use the Share menu's "Copy for X" (or press `C` on a focused card), paste into a plain text editor, and diff it character-for-character against the source — nothing should be trimmed, collapsed, or re-wrapped.
-7. **Substack pending → verified.** Set a Substack publication URL in Settings → Profile, click "Publish to Substack" on a piece — the piece should show an "awaiting confirmation" badge. (Full end-to-end verification needs a real or mock RSS feed with a matching title at `<publicationUrl>/feed` — confirm the badge clears and status flips to `published` once that title appears.)
-8. **Nested idea roll-up.** Create a child idea under a root idea (via `create_idea` with `parentId`, or the sidebar), push pieces into both, then open the parent idea's Pieces space — pieces from both should appear, with the child's pieces under a section header naming it.
-9. **Resources inheritance.** Attach a resource to a parent idea's Resources rail, then open a child idea (or one of its pieces) — the resource should appear there tagged `from <parent idea>`, with no way to remove it from the child's view.
+3. **Watch the inbox badge appear.** Open the idea the piece landed under (or the new root idea it created, if you used `idea_title`): its sidebar row and the feed tab of the space toggle should both show a pulsing gold dot.
+4. **Triage with the keyboard.** Switch to the fragment feed, use `J`/`K` to rove focus onto the new card (the dot should clear once you open it), `S` to cycle its status, `P` to cycle priority, `1`-`4` to jump filters.
+5. **Clear the inbox.** With several fragments in `inbox`, open the feed: it should land on the Inbox filter. Send one to In progress, one to Ready, dismiss one (then Undo it), and on a `substack`-format fragment hit **Make it a draft**: the editor should open with its text, the fragment should leave the feed and appear under Drafts in the workspace, and its id, snips, and version history should be unchanged. Putting it back to a short-form format should return it to the feed with its body byte-for-byte intact.
+6. **Check byte-exact copy.** Give a piece a body with intentional double spaces, a trailing blank line, and mixed indentation. Use the Share menu's "Copy for X" (or press `C` on a focused card), paste into a plain text editor, and diff it character-for-character against the source: nothing should be trimmed, collapsed, or re-wrapped.
+7. **Substack pending → verified.** Set a Substack publication URL in Settings → Profile, click "Publish to Substack" on a piece: the piece should show an "awaiting confirmation" badge. (Full end-to-end verification needs a real or mock RSS feed with a matching title at `<publicationUrl>/feed`: confirm the badge clears and status flips to `published` once that title appears.)
+8. **Nested idea roll-up.** Create a child idea under a root idea (via `create_idea` with `parentId`, or the sidebar), push pieces into both, then open the parent idea's feed: fragments from both should appear, with the child's pieces under a section header naming it.
+9. **Resources inheritance.** Attach a resource to a parent idea's Resources rail, then open a child idea (or one of its pieces): the resource should appear there tagged `from <parent idea>`, with no way to remove it from the child's view.
 
 ### QA checklist
 - [ ] New idea opens directly in rename; Enter commits, Esc cancels, double-click renames later
-- [ ] A note created inside an open idea (blank / paste / import / generate) is listed under that idea, not in Notes
-- [ ] An idea with no draft yet still shows the Write | Pieces toggle and offers to start one
+- [ ] A fragment created inside an open idea (blank / paste / import / generate) is listed under that idea, and there is nowhere else it could land
+- [ ] An idea with no draft yet still shows the space toggle and offers to start one
 - [ ] Opening an idea adds the workspace column; it lists every draft by title and clicking one opens it in the editor
-- [ ] The workspace's Pieces list reflects the feed (incl. child ideas) and clicking an entry opens the Pieces space
+- [ ] The workspace's fragment list reflects the feed (incl. child ideas) and clicking an entry opens the feed
 - [ ] Collapsing the workspace leaves a reopen button in the toolbar of both spaces, and the choice survives a reload
 - [ ] Under 960px, opening an idea collapses the sidebar instead of crushing the editor
-- [ ] Reopening the app restores both the note and the idea it belongs to
-- [ ] Long-form drafts never appear as cards in the Pieces feed
-- [ ] Delete idea removes its sub-ideas and pieces, Undo restores exactly those, and its notes reappear under Notes
-- [ ] Write | Pieces toggle switches spaces and persists per idea for the session
+- [ ] Reopening the app restores both the active fragment and the idea it belongs to
+- [ ] Long-form drafts never appear as cards in the fragment feed
+- [ ] Delete idea removes its sub-ideas and fragments, and Undo restores exactly those
+- [ ] The space toggle switches spaces and persists per idea for the session
 - [ ] `⌘1` / `⌘2` switch spaces
 - [ ] Agent-pushed piece lands in `inbox` status regardless of what the file requested
-- [ ] Unseen dot shows on the piece card, the Pieces tab, and the sidebar idea row (agent-origin only for the sidebar)
+- [ ] Unseen dot shows on the fragment card, the feed tab, and the sidebar idea row (agent-origin only for the sidebar)
 - [ ] Unseen dot clears when the card takes focus, without entering edit mode
 - [ ] A piece with markdown renders formatted while reading and shows raw markdown once clicked into
 - [ ] Single newlines survive as line breaks in the rendered view; char count still counts the raw text
@@ -881,20 +905,19 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 - [ ] Typing `## x`, `**x**`, `*x*`, `` `x` ``, `[a](b)`, `- x`, `> x` styles them live, with the markers dimmed but still visible
 - [ ] The caret stays exactly on the glyphs while typing markdown (no drift on a long wrapped line with bold and headings)
 - [ ] Undo (⌘Z), spellcheck and text selection still work inside a piece
-- [ ] Dragging selected text within a piece reorders the exact substring; dragging it to the Snip Bar still creates a snippet
 - [ ] The workspace row for the focused piece shows the gold rail; hovering a card lights its row
 - [ ] Draft with Flow shows a Stop button while generating; Stop keeps the partial text and leaves the piece editable
 - [ ] A failed, cancelled or stalled generation never leaves a piece stuck read-only (no reload needed)
 - [ ] ⌘⏎ with Flow switched off says so instead of doing nothing
 - [ ] A piece's Share and ⋯ menus open upward when its footer sits at the window's edge, and never run off screen
 - [ ] The editor's Share menu and a sidebar idea's ⋯ menu do the same, scrolling inside themselves on a short window
-- [ ] The Pieces space opens on the Inbox filter when the idea has untriaged pieces, on All when it doesn't
+- [ ] The feed opens on the Inbox filter when the idea has untriaged fragments, on All when it doesn't
 - [ ] Every inbox card shows the triage row; it disappears once the piece is triaged
 - [ ] Work on it / Ready to ship move the piece to that status and out of the Inbox filter
 - [ ] Dismiss removes the piece with a working Undo
-- [ ] Make it a draft appears only for essay / substack / script pieces
-- [ ] Make it a draft opens the editor with the piece's text, lists it under Drafts, and removes it from the feed
-- [ ] Undoing Make it a draft restores the exact body to the feed and leaves no stray note behind
+- [ ] Make it a draft appears only for essay / substack / script fragments
+- [ ] Make it a draft opens the editor with the fragment's own text, lists it under Drafts, removes it from the feed, and creates no second record
+- [ ] Returning it to a short-form format restores the exact body to the feed, keeping the same id, snips, and versions
 - [ ] Sidebar idea rows are one line, sub-ideas collapsed, and the gold badge matches the idea's inbox count
 - [ ] Clicking a piece in the idea workspace focuses and scrolls to that exact card (widening the filter to All if it was hidden)
 - [ ] `J`/`K`/arrows rove focus without wrapping past the first/last card
@@ -904,15 +927,15 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 - [ ] `N` creates a new piece and focuses it for editing
 - [ ] `1`-`4` jump to the matching filter
 - [ ] `Backspace` deletes with an Undo toast
-- [ ] Parent idea's Pieces space rolls up direct children's pieces, with a section header per child
-- [ ] Sidebar shows each idea's own piece count independently (no merged total)
-- [ ] A resource attached to a parent idea appears on child ideas and their pieces, tagged with its source
+- [ ] A parent idea's feed rolls up its direct children's fragments, with a section header per child
+- [ ] Sidebar shows each idea's own fragment count independently (no merged total)
+- [ ] A resource attached to a parent idea appears on child ideas and their fragments, tagged with its source
 - [ ] Inherited resources can't be removed or edited from the child's view
 - [ ] "Copy for X" / "Copy for LinkedIn" preserves whitespace byte-exact
 - [ ] "Publish to Substack" stamps the piece pending and eventually verifies via RSS
 - [ ] "Publish to Kit" / "Schedule on Kit" require a Kit API key and only appear for eligible formats
 - [ ] "Publish to LinkedIn" requires a connected Composio + LinkedIn account
-- [ ] Script-format pieces show no Share menu at all
+- [ ] Script-format fragments show no Share menu at all
 
 ---
 
@@ -920,25 +943,27 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 
 ### How it works
 
-**Send for review** (in the editor's Share menu) downloads a single, self-contained `<title>.review.html` file with your note's rendered content and an inlined review UI — no server, no account, works fully offline once downloaded. Send that file to anyone by any means (email, Slack, a USB stick): they open it in a browser, select any text to leave an anchored comment (or add a general note in the sidebar with no selection), and everything autosaves to that browser's local storage as they go.
+**Send for review** (in the editor's Share menu) downloads a single, self-contained `<title>.review.html` file with your draft's rendered content and an inlined review UI: no server, no account, works fully offline once downloaded. Send that file to anyone by any means (email, Slack, a USB stick): they open it in a browser, select any text to leave an anchored comment (or add a general note in the sidebar with no selection), and everything autosaves to that browser's local storage as they go.
 
 When the reviewer is done, **Send back** downloads a small `<title>.fragment-review.json` file (their comments, name, and timestamp) and opens a pre-filled `mailto:` draft asking them to attach it, since a `mailto:` link can't attach files itself.
 
-Back in Fragment, **Import review** loads that `.fragment-review.json` file and files its comments against the note. **View reviews** opens a panel listing every review received for that note, grouped by reviewer; clicking a comment locates its anchored text in the *current* live document (even if you've since edited around it) and jumps the editor's selection to it. A comment whose anchor text can no longer be found degrades gracefully with a toast, instead of failing.
+Back in Fragment, **Import review** loads that `.fragment-review.json` file and files its comments against the draft. **View reviews** opens a panel listing every review received for that draft, grouped by reviewer; clicking a comment locates its anchored text in the *current* live document (even if you've since edited around it) and jumps the editor's selection to it. A comment whose anchor text can no longer be found degrades gracefully with a toast, instead of failing.
+
+Shares and reviews are filed under a draft's `legacyNoteId ?? id` (`shareKeyFor`), because the server's `shares.note_id` column predates the one-entity model. Review lookups merge both keys. The practical effect to test: a draft that used to be a note still resolves its old share links and still shows the reviews imported against it before the switchover.
 
 ### How to test
 
-1. Write a note with a few paragraphs and give it a title.
-2. Open the Share menu (toolbar icon) and click **Send for review** — a `<title>.review.html` file should download, with a toast confirming it.
-3. Open that downloaded file directly in a browser (double-click it, or drag it into a new tab — no server needed).
-4. On the review page, select a sentence — a "+ Comment" pill should appear; click it, type a comment, save it. The selected text should get a highlight.
+1. Write a draft with a few paragraphs and give it a title.
+2. Open the Share menu (toolbar icon) and click **Send for review**: a `<title>.review.html` file should download, with a toast confirming it.
+3. Open that downloaded file directly in a browser (double-click it, or drag it into a new tab: no server needed).
+4. On the review page, select a sentence: a "+ Comment" pill should appear; click it, type a comment, save it. The selected text should get a highlight.
 5. Add a general comment (no selection) via the sidebar's "Add a general comment" field.
-6. Enter a reviewer name if prompted, then click **Send back** — a `<title>.fragment-review.json` file should download, and a pre-filled email draft should open.
-7. Reload the review page in the browser (or reopen the same file) — your comments should still be there (localStorage autosave).
-8. Back in Fragment, open the same note's Share menu, click **Import review**, and select the `.fragment-review.json` file you just downloaded.
+6. Enter a reviewer name if prompted, then click **Send back**: a `<title>.fragment-review.json` file should download, and a pre-filled email draft should open.
+7. Reload the review page in the browser (or reopen the same file): your comments should still be there (localStorage autosave).
+8. Back in Fragment, open the same draft's Share menu, click **Import review**, and select the `.fragment-review.json` file you just downloaded.
 9. Verify the toast reports the right comment count and reviewer name, and that the review panel opens automatically.
-10. Click a comment in the review panel — the editor should scroll to and select the matching text.
-11. Edit the document so the commented text no longer exists exactly as written, then click that comment again — it should show a "couldn't find that text" toast instead of crashing.
+10. Click a comment in the review panel: the editor should scroll to and select the matching text.
+11. Edit the document so the commented text no longer exists exactly as written, then click that comment again: it should show a "couldn't find that text" toast instead of crashing.
 
 ### QA checklist
 - [ ] "Send for review" downloads a single `.review.html` file and shows a confirmation toast
@@ -949,7 +974,8 @@ Back in Fragment, **Import review** loads that `.fragment-review.json` file and 
 - [ ] Comments and reviewer name persist across a reload of the review page (autosave)
 - [ ] "Send back" downloads a `.fragment-review.json` file and opens a pre-filled `mailto:` draft
 - [ ] "Import review" in Fragment accepts that returned file and reports the comment count and reviewer name
-- [ ] "View reviews" lists every import for the note, grouped by reviewer
+- [ ] "View reviews" lists every import for the draft, grouped by reviewer
 - [ ] Clicking a comment jumps the editor's selection to the matching live text
 - [ ] A comment whose anchor text no longer matches shows a graceful toast, not a crash
 - [ ] Reviewing requires no signup, login, or account on the reviewer's side at any point
+- [ ] A share link minted before the one-entity switchover still opens, and its reviews still list against the migrated draft

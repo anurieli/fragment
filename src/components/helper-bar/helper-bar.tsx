@@ -9,8 +9,8 @@ import { visibleSnippets } from "@/lib/snip-scope";
 import { SnippetCard } from "./snippet-card";
 
 export function HelperBar() {
-  const { activeNoteId, activeIdeaId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
-  const { notes, snippets, addSnippet, reorderSnippets } = useDataStore();
+  const { activePieceId, activeIdeaId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
+  const { snippets, addSnippet, reorderSnippets } = useDataStore();
   const labelSnip = useSnipLabeler();
   const [dragOver, setDragOver] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -30,14 +30,12 @@ export function HelperBar() {
     prevDraggingEditorRef.current = isDraggingToEditor;
   }, [isDraggingToHelper, isDraggingToEditor]);
 
-  const note = activeNoteId ? notes[activeNoteId] : null;
-
-  // Everything cut in the place you're standing: the open draft's snips and
-  // the open idea's (see snip-scope.ts). A piece has no note behind it, so
-  // scoping the bar to the active note alone made snips off a piece invisible.
+  // Everything cut in the place you're standing: the open fragment's snips and
+  // the open idea's (see snip-scope.ts). Scoping the bar to the open fragment
+  // alone would empty it the moment you crossed from Write to the feed.
   const barSnippets = useMemo(
-    () => visibleSnippets(snippets, activeNoteId, activeIdeaId),
-    [snippets, activeNoteId, activeIdeaId],
+    () => visibleSnippets(snippets, activePieceId, activeIdeaId),
+    [snippets, activePieceId, activeIdeaId],
   );
 
   const getDropIndex = useCallback(
@@ -109,8 +107,8 @@ export function HelperBar() {
       const draggedId = draggingSnippetId;
       setDraggingSnippetId(null);
 
-      // Somewhere to file it: the open draft, or the open idea.
-      if (!activeNoteId && !activeIdeaId) return;
+      // Somewhere to file it: the open fragment, or the open idea.
+      if (!activePieceId && !activeIdeaId) return;
 
       // Handle drag-back of pending snippet (reversible drop cancel)
       const pendingReturnData = e.dataTransfer.getData(
@@ -173,10 +171,10 @@ export function HelperBar() {
       if (!content.trim()) return;
 
       // Add snippet first to get its ID for undo tracking. Text dropped in
-      // from the editor is the note's; anything else with no note open is the
-      // idea's.
-      const home = { noteId: activeNoteId && note ? activeNoteId : null, ideaId: activeIdeaId ?? undefined };
-      const snippetId = addSnippet(home.noteId, content, targetIndex, home.ideaId);
+      // from the editor belongs to the open fragment; anything dropped with no
+      // fragment open belongs to the idea.
+      const home = { pieceId: activePieceId, ideaId: activeIdeaId ?? undefined };
+      const snippetId = addSnippet(home.pieceId, content, targetIndex, home.ideaId);
       if (!snippetId) return;
 
       // Tell editor to delete the source text (pass snippetId for undo/redo sync)
@@ -196,9 +194,8 @@ export function HelperBar() {
       useAppStore.getState().setFloatingDragCard(null);
     },
     [
-      activeNoteId,
+      activePieceId,
       activeIdeaId,
-      note,
       barSnippets,
       dropIndex,
       addSnippet,

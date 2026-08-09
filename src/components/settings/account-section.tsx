@@ -109,7 +109,7 @@ export function AccountSection() {
             <div>
               <h3 className="text-sm font-medium text-text-primary">Move or back up your whole library</h3>
               <p className="mt-1 text-[10px] leading-relaxed text-text-faint">
-                Includes articles, ideas, pieces, snippets, history, reviews, settings, Brand Voices, and voice samples. AI and publishing credentials are never included.
+                Includes ideas, fragments, snips, history, reviews, settings, Brand Voices, and voice samples. AI and publishing credentials are never included.
               </p>
             </div>
           </div>

@@ -15,7 +15,7 @@ import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import {
   buildRefineContext,
   buildFlowContext,
-  findLinkedNoteContent,
+  findDraftBodyForIdea,
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
 import {
@@ -141,7 +141,6 @@ export function PieceCard({
   const setPiecePriority = useContentStore((s) => s.setPiecePriority);
   const ideas = useContentStore((s) => s.ideas);
   const allPieces = useContentStore((s) => s.pieces);
-  const notes = useDataStore((s) => s.notes);
   const addSnippet = useDataStore((s) => s.addSnippet);
   const pinHelperBar = useAppStore((s) => s.pinHelperBar);
   const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
@@ -231,8 +230,8 @@ export function PieceCard({
       showToast("Flow is off — turn on slash commands in Settings → AI.");
       return;
     }
-    const linkedNoteContent = findLinkedNoteContent(piece.ideaId, Object.values(allPieces), notes);
-    const ctx = buildFlowContext({ format: piece.format, idea, linkedNoteContent });
+    const draftBody = findDraftBodyForIdea(piece.ideaId, Object.values(allPieces));
+    const ctx = buildFlowContext({ format: piece.format, idea, draftBody });
     const baseBody = piece.body ?? "";
 
     setFlowGenerating(true);
@@ -273,7 +272,6 @@ export function PieceCard({
     flowGenerating,
     piece,
     allPieces,
-    notes,
     idea,
     generateStream,
     updatePiece,
@@ -371,7 +369,7 @@ export function PieceCard({
 
       const snippetId = addSnippet(null, selectedText, atIndex, piece.ideaId);
       if (!snippetId) return;
-      labelSnip(snippetId, selectedText, { noteId: null, ideaId: piece.ideaId });
+      labelSnip(snippetId, selectedText, { pieceId: null, ideaId: piece.ideaId });
 
       updatePiece(piece.id, {
         body: body.slice(0, selection.start) + body.slice(selection.end),
@@ -612,7 +610,7 @@ export function PieceCard({
         )}
 
         <span
-          title={`Piece ${position} of ${total} in this view`}
+          title={`Fragment ${position} of ${total} in this view`}
           className="ml-auto text-[10px] font-[family-name:var(--font-mono)] text-text-faint"
         >
           {position}/{total}
@@ -735,7 +733,7 @@ export function PieceCard({
                     setResourcesOpen(true);
                   }}
                   className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                  title="Reference links, notes, and assets for this piece — including inherited from its idea"
+                  title="Reference links and assets for this fragment, including the ones inherited from its idea"
                 >
                   Resources
                 </button>
@@ -778,7 +776,7 @@ export function PieceCard({
                       ? "Flow is off — turn on slash commands in Settings → AI"
                       : flowGenerating
                         ? "Already generating"
-                        : "Generate a first draft for this piece with AI (⌘⏎)"
+                        : "Generate a first draft for this fragment with AI (⌘⏎)"
                   }
                 >
                   Draft with Flow

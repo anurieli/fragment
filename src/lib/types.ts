@@ -21,12 +21,10 @@ export interface Note {
 export interface Snippet {
   id: string;
   /**
-   * The note this snippet was cut from, or null when it was cut from a
-   * short-form piece — a piece's text lives in the piece, not in any note, so
-   * an idea is the only home such a snippet has. Exactly one of noteId /
-   * ideaId is the snippet's *home* (see snippetHome in snip-scope.ts); a
-   * note-scoped snippet may still carry ideaId so it stays on screen when you
-   * cross from an idea's draft to its pieces.
+   * Retired. The note this snippet was cut from, before fragments held their
+   * own text. Kept so snips written before the one-entity migration can still
+   * be traced back, and so the migration has something to re-key from. New
+   * snips set `pieceId` instead and leave this null.
    */
   noteId: string | null;
   content: string;
@@ -53,7 +51,7 @@ export interface Snippet {
  */
 export interface Comment {
   id: string;
-  noteId: string | null;
+  pieceId: string | null;
   ideaId: string | null;
   body: string;
   createdAt: number;
@@ -326,7 +324,7 @@ export interface FeedbackMetadata {
   userAgent: string;
   timestamp: string;
   screenResolution: string;
-  activeNoteId?: string;
+  activePieceId?: string;
 }
 
 export interface FeedbackSubmission {

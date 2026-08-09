@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // Clear IndexedDB before each test for isolation
 test.beforeEach(async ({ page }) => {
@@ -18,46 +18,59 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test.describe("Note lifecycle", () => {
-  test("can create a new note and see the editor", async ({ page }) => {
-    await page.getByRole("button", { name: "New note" }).click();
+/**
+ * Every fragment lives in an idea, so starting to write is: new idea, then
+ * pick how the first draft begins. The sidebar drops straight into naming the
+ * idea, and Escape leaves it unnamed rather than committing a title the test
+ * does not care about.
+ */
+async function startBlankDraft(page: Page) {
+  await page.getByRole("button", { name: "New idea" }).click();
+  await page.keyboard.press("Escape");
+  await page.getByText("Blank draft").click();
 
-    const editor = page.locator(".ProseMirror");
-    await expect(editor).toBeVisible({ timeout: 5000 });
+  const editor = page.locator(".ProseMirror");
+  await expect(editor).toBeVisible({ timeout: 5000 });
+  return editor;
+}
+
+/** Reads a field off the single fragment the test just created. */
+function readFragmentField(page: Page, field: "title" | "body") {
+  return page.evaluate(async (key: string) => {
+    return new Promise<string>((resolve) => {
+      const req = indexedDB.open("fragment");
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction("contentPieces", "readonly");
+        const store = tx.objectStore("contentPieces");
+        const getAll = store.getAll();
+        getAll.onsuccess = () => {
+          const pieces = getAll.result;
+          resolve(pieces.length > 0 ? (pieces[0][key] ?? "") : "NO_FRAGMENTS");
+        };
+        getAll.onerror = () => resolve("DB_ERROR");
+      };
+      req.onerror = () => resolve("OPEN_ERROR");
+    });
+  }, field);
+}
+
+test.describe("Idea lifecycle", () => {
+  test("can create a new idea and write in its first draft", async ({ page }) => {
+    await startBlankDraft(page);
   });
 
-  test("note title persists after page reload", async ({ page }) => {
-    // Create a note
-    await page.getByRole("button", { name: "New note" }).click();
-    await page.waitForTimeout(300);
+  test("a fragment's title persists after page reload", async ({ page }) => {
+    await startBlankDraft(page);
 
-    // Type into the title input (placeholder "Untitled")
-    const titleInput = page.locator("input[placeholder='Untitled']");
+    const titleInput = page.getByPlaceholder("Untitled", { exact: true });
     await expect(titleInput).toBeVisible({ timeout: 5000 });
     await titleInput.fill("My Persisted Title 9876");
 
     // Wait for save (title updates are immediate, no debounce)
     await page.waitForTimeout(1000);
 
-    // Verify it's in IndexedDB
-    const savedTitle = await page.evaluate(async () => {
-      return new Promise<string>((resolve) => {
-        const req = indexedDB.open("fragment");
-        req.onsuccess = () => {
-          const db = req.result;
-          const tx = db.transaction("notes", "readonly");
-          const store = tx.objectStore("notes");
-          const getAll = store.getAll();
-          getAll.onsuccess = () => {
-            const notes = getAll.result;
-            resolve(notes.length > 0 ? notes[0].title : "NO_NOTES");
-          };
-          getAll.onerror = () => resolve("DB_ERROR");
-        };
-        req.onerror = () => resolve("OPEN_ERROR");
-      });
-    });
-    expect(savedTitle).toBe("My Persisted Title 9876");
+    expect(await readFragmentField(page, "title")).toBe("My Persisted Title 9876");
 
     // Reload
     await page.reload();
@@ -66,44 +79,22 @@ test.describe("Note lifecycle", () => {
       { timeout: 10000 },
     );
 
-    // The title should be visible in the sidebar
+    // The title should still be on the page after hydration
     await expect(page.getByText("My Persisted Title 9876")).toBeVisible({
       timeout: 10000,
     });
   });
 
   test("editor content persists after reload", async ({ page }) => {
-    // Create a note
-    await page.getByRole("button", { name: "New note" }).click();
+    const editor = await startBlankDraft(page);
 
-    const editor = page.locator(".ProseMirror");
-    await expect(editor).toBeVisible({ timeout: 5000 });
-
-    // Type content
     await editor.click();
     await editor.pressSequentially("Persistence content 54321", { delay: 30 });
 
     // Wait for the 500ms debounce + Dexie write
     await page.waitForTimeout(2000);
 
-    // Verify content is in IndexedDB
-    const savedContent = await page.evaluate(async () => {
-      return new Promise<string>((resolve) => {
-        const req = indexedDB.open("fragment");
-        req.onsuccess = () => {
-          const db = req.result;
-          const tx = db.transaction("notes", "readonly");
-          const store = tx.objectStore("notes");
-          const getAll = store.getAll();
-          getAll.onsuccess = () => {
-            const notes = getAll.result;
-            resolve(notes.length > 0 ? notes[0].content : "NO_NOTES");
-          };
-        };
-        req.onerror = () => resolve("ERROR");
-      });
-    });
-    expect(savedContent).toContain("Persistence content 54321");
+    expect(await readFragmentField(page, "body")).toContain("Persistence content 54321");
 
     // Reload
     await page.reload();
@@ -112,62 +103,35 @@ test.describe("Note lifecycle", () => {
       { timeout: 10000 },
     );
 
-    // Wait for editor to render and verify content
     const editorAfter = page.locator(".ProseMirror");
     await expect(editorAfter).toBeVisible({ timeout: 10000 });
 
-    // Give the editor time to hydrate content from the note
+    // Give the editor time to hydrate the fragment's text
     await page.waitForTimeout(2000);
 
-    // Check content — might be in text or innerHTML
     const text = await editorAfter.textContent();
     if (!text?.includes("Persistence content 54321")) {
-      // Content might not have loaded into Tiptap yet — check innerHTML
-      const html = await editorAfter.innerHTML();
-      // Content is stored as markdown and rendered by Tiptap
-      // If it's not showing, the data is still in IDB — verify that
-      const postReloadContent = await page.evaluate(async () => {
-        return new Promise<string>((resolve) => {
-          const req = indexedDB.open("fragment");
-          req.onsuccess = () => {
-            const db = req.result;
-            const tx = db.transaction("notes", "readonly");
-            const store = tx.objectStore("notes");
-            const getAll = store.getAll();
-            getAll.onsuccess = () => {
-              const notes = getAll.result;
-              resolve(notes.length > 0 ? notes[0].content : "NO_NOTES");
-            };
-          };
-          req.onerror = () => resolve("ERROR");
-        });
-      });
-      // Data persisted but Tiptap didn't render — still a passing persistence test
-      // as long as IDB has the data
-      expect(postReloadContent).toContain("Persistence content 54321");
+      // Text is stored as markdown and rendered by Tiptap. If it hasn't made
+      // it into the editor yet, the fragment on disk is what this test is
+      // really about, so check that instead.
+      expect(await readFragmentField(page, "body")).toContain("Persistence content 54321");
     }
   });
 
-  test("can delete a note", async ({ page }) => {
-    // Create two notes
-    await page.getByRole("button", { name: "New note" }).click();
-    await page.waitForTimeout(300);
-    await page.getByRole("button", { name: "New note" }).click();
-    await page.waitForTimeout(300);
+  test("can delete an idea", async ({ page }) => {
+    await startBlankDraft(page);
+    await startBlankDraft(page);
 
-    // Note items in sidebar
-    const noteList = page.locator(".overflow-y-auto.px-3 > div[role='button']");
-    const countBefore = await noteList.count();
+    const ideaRows = page.locator(".overflow-y-auto div[role='button']");
+    const countBefore = await ideaRows.count();
     expect(countBefore).toBeGreaterThanOrEqual(2);
 
-    // Hover over first note and click trash
-    await noteList.first().hover();
-    const trashBtn = noteList.first().locator("button");
-    await trashBtn.click();
+    // Right-click opens the row's menu, which is the only route to deleting.
+    await ideaRows.first().click({ button: "right" });
+    await page.getByText("Delete idea", { exact: true }).click();
 
     await page.waitForTimeout(300);
-    const countAfter = await noteList.count();
-    expect(countAfter).toBe(countBefore - 1);
+    expect(await ideaRows.count()).toBe(countBefore - 1);
   });
 });
 
@@ -181,7 +145,7 @@ test.describe("Panel toggles", () => {
     // Get the initial wrapper width
     const getWrapperWidth = () =>
       page.evaluate(() => {
-        // Find the sidebar wrapper — it's the div that wraps .bg-surface-2
+        // Find the sidebar wrapper: the div that wraps .bg-surface-2
         const sidebar = document.querySelector(".bg-surface-2");
         const wrapper = sidebar?.parentElement;
         return wrapper ? parseFloat(getComputedStyle(wrapper).width) : -1;
@@ -209,10 +173,7 @@ test.describe("Panel toggles", () => {
 
 test.describe("Snapshot spacing behavior", () => {
   test("Cmd/Ctrl+S snapshot does not collapse empty paragraphs in editor", async ({ page }) => {
-    await page.getByRole("button", { name: "New note" }).click();
-
-    const editor = page.locator(".ProseMirror");
-    await expect(editor).toBeVisible({ timeout: 5000 });
+    const editor = await startBlankDraft(page);
     await editor.click();
 
     // Create visible gap with two empty paragraphs between text blocks.
@@ -248,6 +209,11 @@ test.describe("Snapshot spacing behavior", () => {
 });
 
 test.describe("Global search", () => {
+  // The overlay's only handle is its input, and the copy in it is still
+  // settling, so this matches the stable opening of the placeholder rather
+  // than the whole sentence.
+  const searchPlaceholder = /^Search all/;
+
   test("Cmd+Shift+F opens the global search overlay", async ({ page }) => {
     await page.evaluate(() => {
       window.dispatchEvent(
@@ -262,7 +228,7 @@ test.describe("Global search", () => {
     });
     await page.waitForTimeout(300);
 
-    const searchInput = page.getByPlaceholder("Search all notes...");
+    const searchInput = page.getByPlaceholder(searchPlaceholder);
     await expect(searchInput).toBeVisible({ timeout: 3000 });
   });
 
@@ -280,7 +246,7 @@ test.describe("Global search", () => {
     });
     await page.waitForTimeout(300);
 
-    const searchInput = page.getByPlaceholder("Search all notes...");
+    const searchInput = page.getByPlaceholder(searchPlaceholder);
     await expect(searchInput).toBeVisible({ timeout: 3000 });
 
     await page.keyboard.press("Escape");

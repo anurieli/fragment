@@ -1,3 +1,4 @@
+import { isLongformFormat } from "@/lib/content-engine";
 import type { ContentPiece, Idea, PieceStatus, Priority } from "@/lib/content-engine";
 
 // Pure selectors over the content-engine store's arrays. No Zustand, no
@@ -98,18 +99,20 @@ export function hierarchyRollup(
 }
 
 /**
- * Short-form pieces only — the ones whose text lives inline (body). A piece
- * that links a Note instead (noteId) is a long-form draft: it belongs to the
- * idea's Write space, not its pieces feed, and its text is edited in the
- * editor rather than in a card textarea.
+ * Short-form fragments only, which is now a question about shape rather than
+ * storage: every fragment keeps its text in `body`, so what separates a card
+ * in the feed from a draft in the editor is its format. A long-form fragment
+ * belongs to the idea's Write space and is edited in the editor, not in a card
+ * textarea, which is why the feed asks for this list rather than for all of an
+ * idea's fragments.
  */
 export function shortformOnly(pieces: readonly ContentPiece[]): ContentPiece[] {
-  return pieces.filter((piece) => piece.body !== undefined);
+  return pieces.filter((piece) => !isLongformFormat(piece.format));
 }
 
 /**
- * An idea's long-form drafts (the pieces linking a Note), oldest first so the
- * first draft created stays the idea's primary one across sessions.
+ * An idea's long-form drafts, oldest first so the first draft created stays
+ * the idea's primary one across sessions.
  */
 export function draftsForIdea(
   ideaId: string,
@@ -120,7 +123,7 @@ export function draftsForIdea(
       (piece) =>
         piece.deletedAt === undefined &&
         piece.ideaId === ideaId &&
-        piece.noteId !== undefined,
+        isLongformFormat(piece.format),
     )
     .slice()
     .sort((a, b) => a.createdAt - b.createdAt);

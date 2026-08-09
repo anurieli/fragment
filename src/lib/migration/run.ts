@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import type { ContentPiece, Idea } from "@/lib/content-engine";
 import type { MigrationRecord, PieceVersion } from "@/lib/types";
-import { buildMigrationPlan, type MigrationPlan, type PlanInput } from "./plan";
+import { buildMigrationPlan, type LegacyPiece, type MigrationPlan, type PlanInput } from "./plan";
 import { captureSnapshot, storeSnapshot } from "./snapshot";
 import { verifyMigration, type VerificationResult } from "./verify";
 
@@ -169,12 +169,28 @@ async function readPlanInput(): Promise<PlanInput> {
 
   return {
     notes,
-    pieces,
+    // Rows written before this migration still carry the retired noteId
+    // column. Reading it is the whole job, so the widened type is the honest
+    // description of what is actually on disk here.
+    pieces: pieces as LegacyPiece[],
     ideas,
     noteVersions: noteVersions.map((row) => ({ id: row.id, noteId: row.noteId })),
     reviews: reviews.map((row) => ({ id: row.id, noteId: row.noteId })),
     snippets: snippets.map((row) => ({ id: row.id, noteId: row.noteId })),
   };
+}
+
+/**
+ * Drop the retired pointer.
+ *
+ * Assigning `noteId: undefined` would leave the key present with an undefined
+ * value, which then rides the sync wire as an explicit field and reappears on
+ * every other device. Deleting it is what actually retires the column.
+ */
+function withoutNoteId(piece: LegacyPiece): Omit<LegacyPiece, "noteId"> {
+  const copy = { ...piece };
+  delete copy.noteId;
+  return copy;
 }
 
 async function writePlan(input: PlanInput, plan: MigrationPlan): Promise<void> {
@@ -227,7 +243,7 @@ async function writePlan(input: PlanInput, plan: MigrationPlan): Promise<void> {
     if (!note || !piece) continue;
 
     pieces.push({
-      ...piece,
+      ...withoutNoteId(piece),
       // The note's title is what the writer has been seeing on this draft, so
       // it wins over whatever the linking fragment happened to store.
       title: note.title.trim().length > 0 ? note.title : piece.title,
@@ -239,7 +255,6 @@ async function writePlan(input: PlanInput, plan: MigrationPlan): Promise<void> {
       remember: note.remember,
       voiceId: note.voiceId,
       legacyNoteId: note.id,
-      noteId: undefined,
     });
   }
 
@@ -249,7 +264,7 @@ async function writePlan(input: PlanInput, plan: MigrationPlan): Promise<void> {
     // The note it pointed at is already gone, so there is nothing to recover.
     // An empty body at least leaves an editable fragment rather than a row the
     // UI cannot render.
-    pieces.push({ ...piece, body: piece.body ?? "", legacyNoteId: orphan.missingNoteId, noteId: undefined });
+    pieces.push({ ...withoutNoteId(piece), body: piece.body ?? "", legacyNoteId: orphan.missingNoteId });
   }
 
   if (ideas.length > 0) await db.ideas.bulkPut(ideas);

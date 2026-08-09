@@ -417,7 +417,7 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
                 className="w-full bg-surface-2 border border-border-strong rounded-[var(--radius-sm)] px-2 py-1 text-[11px] text-text-primary placeholder:text-text-faint outline-none focus:border-border-active"
               />
               <p className="text-[10px] text-text-faint leading-snug">
-                Marks this piece published now, without waiting for verification.
+                Marks this fragment published now, without waiting for verification.
               </p>
               <button
                 onClick={handleConfirmManualPublish}

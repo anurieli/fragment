@@ -113,9 +113,20 @@ export interface SatelliteRow {
   noteId: string | null;
 }
 
+/**
+ * A fragment as it may still exist on disk.
+ *
+ * Two ways these rows differ from what new code writes, and both are the point
+ * of this migration rather than accidents to be typed away. They may still
+ * carry `noteId`, the pointer that has since been retired. And `body` may be
+ * absent, because a long-form piece used to be a shell whose text lived in the
+ * note it pointed at, which is precisely the shape being merged away here.
+ */
+export type LegacyPiece = Omit<ContentPiece, "body"> & { body?: string; noteId?: string };
+
 export interface PlanInput {
   notes: readonly Note[];
-  pieces: readonly ContentPiece[];
+  pieces: readonly LegacyPiece[];
   ideas: readonly Idea[];
   noteVersions: readonly SatelliteRow[];
   reviews: readonly SatelliteRow[];

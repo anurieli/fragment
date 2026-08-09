@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Dexie from "dexie";
+import Dexie, { type Table } from "dexie";
 
 import { db } from "@/lib/db";
+import type { LegacyPiece } from "@/lib/migration/plan";
 import { closeMigrationBackupDb } from "@/lib/migration/snapshot";
 import {
   ONE_ENTITY_MIGRATION_ID,
@@ -20,6 +21,14 @@ import {
 
 const STANDALONE_BODY = "# Standalone\n\nLine one.\n\nLine two, with trailing space.  \n";
 const DRAFT_BODY = "The draft that already lived in an idea.";
+
+/**
+ * The fragments table as it actually exists before the migration runs: rows
+ * written by the old code still carry the retired `noteId` column, which is
+ * exactly what these tests need to seed and then assert was cleared. The
+ * declared type describes the shape new code writes, not the shape on disk.
+ */
+const legacyPieces = db.contentPieces as unknown as Table<LegacyPiece, string>;
 
 async function reset() {
   await db.open();
@@ -97,7 +106,7 @@ async function seed() {
     updatedAt: 50,
   });
 
-  await db.contentPieces.bulkPut([
+  await legacyPieces.bulkPut([
     {
       id: "p-draft",
       ideaId: "i1",
@@ -220,7 +229,7 @@ describe("runOneEntityMigration", () => {
   it("folds a linked draft into the fragment that already pointed at it", async () => {
     await runOneEntityMigration();
 
-    const piece = await db.contentPieces.get("p-draft");
+    const piece = await legacyPieces.get("p-draft");
     expect(piece?.body).toBe(DRAFT_BODY);
     expect(piece?.legacyNoteId).toBe("n-draft");
     expect(piece?.noteId).toBeUndefined();
@@ -328,7 +337,7 @@ describe("runOneEntityMigration when verification refuses", () => {
     // A note whose id collides with the fragment id its own promotion would
     // use. The promotion overwrites the other note's fragment, so one note
     // ends up without a home and the gate has to catch it.
-    await db.contentPieces.put({
+    await legacyPieces.put({
       id: "migp-n-standalone",
       ideaId: "i1",
       format: "linkedin",
@@ -344,7 +353,7 @@ describe("runOneEntityMigration when verification refuses", () => {
     });
     // Point it at a note as well, so the planner treats it as the absorber for
     // n-untitled and the promotion for n-standalone then overwrites the body.
-    await db.contentPieces.update("migp-n-standalone", { noteId: "n-untitled" });
+    await legacyPieces.update("migp-n-standalone", { noteId: "n-untitled" });
 
     const before = await db.contentPieces.orderBy("id").toArray();
     const ideasBefore = await db.ideas.count();
@@ -364,7 +373,7 @@ describe("runOneEntityMigration when verification refuses", () => {
   });
 
   it("keeps every note readable after a refused migration", async () => {
-    await db.contentPieces.put({
+    await legacyPieces.put({
       id: "migp-n-standalone",
       ideaId: "i1",
       format: "linkedin",

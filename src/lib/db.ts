@@ -379,7 +379,9 @@ class FragmentDB extends Dexie {
       reviews: "id, noteId, receivedAt, pieceId",
       outbox: "[collection+id], collection, updatedAt",
       syncState: "id",
-      comments: "id, noteId, ideaId, promotedIdeaId, createdAt",
+      // Comments follow the text they were left on: in the one-entity model
+      // that is the piece, so the note key gives way to pieceId here.
+      comments: "id, pieceId, ideaId, promotedIdeaId, createdAt",
       migrations: "id, status",
     });
   }

@@ -24,7 +24,7 @@ import {
   isCloudReachable,
   postSync,
 } from "./api";
-import { removeNoteBackupArtifacts } from "@/lib/persistence";
+import { removePieceFromFs } from "@/lib/fs-backup";
 
 /**
  * The client half of sync: drain the outbox, apply what comes back, repeat.
@@ -221,7 +221,10 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
   // collection today.
   const tables = SYNCED_COLLECTIONS.map((c) => tableFor(c)).filter(Boolean);
   let applied = 0;
-  const deletedNoteIds: string[] = [];
+  // Fragments deleted elsewhere still have a file copy on this device when it
+  // is the desktop build. Dexie's delete does not reach the filesystem, so the
+  // stale file would be read back as a live fragment on the next cold start.
+  const deletedPieceIds: string[] = [];
 
   await db.transaction("rw", [...tables, db.outbox], async () => {
     markTransactionAsRemoteApply(Dexie.currentTransaction);
@@ -239,7 +242,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
 
       if (change.deleted) {
         await table.delete(change.id);
-        if (collection === "notes") deletedNoteIds.push(change.id);
+        if (collection === "contentPieces") deletedPieceIds.push(change.id);
         applied++;
         continue;
       }
@@ -255,7 +258,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
     }
   });
 
-  await Promise.all(deletedNoteIds.map((id) => removeNoteBackupArtifacts(id)));
+  await Promise.all(deletedPieceIds.map((id) => removePieceFromFs(id)));
 
   return applied;
 }

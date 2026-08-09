@@ -7,7 +7,7 @@ function resetStore() {
     helperBarOpen: true,
     timelineOpen: false,
     timelinePreviewVersionId: null,
-    activeNoteId: null,
+    activePieceId: null,
     isDraggingToHelper: false,
     isDraggingToEditor: false,
   });
@@ -38,12 +38,12 @@ describe("app-store", () => {
     expect(useAppStore.getState().helperBarOpen).toBe(false);
   });
 
-  it("setActiveNote sets and clears", () => {
-    useAppStore.getState().setActiveNote("note-123");
-    expect(useAppStore.getState().activeNoteId).toBe("note-123");
+  it("setActivePiece sets and clears", () => {
+    useAppStore.getState().setActivePiece("piece-123");
+    expect(useAppStore.getState().activePieceId).toBe("piece-123");
 
-    useAppStore.getState().setActiveNote(null);
-    expect(useAppStore.getState().activeNoteId).toBeNull();
+    useAppStore.getState().setActivePiece(null);
+    expect(useAppStore.getState().activePieceId).toBeNull();
   });
 
   it("setDraggingToHelper sets flag", () => {

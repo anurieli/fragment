@@ -165,7 +165,7 @@ export function IdeaResources({ ideaId }: IdeaResourcesProps) {
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Note (optional)"
+                placeholder="Comment (optional)"
                 className="text-[12px] bg-surface-2 border border-border rounded-[4px] px-2 py-1 text-text-primary placeholder:text-text-faint outline-none"
               />
               <p className="text-[10px] text-text-faint">Attached here, this idea&apos;s child ideas and pieces will see it too.</p>

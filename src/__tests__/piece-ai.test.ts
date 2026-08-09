@@ -3,8 +3,7 @@ import {
   platformContextHint,
   buildRefineContext,
   buildFlowContext,
-  findLinkedNoteId,
-  findLinkedNoteContent,
+  findDraftBodyForIdea,
   estimateSelectionAnchor,
   type PieceLike,
 } from "@/lib/piece-ai";
@@ -14,7 +13,9 @@ function makePiece(overrides: Partial<PieceLike> = {}): PieceLike {
   return {
     id: "piece-1",
     ideaId: "idea-1",
-    updatedAt: 1000,
+    format: "tweet",
+    body: "",
+    createdAt: 1000,
     ...overrides,
   };
 }
@@ -115,11 +116,11 @@ describe("buildRefineContext", () => {
 });
 
 describe("buildFlowContext", () => {
-  it("uses the linked note content as contextAbove", () => {
+  it("uses the idea's draft text as contextAbove", () => {
     const ctx = buildFlowContext({
       format: "linkedin",
       idea: { title: "Idea title", summary: "Idea summary" },
-      linkedNoteContent: "Full long-form draft content.",
+      draftBody: "Full long-form draft content.",
     });
     expect(ctx.contextAbove).toBe("Full long-form draft content.");
     expect(ctx.goal).toBe("Idea title");
@@ -127,8 +128,8 @@ describe("buildFlowContext", () => {
     expect(ctx.instruction).toContain("LinkedIn post");
   });
 
-  it("falls back to an empty contextAbove when there is no linked note", () => {
-    const ctx = buildFlowContext({ format: "tweet", idea: { title: "T" }, linkedNoteContent: null });
+  it("falls back to an empty contextAbove when the idea has no draft", () => {
+    const ctx = buildFlowContext({ format: "tweet", idea: { title: "T" }, draftBody: null });
     expect(ctx.contextAbove).toBe("");
     expect(ctx.instruction).toContain("tweet");
   });
@@ -139,45 +140,41 @@ describe("buildFlowContext", () => {
   });
 });
 
-describe("findLinkedNoteId / findLinkedNoteContent", () => {
-  it("finds the idea's long-form sibling piece by noteId", () => {
+describe("findDraftBodyForIdea", () => {
+  it("reads the text out of the idea's own long-form fragment", () => {
     const pieces: PieceLike[] = [
-      makePiece({ id: "p-tweet", ideaId: "idea-1", noteId: undefined, updatedAt: 500 }),
-      makePiece({ id: "p-essay", ideaId: "idea-1", noteId: "note-1", updatedAt: 1000 }),
-      makePiece({ id: "p-other-idea", ideaId: "idea-2", noteId: "note-2", updatedAt: 2000 }),
+      makePiece({ id: "p-tweet", ideaId: "idea-1", format: "tweet", body: "a hot take" }),
+      makePiece({ id: "p-essay", ideaId: "idea-1", format: "essay", body: "the draft" }),
+      makePiece({ id: "p-other-idea", ideaId: "idea-2", format: "essay", body: "someone else's" }),
     ];
-    expect(findLinkedNoteId("idea-1", pieces)).toBe("note-1");
+    expect(findDraftBodyForIdea("idea-1", pieces)).toBe("the draft");
   });
 
-  it("picks the most-recently-updated long-form piece when there are several", () => {
+  it("prefers the oldest long-form fragment when the idea has several", () => {
     const pieces: PieceLike[] = [
-      makePiece({ id: "p-old", ideaId: "idea-1", noteId: "note-old", updatedAt: 100 }),
-      makePiece({ id: "p-new", ideaId: "idea-1", noteId: "note-new", updatedAt: 900 }),
+      makePiece({ id: "p-new", ideaId: "idea-1", format: "essay", body: "newer", createdAt: 900 }),
+      makePiece({ id: "p-old", ideaId: "idea-1", format: "essay", body: "older", createdAt: 100 }),
     ];
-    expect(findLinkedNoteId("idea-1", pieces)).toBe("note-new");
+    expect(findDraftBodyForIdea("idea-1", pieces)).toBe("older");
   });
 
-  it("ignores deleted pieces", () => {
+  it("ignores a tombstoned draft", () => {
     const pieces: PieceLike[] = [
-      makePiece({ id: "p-deleted", ideaId: "idea-1", noteId: "note-1", deletedAt: 123 }),
+      makePiece({ id: "p-gone", ideaId: "idea-1", format: "essay", body: "deleted", deletedAt: 123 }),
     ];
-    expect(findLinkedNoteId("idea-1", pieces)).toBeNull();
+    expect(findDraftBodyForIdea("idea-1", pieces)).toBeNull();
   });
 
-  it("returns null when the idea has no long-form piece", () => {
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", noteId: undefined })];
-    expect(findLinkedNoteId("idea-1", pieces)).toBeNull();
+  it("returns null when the idea has only short-form fragments", () => {
+    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", format: "tweet", body: "a take" })];
+    expect(findDraftBodyForIdea("idea-1", pieces)).toBeNull();
   });
 
-  it("resolves the note's content through the notes map", () => {
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", noteId: "note-1" })];
-    const notes = { "note-1": { content: "the draft" } };
-    expect(findLinkedNoteContent("idea-1", pieces, notes)).toBe("the draft");
-  });
-
-  it("returns null content when the linked note id doesn't resolve in the notes map", () => {
-    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", noteId: "missing-note" })];
-    expect(findLinkedNoteContent("idea-1", pieces, {})).toBeNull();
+  it("returns the empty string, not null, for a draft nobody has written in yet", () => {
+    // Flow still runs off an untouched draft; "" and null mean different things
+    // to the caller, which only falls back when there is no draft at all.
+    const pieces: PieceLike[] = [makePiece({ ideaId: "idea-1", format: "essay", body: "" })];
+    expect(findDraftBodyForIdea("idea-1", pieces)).toBe("");
   });
 });
 

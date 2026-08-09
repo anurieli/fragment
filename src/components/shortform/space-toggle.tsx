@@ -11,8 +11,9 @@ interface SpaceToggleProps {
 }
 
 /**
- * Segmented "Write | Pieces" control. Write = the existing long-form editor,
- * Pieces = the short-form feed for this idea (and its rolled-up children).
+ * Segmented "Write | Fragments" control. Write = the existing long-form editor,
+ * Fragments = the short-form feed for this idea (and its rolled-up children).
+ * The stored space value stays "pieces": it is an identifier, not copy.
  * Lives at the left of the center-panel toolbar whenever an idea is active —
  * mirrors the showSettings center-swap precedent in app-shell.tsx, just one
  * level down (idea-scoped instead of app-scoped). ⌘1/⌘2 switch (wired in
@@ -35,7 +36,7 @@ export function SpaceToggle({ ideaId }: SpaceToggleProps) {
   return (
     <div
       className="inline-flex items-center gap-0.5 p-0.5 rounded-[var(--radius-default)] bg-surface-2 border border-border shrink-0"
-      title="Write is the long-form editor. Pieces is the short-form feed for this idea."
+      title="Write is the long-form editor. Fragments is the short-form feed for this idea."
     >
       <button
         onClick={() => setIdeaSpace(ideaId, "write")}
@@ -57,7 +58,7 @@ export function SpaceToggle({ ideaId }: SpaceToggleProps) {
         }`}
       >
         <LayoutList size={12} />
-        Pieces
+        Fragments
         {hasUnseen && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-gold"

@@ -5,14 +5,16 @@
  * src/components/shortform/feed-logic.ts, so this stays deterministic and
  * unit-testable without mocking the DOM or the AI hooks.
  *
- * Voice resolution note: a ContentPiece has no voiceId field of its own.
- * The chain is idea.voiceId -> default voice, i.e. exactly what
- * resolveVoice(voices, defaultVoiceId, idea?.voiceId) already does — so
- * callers just pass idea?.voiceId as the voiceId argument to
- * useInlineEdit/useSlashCommand and the existing hook resolves it. No new
- * resolution logic is needed here beyond picking that field off the idea.
+ * Voice resolution note: these helpers carry one voice id through to
+ * useInlineEdit/useSlashCommand, which resolve it against the default voice
+ * via resolveVoice(voices, defaultVoiceId, voiceId). The idea's voice is what
+ * callers normally pass. A fragment also carries a voiceId of its own (three
+ * states, see the content contract), so a caller that wants the fragment's
+ * choice to win passes that instead; there is deliberately no second
+ * resolution path in here to disagree with the hook's.
  */
 
+import { isLongformFormat } from "@/lib/content-engine";
 import type { ContentFormat } from "@/lib/content-engine";
 import type { PublishPlatform } from "@/lib/publish";
 import { PLATFORM_CHAR_LIMITS, charCount } from "@/lib/publish";
@@ -110,9 +112,9 @@ export function buildRefineContext(input: RefineContextInput): RefineContext {
 export interface FlowContextInput {
   format: ContentFormat;
   idea?: PieceIdeaContext;
-  /** The idea's linked long-form note content, if one exists — see
-   * findLinkedNoteContent below. */
-  linkedNoteContent?: string | null;
+  /** The text of the idea's long-form draft, if it has one. See
+   * findDraftBodyForIdea below. */
+  draftBody?: string | null;
 }
 
 export interface FlowContext {
@@ -134,19 +136,19 @@ const FLOW_DRAFT_NOUN: Record<ContentFormat, string> = {
 
 /**
  * Assembles the useSlashCommand().generateStream() call arguments for
- * drafting a piece from scratch (⌘⏎ / "Draft with Flow"): the idea's linked
- * long-form note stands in for "context above" (there's no mid-document
- * split for a short-form piece — Flow here always drafts from the top), the
+ * drafting a piece from scratch (⌘⏎ / "Draft with Flow"): the idea's own
+ * long-form draft stands in for "context above" (there's no mid-document
+ * split for a short-form piece, Flow here always drafts from the top), the
  * idea's title/summary plus the platform hint feed goal/remember exactly as
  * in buildRefineContext, and a default instruction names the target format
  * since there's no typed prompt for the ⌘⏎ path.
  */
 export function buildFlowContext(input: FlowContextInput): FlowContext {
-  const { format, idea, linkedNoteContent } = input;
+  const { format, idea, draftBody } = input;
   const hint = platformContextHint(format, "");
   const remember = [idea?.summary, hint].filter((v): v is string => !!v).join("\n\n");
   return {
-    contextAbove: linkedNoteContent ?? "",
+    contextAbove: draftBody ?? "",
     goal: idea?.title ?? "",
     remember,
     instruction: `Draft this as a ${FLOW_DRAFT_NOUN[format]} based on the idea above.`,
@@ -155,37 +157,33 @@ export function buildFlowContext(input: FlowContextInput): FlowContext {
 }
 
 // ---------------------------------------------------------------------------
-// Linked long-form note lookup (for Flow context + Snip-out destination)
+// The idea's long-form draft (for Flow context)
 // ---------------------------------------------------------------------------
 
 export interface PieceLike {
   id: string;
   ideaId: string;
-  noteId?: string;
+  format: ContentFormat;
+  body: string;
   deletedAt?: number;
-  updatedAt: number;
+  createdAt: number;
 }
 
-/** The idea's own long-form sibling piece (noteId set), most-recently-updated
- * first — an idea can have at most one content home per format, but nothing
- * stops multiple long-form pieces (essay + script) sharing an idea, so this
- * picks the freshest. Returns null when the idea has no long-form piece. */
-export function findLinkedNoteId(ideaId: string, pieces: readonly PieceLike[]): string | null {
-  const longForm = pieces
-    .filter((p) => p.ideaId === ideaId && p.deletedAt === undefined && p.noteId !== undefined)
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  return longForm?.noteId ?? null;
-}
-
-/** Resolves findLinkedNoteId to the note's actual content via the notes map. */
-export function findLinkedNoteContent(
-  ideaId: string,
-  pieces: readonly PieceLike[],
-  notes: Record<string, { content: string } | undefined>,
-): string | null {
-  const noteId = findLinkedNoteId(ideaId, pieces);
-  if (!noteId) return null;
-  return notes[noteId]?.content ?? null;
+/**
+ * The text of the idea's long-form draft, or null when it has none.
+ *
+ * This used to hunt down a linked note, because a long-form piece was a
+ * pointer at one. A fragment holds its own words now, so the question is
+ * simply which of the idea's fragments is the long-form one; oldest first, to
+ * match draftsForIdea, so an idea with two drafts keeps answering with the one
+ * the writer thinks of as the draft rather than with whichever was touched
+ * last.
+ */
+export function findDraftBodyForIdea(ideaId: string, pieces: readonly PieceLike[]): string | null {
+  const draft = pieces
+    .filter((p) => p.ideaId === ideaId && p.deletedAt === undefined && isLongformFormat(p.format))
+    .sort((a, b) => a.createdAt - b.createdAt)[0];
+  return draft ? draft.body : null;
 }
 
 // A "Snip out" from a piece used to route through resolveSnipTargetNoteId,

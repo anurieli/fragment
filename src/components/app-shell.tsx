@@ -38,6 +38,7 @@ import { ToastContainer } from "./ui/toast";
 import { HelpOverlay } from "./help/help-overlay";
 import { FloatingDragCard } from "./floating-drag-card";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
+import { MigrationFailed } from "@/components/migration/migration-failed";
 import { ConnectGate } from "./ai-connect/connect-gate";
 import { useToastStore } from "@/hooks/use-toast";
 
@@ -45,7 +46,7 @@ const COMPACT_BREAKPOINT = 960;
 const MIN_SUPPORTED_WIDTH = 768;
 
 export function AppShell() {
-  usePersistence();
+  const { migrationFailed, migrationRecord, retryMigration } = usePersistence();
   useAutoSave();
   const deviceId = useDeviceId();
   useLogSync();
@@ -58,7 +59,7 @@ export function AppShell() {
   // `ingressAvailable` are intentionally unused here — no UI affordance yet
   // (see ARI-154); the hook stays consumable for whoever adds one.
   useAgentInbox();
-  // Polls the user's Substack RSS feed while any piece/note is awaiting
+  // Polls the user's Substack RSS feed while any fragment is awaiting
   // publish confirmation (see src/lib/publish/substack-verify.ts).
   usePublishVerification();
   const hydrated = useDataStore((s) => s.hydrated);
@@ -121,7 +122,7 @@ export function AppShell() {
   const timelineOpen = useAppStore((s) => s.timelineOpen);
   const commentsPanelOpen = useAppStore((s) => s.commentsPanelOpen);
   const closeCommentsPanel = useAppStore((s) => s.closeCommentsPanel);
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const activePieceId = useAppStore((s) => s.activePieceId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaSpace = useAppStore((s) => (activeIdeaId ? s.ideaSpaces[activeIdeaId] ?? "write" : "write"));
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
@@ -288,8 +289,8 @@ export function AppShell() {
 
       if (meta && e.key === "s" && !e.shiftKey) {
         e.preventDefault();
-        if (activeNoteId) {
-          createVersion(activeNoteId, "Quick save", "manual");
+        if (activePieceId) {
+          createVersion(activePieceId, "Quick save", "manual");
           useToastStore.getState().showToast("Snapshot saved");
         }
         return;
@@ -347,7 +348,7 @@ export function AppShell() {
       }
     },
     [
-      toggleHelperBar, toggleTimeline, toggleSidebar, activeNoteId, createVersion,
+      toggleHelperBar, toggleTimeline, toggleSidebar, activePieceId, createVersion,
       setTimelinePreviewVersionId, showSettings, showGlobalSearch, showHelp,
       showOnboarding, completeOnboarding,
       isCompact, helperBarOpen, closeHelperBar,
@@ -361,6 +362,13 @@ export function AppShell() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  // A migration that refused to finish left the library in its old shape, so
+  // rendering the app would show a library missing everything not carried
+  // across. Nothing was hydrated; nothing gets drawn but this.
+  if (migrationFailed) {
+    return <MigrationFailed record={migrationRecord} onRetry={retryMigration} />;
+  }
 
   if (!hydrated) {
     return (
@@ -455,7 +463,6 @@ export function AppShell() {
             ) : (
               <Editor
                 onOpenAISettings={() => { setSettingsSection("ai"); setShowSettings(true); }}
-                onOpenSettings={() => setShowSettings(true)}
                 leftToolbarSlot={
                   activeIdeaId ? (
                     <>

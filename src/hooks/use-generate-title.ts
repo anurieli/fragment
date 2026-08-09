@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useSettingsStore } from "@/stores/settings-store";
-import { useDataStore } from "@/stores/data-store";
+import { useContentStore } from "@/stores/content-store";
 import { useAppStore } from "@/stores/app-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { postGenerate } from "@/lib/ai-client";
@@ -14,25 +14,24 @@ import { captureEvent } from "@/lib/posthog";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 
 /**
- * Titles a note from what is already in it: the draft plus the note's own
- * context fields (goal, audience, tone, remember). One shot, non-streaming:
- * a title is a few words, so there is nothing to watch arrive.
+ * Titles a fragment from what is already in it: the draft plus the fragment's
+ * own context fields (goal, audience, tone, remember). One shot,
+ * non-streaming: a title is a few words, so there is nothing to watch arrive.
  *
  * Reuses the slashCommand provider and gate the way voice analysis does
  * (use-analyze-voice.ts): this is the same "generate" route, and a user who
  * has connected one provider should not have to connect a second one to name
- * a note. State is read through getState() so the call survives the header
+ * a draft. State is read through getState() so the call survives the header
  * re-rendering underneath it.
  */
 export function useGenerateTitle() {
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const generateTitle = useCallback(async (noteId: string, content: string): Promise<void> => {
-    const dataStore = useDataStore.getState();
-    const note = dataStore.notes[noteId];
-    if (!note) return;
+  const generateTitle = useCallback(async (pieceId: string, content: string): Promise<void> => {
+    const piece = useContentStore.getState().pieces[pieceId];
+    if (!piece) return;
 
-    const draft = titleContext(content || note.content);
+    const draft = titleContext(content || piece.body);
     if (!draft) {
       useToastStore.getState().showToast("Write something first, then generate a title.");
       return;
@@ -53,10 +52,10 @@ export function useGenerateTitle() {
     const buildBody = (codexToken: string | undefined) =>
       JSON.stringify({
         contextAbove: draft,
-        goal: note.goal,
-        audience: note.audience,
-        tone: note.tone,
-        remember: note.remember,
+        goal: piece.goal,
+        audience: piece.audience,
+        tone: piece.tone,
+        remember: piece.remember,
         promptTemplate: DEFAULT_TITLE_PROMPT,
         model,
         provider,
@@ -91,7 +90,7 @@ export function useGenerateTitle() {
       const data = await res.json();
       if (data._meta) {
         const modelUsed = (data._meta.modelUsed as string | undefined) || model;
-        logApiCall("generate", "title", provider, modelUsed, data._meta, noteId).catch(() => {});
+        logApiCall("generate", "title", provider, modelUsed, data._meta, pieceId).catch(() => {});
       }
 
       if (!res.ok) {
@@ -115,9 +114,9 @@ export function useGenerateTitle() {
         return;
       }
 
-      // Re-read the note: it may have been deleted while the request was out.
-      if (!useDataStore.getState().notes[noteId]) return;
-      useDataStore.getState().updateNoteTitle(noteId, title);
+      // Re-read the fragment: it may have been deleted while the request was out.
+      if (!useContentStore.getState().pieces[pieceId]) return;
+      useContentStore.getState().updatePiece(pieceId, { title });
       captureEvent("note_title_generated", { model });
     } catch {
       useToastStore.getState().showToast("Couldn't generate a title. Check your connection.");

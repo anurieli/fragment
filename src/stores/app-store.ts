@@ -33,7 +33,7 @@ interface PendingSnippetInsert {
   clientY?: number;
 }
 
-/** Which writing space a note-editor toolbar shows for the active idea. */
+/** Which writing space the editor toolbar shows for the active idea. */
 export type IdeaSpace = "write" | "pieces";
 
 interface AppState {
@@ -45,8 +45,10 @@ interface AppState {
    * sidebar. Independent of the side panels above; both can be open at once. */
   commentsPanelOpen: boolean;
   timelinePreviewVersionId: string | null;
-  activeNoteId: string | null;
-  /** The idea selected in the sidebar, if any. Independent of activeNoteId — an idea's Write space shows whichever note is linked to it (see sidebar.tsx). */
+  activePieceId: string | null;
+  /** The idea selected in the sidebar, if any. Independent of activePieceId:
+   * an idea's Write space opens one of its own long-form fragments, and the
+   * sidebar can have an idea selected with no fragment open at all. */
   activeIdeaId: string | null;
   /** Per-idea Write/Pieces choice, persisted in-session (see ARI-154 §2). Missing entries default to "write". */
   ideaSpaces: Record<string, IdeaSpace>;
@@ -62,7 +64,7 @@ interface AppState {
    * state. Both are null whenever the Pieces space isn't showing. */
   focusedPieceId: string | null;
   hoveredPieceId: string | null;
-  liveEditorNoteId: string | null;
+  liveEditorPieceId: string | null;
   liveEditorContent: string | null;
   isDraggingToHelper: boolean;
   isDraggingToEditor: boolean;
@@ -70,11 +72,11 @@ interface AppState {
   pendingEditorDeletion: PendingEditorDeletion | null;
   floatingDragCard: FloatingDragCard | null;
   showCreationFlow: boolean;
-  generatingNoteId: string | null;
+  generatingPieceId: string | null;
   streamingContent: string | null;
   streamingError: string | null;
   isFeedbackOpen: boolean;
-  contextPromptDismissedNotes: Set<string>;
+  contextPromptDismissedPieces: Set<string>;
   /** Live status of the "Sign in with ChatGPT" (Codex) session. */
   codexConnection: "connected" | "refreshing" | "disconnected";
   /** Transient per-voice analysis status (not persisted). */
@@ -104,7 +106,7 @@ interface AppState {
   closeCommentsPanel: () => void;
   setTimelineOpen: (v: boolean) => void;
   setTimelinePreviewVersionId: (id: string | null) => void;
-  setActiveNote: (id: string | null) => void;
+  setActivePiece: (id: string | null) => void;
   setActiveIdea: (id: string | null) => void;
   setIdeaSpace: (ideaId: string, space: IdeaSpace) => void;
   toggleIdeaSpace: (ideaId: string) => void;
@@ -115,11 +117,11 @@ interface AppState {
   setFocusedPiece: (id: string | null) => void;
   setHoveredPiece: (id: string | null) => void;
   setShowCreationFlow: (v: boolean) => void;
-  setGeneratingNote: (id: string | null) => void;
+  setGeneratingPiece: (id: string | null) => void;
   setStreamingContent: (content: string | null) => void;
   setStreamingError: (error: string | null) => void;
-  dismissContextPrompt: (noteId: string) => void;
-  setLiveEditorContent: (noteId: string, content: string) => void;
+  dismissContextPrompt: (pieceId: string) => void;
+  setLiveEditorContent: (pieceId: string, content: string) => void;
   setDraggingToHelper: (v: boolean) => void;
   setDraggingToEditor: (v: boolean) => void;
   setPendingSnippetDrop: (v: PendingSnippetDrop | null) => void;
@@ -139,14 +141,14 @@ export const useAppStore = create<AppState>((set) => ({
   timelineOpen: false,
   commentsPanelOpen: false,
   timelinePreviewVersionId: null,
-  activeNoteId: null,
+  activePieceId: null,
   activeIdeaId: null,
   ideaSpaces: {},
   ideaPanelOpen: true,
   revealPieceId: null,
   focusedPieceId: null,
   hoveredPieceId: null,
-  liveEditorNoteId: null,
+  liveEditorPieceId: null,
   liveEditorContent: null,
   isDraggingToHelper: false,
   isDraggingToEditor: false,
@@ -155,11 +157,11 @@ export const useAppStore = create<AppState>((set) => ({
   floatingDragCard: null,
   pendingSnippetInsert: null,
   showCreationFlow: false,
-  generatingNoteId: null,
+  generatingPieceId: null,
   streamingContent: null,
   streamingError: null,
   isFeedbackOpen: false,
-  contextPromptDismissedNotes: new Set(),
+  contextPromptDismissedPieces: new Set(),
   codexConnection: "connected",
   voiceAnalysisStatus: {},
   aiGate: null,
@@ -205,8 +207,8 @@ export const useAppStore = create<AppState>((set) => ({
   closeCommentsPanel: () => set({ commentsPanelOpen: false }),
   setTimelineOpen: (v) => set({ timelineOpen: v }),
   setTimelinePreviewVersionId: (id) => set({ timelinePreviewVersionId: id }),
-  setActiveNote: (id) => set({
-    activeNoteId: id,
+  setActivePiece: (id) => set({
+    activePieceId: id,
     timelinePreviewVersionId: null,
     showCreationFlow: false,
   }),
@@ -224,16 +226,16 @@ export const useAppStore = create<AppState>((set) => ({
   setFocusedPiece: (id) => set({ focusedPieceId: id }),
   setHoveredPiece: (id) => set({ hoveredPieceId: id }),
   setShowCreationFlow: (v) => set({ showCreationFlow: v }),
-  setGeneratingNote: (id) => set({ generatingNoteId: id }),
+  setGeneratingPiece: (id) => set({ generatingPieceId: id }),
   setStreamingContent: (content) => set({ streamingContent: content }),
   setStreamingError: (error) => set({ streamingError: error }),
-  dismissContextPrompt: (noteId) => set((s) => {
-    const next = new Set(s.contextPromptDismissedNotes);
-    next.add(noteId);
-    return { contextPromptDismissedNotes: next };
+  dismissContextPrompt: (pieceId) => set((s) => {
+    const next = new Set(s.contextPromptDismissedPieces);
+    next.add(pieceId);
+    return { contextPromptDismissedPieces: next };
   }),
-  setLiveEditorContent: (noteId, content) => set({
-    liveEditorNoteId: noteId,
+  setLiveEditorContent: (pieceId, content) => set({
+    liveEditorPieceId: pieceId,
     liveEditorContent: content,
   }),
   setDraggingToHelper: (v) => set({ isDraggingToHelper: v }),

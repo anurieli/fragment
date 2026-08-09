@@ -10,6 +10,9 @@ import type { ReviewComment } from "@/lib/types";
 
 export interface ShareSummary {
   id: string;
+  /** The share key this link was minted under, as `shares.note_id` on the
+   * wire: a migrated fragment's legacy note id, otherwise the fragment id.
+   * See src/lib/sharing/share-key.ts for why the column keeps its name. */
   noteId: string;
   title: string;
   revision: number;
@@ -56,24 +59,28 @@ export function invitedUrl(token: string, guestToken: string, origin = window.lo
 }
 
 export async function createShare(input: {
-  noteId: string;
+  /** From `shareKeyFor(piece)`, never the raw fragment id. */
+  shareKey: string;
   title: string;
   markdown: string;
   allowEdits?: boolean;
   invite?: string[];
 }): Promise<{ share: ShareSummary; token: string; invited: Array<{ email: string; token: string }> }> {
+  const { shareKey, ...rest } = input;
   return json(
     await fetch("/api/v1/shares", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify(input),
+      // `noteId` is the wire and column name the share key travels under.
+      body: JSON.stringify({ noteId: shareKey, ...rest }),
     }),
   );
 }
 
-export async function listShares(noteId?: string): Promise<ShareSummary[]> {
-  const url = noteId ? `/api/v1/shares?noteId=${encodeURIComponent(noteId)}` : "/api/v1/shares";
+/** Lists the links minted under `shareKey`, from `shareKeyFor(piece)`. */
+export async function listShares(shareKey?: string): Promise<ShareSummary[]> {
+  const url = shareKey ? `/api/v1/shares?noteId=${encodeURIComponent(shareKey)}` : "/api/v1/shares";
   const { shares } = await json<{ shares: ShareSummary[] }>(
     await fetch(url, { credentials: "same-origin" }),
   );

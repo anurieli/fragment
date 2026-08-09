@@ -3,7 +3,7 @@
 import { useCallback, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { useDataStore } from "@/stores/data-store";
+import type { ContentPiece } from "@/lib/content-engine";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice, composeVoiceContext } from "@/lib/voice-context";
@@ -42,12 +42,12 @@ export interface StreamGenerationParams {
   audience: string;
   tone: string;
   remember: string;
-  /** If provided, stream into this existing note instead of creating a new one. */
-  existingNoteId?: string;
+  /** If provided, stream into this existing fragment instead of creating one. */
+  existingPieceId?: string;
   /** Voice to apply. undefined = inherit default, null = no voice, string = specific voice. */
   voiceId?: string | null;
-  /** Document shape and target length. Ephemeral generation params, not note fields:
-   * they steer the prompt template and are forgotten after the run. */
+  /** Document shape and target length. Ephemeral generation params, not fragment
+   * fields: they steer the prompt template and are forgotten after the run. */
   format?: GenerateFormat;
   length?: GenerateLength;
 }
@@ -57,22 +57,14 @@ export function useStreamGeneration() {
   const titleSetRef = useRef(false);
 
   const startGeneration = useCallback(async (params: StreamGenerationParams) => {
-    const { prompt, goal, audience, tone, remember, existingNoteId, voiceId, format, length } = params;
+    const { prompt, goal, audience, tone, remember, existingPieceId, voiceId, format, length } = params;
+
+    const { createPiece, createIdeaWithFragment, updatePiece } = useContentStore.getState();
 
     const {
-      createNote,
-      updateNoteContent,
-      updateNoteTitle,
-      updateNoteGoal,
-      updateNoteAudience,
-      updateNoteTone,
-      updateNoteRemember,
-      updateNoteVoice,
-    } = useDataStore.getState();
-
-    const {
-      setActiveNote,
-      setGeneratingNote,
+      setActivePiece,
+      setActiveIdea,
+      setGeneratingPiece,
       setStreamingContent,
       setStreamingError,
       dismissContextPrompt,
@@ -86,36 +78,55 @@ export function useStreamGeneration() {
     const signal = abortRef.current.signal;
     titleSetRef.current = false;
 
-    // 1. Create the note (or use existing) and navigate immediately
-    let noteId: string;
-    if (existingNoteId) {
-      noteId = existingNoteId;
+    // 1. Create the fragment (or use existing) and navigate immediately
+    let pieceId: string;
+    if (existingPieceId) {
+      pieceId = existingPieceId;
     } else {
-      noteId = createNote();
-      // Generated inside an open idea → it's a draft of that idea, not a
-      // standalone note (same rule as NoteCreationFlow's finishCreate).
+      // Generated inside an open idea, so it belongs to that idea. With no
+      // idea open there is nothing to put it in, and every fragment has to
+      // live somewhere, so one is made for it.
       const ideaId = useAppStore.getState().activeIdeaId;
-      if (ideaId) useContentStore.getState().linkNoteToIdea(ideaId, noteId);
+      if (ideaId) {
+        pieceId = createPiece({
+          ideaId,
+          format: "essay",
+          origin: "user",
+          status: "in-progress",
+          seen: true,
+        });
+      } else {
+        const created = createIdeaWithFragment();
+        pieceId = created.pieceId;
+        if (created.ideaId) setActiveIdea(created.ideaId);
+      }
+    }
+
+    if (!pieceId) {
+      setStreamingError("Couldn't start a new draft");
+      return;
     }
 
     // Set metadata
-    if (goal) updateNoteGoal(noteId, goal);
-    if (audience) updateNoteAudience(noteId, audience);
-    if (tone) updateNoteTone(noteId, tone);
-    if (remember) updateNoteRemember(noteId, remember);
-    if (voiceId !== undefined) updateNoteVoice(noteId, voiceId);
+    const brief: Partial<Omit<ContentPiece, "id" | "createdAt">> = {};
+    if (goal) brief.goal = goal;
+    if (audience) brief.audience = audience;
+    if (tone) brief.tone = tone;
+    if (remember) brief.remember = remember;
+    if (voiceId !== undefined) brief.voiceId = voiceId;
+    if (Object.keys(brief).length > 0) updatePiece(pieceId, brief);
 
     // Dismiss context tooltip so it doesn't obscure streaming text
-    dismissContextPrompt(noteId);
+    dismissContextPrompt(pieceId);
 
     // Set streaming state BEFORE navigating so the editor knows it's generating
-    setGeneratingNote(noteId);
+    setGeneratingPiece(pieceId);
     setStreamingContent("");
     setStreamingError(null);
 
-    // Navigate to the note (closes creation flow)
-    if (!existingNoteId) {
-      setActiveNote(noteId);
+    // Navigate to the fragment (closes creation flow)
+    if (!existingPieceId) {
+      setActivePiece(pieceId);
     }
 
     // 2. Build request and start streaming
@@ -125,7 +136,7 @@ export function useStreamGeneration() {
     if (!ai) {
       app.openAiGate("no-provider");
       setStreamingError("No AI provider connected");
-      setGeneratingNote(null);
+      setGeneratingPiece(null);
       setStreamingContent(null);
       return;
     }
@@ -183,7 +194,7 @@ export function useStreamGeneration() {
           app.markProviderBad("codex");
           app.openAiGate("auth-failed", "codex");
           setStreamingError("ChatGPT disconnected");
-          setGeneratingNote(null);
+          setGeneratingPiece(null);
           setStreamingContent(null);
           return;
         }
@@ -206,7 +217,7 @@ export function useStreamGeneration() {
           ? await res.text().catch(() => "Generation failed")
           : "Generation failed";
         setStreamingError(errorText);
-        setGeneratingNote(null);
+        setGeneratingPiece(null);
         setStreamingContent(null);
         const isAuthFailure = isAiAuthFailureStatus(res.status);
         if (isAuthFailure) {
@@ -221,7 +232,7 @@ export function useStreamGeneration() {
           error: isAuthFailure ? "AI connection needs to be reconnected" : errorText,
           promptLength,
           responseLength: 0,
-        }, noteId).catch(() => {});
+        }, pieceId).catch(() => {});
         return;
       }
 
@@ -240,7 +251,7 @@ export function useStreamGeneration() {
         if (!titleSetRef.current) {
           const titleMatch = accumulated.match(/^#\s+(.+)\n/);
           if (titleMatch) {
-            updateNoteTitle(noteId, titleMatch[1].trim());
+            updatePiece(pieceId, { title: titleMatch[1].trim() });
             titleSetRef.current = true;
           }
         }
@@ -260,19 +271,19 @@ export function useStreamGeneration() {
           promptTokens: usage?.promptTokens,
           completionTokens: usage?.completionTokens,
           totalTokens: usage?.totalTokens,
-        }, noteId).catch(() => {});
+        }, pieceId).catch(() => {});
 
         // Extract H1 from final content and commit
         const { title, content } = extractH1(accumulated);
         if (title && !titleSetRef.current) {
-          updateNoteTitle(noteId, title);
+          updatePiece(pieceId, { title });
         }
-        updateNoteContent(noteId, content);
+        updatePiece(pieceId, { body: content });
         // Final update with H1-stripped content
         setStreamingContent(content);
         // Small delay to ensure last setContent is processed before clearing
         requestAnimationFrame(() => {
-          setGeneratingNote(null);
+          setGeneratingPiece(null);
           setStreamingContent(null);
         });
       }
@@ -283,10 +294,10 @@ export function useStreamGeneration() {
         // User cancelled — persist partial content
         if (accumulated) {
           const { title, content } = extractH1(accumulated);
-          if (title) updateNoteTitle(noteId, title);
-          updateNoteContent(noteId, content);
+          if (title) updatePiece(pieceId, { title });
+          updatePiece(pieceId, { body: content });
         }
-        setGeneratingNote(null);
+        setGeneratingPiece(null);
         setStreamingContent(null);
         return;
       }
@@ -298,16 +309,16 @@ export function useStreamGeneration() {
         error: "Generation failed",
         promptLength,
         responseLength: 0,
-      }, noteId).catch(() => {});
+      }, pieceId).catch(() => {});
 
       // Persist partial content on error
       if (accumulated) {
         const { title, content } = extractH1(accumulated);
-        if (title) updateNoteTitle(noteId, title);
-        updateNoteContent(noteId, content);
+        if (title) updatePiece(pieceId, { title });
+        updatePiece(pieceId, { body: content });
       }
       setStreamingError("Generation failed. Check your connection.");
-      setGeneratingNote(null);
+      setGeneratingPiece(null);
       setStreamingContent(null);
       useToastStore.getState().showToast("Generation failed. Check your connection.");
     }

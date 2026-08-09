@@ -9,7 +9,7 @@ import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { TextSelection } from "@tiptap/pm/state";
 import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
-import { isHistoryTransaction } from "@tiptap/pm/history";
+import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
 import {
   PanelLeftOpen,
   PanelRightOpen,
@@ -19,18 +19,11 @@ import {
   Check,
   Loader2,
   Square,
-  Clipboard,
-  Copy,
-  ClipboardPaste,
-  Scissors,
-  Sparkles,
-  ImageIcon,
-  Settings,
 } from "lucide-react";
 import { SlashBlockExtension } from "@/lib/slash-block-extension";
 import { useAppStore } from "@/stores/app-store";
-import { NoteCreationFlow, EmptyNoteActions, ContextFieldsTooltip } from "./note-creation-flow";
-import { NoteHeader } from "./note-header";
+import { FragmentCreationFlow, EmptyFragmentActions, ContextFieldsTooltip } from "./fragment-creation-flow";
+import { FragmentHeader } from "./fragment-header";
 import { ExportMenu } from "./export-menu";
 import { CommentsAffordance } from "@/components/review/comments-affordance";
 import { InlineEditMenu } from "./inline-edit-menu";
@@ -45,33 +38,18 @@ import { titleFromText } from "@/lib/derive-title";
 import { useLabelSnippet } from "@/hooks/use-label-snippet";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
+import { logApiCall } from "@/lib/api-logger";
+import { postLabel } from "@/lib/ai-client";
+import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
+import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { debounce, type DebouncedFn } from "@/lib/utils";
-import {
-  moveEditorSelection,
-  selectionDragDestination,
-} from "@/lib/textarea-selection";
 import { preserveEmptyParagraphs } from "@/lib/publish/whitespace";
 import { WhitespaceParagraph, WhitespaceText } from "@/lib/editor/whitespace-markdown";
 import { useSaveStatus } from "@/hooks/use-save-status";
 import { useStreamGeneration } from "@/hooks/use-stream-generation";
 import { useGenerateTitle } from "@/hooks/use-generate-title";
-import { NoteUsageFooter } from "./note-usage-footer";
+import { FragmentUsageFooter } from "./fragment-usage-footer";
 import type { Editor as TiptapEditor } from "@tiptap/core";
-import {
-  addSnippetMovementToHistory,
-  snippetMovementEffects,
-} from "@/lib/editor/snippet-movement-history";
-import {
-  pasteEditorClipboard,
-  writeEditorSelection,
-} from "@/lib/editor/context-menu-clipboard";
-import type { EditorView } from "@tiptap/pm/view";
-import {
-  ContextMenu,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  type Point,
-} from "@/components/ui/context-menu";
 
 /**
  * After setContent parses NBSP-placeholder markdown, strip the \u00A0 from
@@ -95,38 +73,9 @@ function cleanupNbspParagraphs(ed: TiptapEditor) {
   }
 }
 
-function insertSlashBlock(view: EditorView): boolean {
-  const { state } = view;
-  const { $from } = state.selection;
-  const slashBlockType = state.schema.nodes.slashBlock;
-  if (!slashBlockType) return false;
-
-  const paraStart = $from.before($from.depth);
-  const paraEnd = $from.after($from.depth);
-  const isEmptyLine = $from.parent.textContent === "";
-  const tr = state.tr;
-
-  if (isEmptyLine) {
-    tr.replaceWith(
-      paraStart,
-      paraEnd,
-      slashBlockType.create({ replacedEmpty: true }),
-    );
-  } else {
-    tr.insert(
-      paraStart,
-      slashBlockType.create({ replacedEmpty: false }),
-    );
-  }
-
-  view.dispatch(tr);
-  return true;
-}
-
 
 interface EditorProps {
   onOpenAISettings?: () => void;
-  onOpenSettings?: () => void;
   /** Rendered as the first item in the toolbar row (before the sidebar-toggle
    * button) — how app-shell.tsx places the ARI-154 Write/Pieces SpaceToggle
    * at the left of the center-panel toolbar when an idea is active, without
@@ -134,16 +83,16 @@ interface EditorProps {
   leftToolbarSlot?: React.ReactNode;
 }
 
-export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: EditorProps) {
+export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const {
-    activeNoteId,
+    activePieceId,
     sidebarOpen,
     helperBarOpen,
     timelineOpen,
     timelinePreviewVersionId,
     pendingSnippetDrop,
     showCreationFlow,
-    contextPromptDismissedNotes,
+    contextPromptDismissedPieces,
     toggleSidebar,
     toggleHelperBar,
     toggleTimeline,
@@ -154,64 +103,58 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     pendingEditorDeletion,
     setPendingEditorDeletion,
     setFloatingDragCard,
+    updateFloatingCardLabel,
     setLiveEditorContent,
-    generatingNoteId,
+    generatingPieceId,
     streamingContent,
-    setGeneratingNote,
-    setStreamingContent,
   } = useAppStore();
   const {
-    notes,
     versions,
-    updateNoteContent,
-    updateNoteTitle,
-    updateNoteSubtitle,
-    updateNoteGoal,
-    updateNoteAudience,
-    updateNoteTone,
-    updateNoteRemember,
-    updateNoteVoice,
     addSnippet,
     removeSnippet,
     restoreSnippet,
   } = useDataStore();
+  const pieces = useContentStore((s) => s.pieces);
+  const updatePiece = useContentStore((s) => s.updatePiece);
   const settings = useSettingsStore((s) => s.settings);
+  const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
   const { labelSnippet } = useLabelSnippet();
   const { enabled: slashEnabled } = useSlashCommand();
   const { edit: inlineEdit, enabled: inlineEditEnabled } = useInlineEdit();
   const saveStatus = useSaveStatus();
   const { startGeneration, abort: abortGeneration } = useStreamGeneration();
   const { generateTitle, isGenerating: generatingTitle } = useGenerateTitle();
-  const isGenerating = generatingNoteId === activeNoteId && generatingNoteId !== null;
+  const isGenerating = generatingPieceId === activePieceId && generatingPieceId !== null;
 
+  const floatingLabelAbortRef = useRef<AbortController | null>(null);
   const dragClickPosRef = useRef<number | null>(null);
   const customDragRangeRef = useRef<{ from: number; to: number } | null>(null);
   // Stable refs for functions used inside Tiptap handleDOMEvents closures
+  const prefetchLabelRef = useRef<((text: string, signal: AbortSignal) => Promise<void>) | null>(null);
   const labelSnippetRef = useRef(labelSnippet);
   // Refs for snippet undo/redo tracking
   const editorRef = useRef<TiptapEditor | null>(null);
+  const snippetInsertMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
+  const snippetRemoveMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
+  const prevUndoDepthRef = useRef(0);
+  const pendingSnippetRecordRef = useRef<{ snapshot: import("@/lib/types").Snippet; isOutward?: boolean } | null>(null);
   const isCancellingDropRef = useRef(false);
 
-  const note = activeNoteId ? notes[activeNoteId] : null;
+  const piece = activePieceId ? pieces[activePieceId] : null;
   const previewVersion = timelinePreviewVersionId ? versions[timelinePreviewVersionId] ?? null : null;
   const voicesMap = useVoiceStore((s) => s.voices);
   const voicesList = useMemo(
     () => Object.values(voicesMap).sort((a, b) => a.createdAt - b.createdAt),
     [voicesMap],
   );
-  const resolvedVoice = note
-    ? resolveVoice(voicesMap, settings.brandVoice.defaultVoiceId, note.voiceId)
+  const resolvedVoice = piece
+    ? resolveVoice(voicesMap, settings.brandVoice.defaultVoiceId, piece.voiceId)
     : null;
   const contentRef = useRef<string | null>(null);
   const isInternalUpdate = useRef(false);
 
   // Goal overlay state
   const [goalOpen, setGoalOpen] = useState(false);
-  const [editorContextMenu, setEditorContextMenu] = useState<{
-    position: Point;
-    from: number;
-    to: number;
-  } | null>(null);
   const goalCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openGoal = () => {
     if (goalCloseTimer.current) clearTimeout(goalCloseTimer.current);
@@ -228,9 +171,9 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
   const debouncedSave = useMemo(
     () =>
       debounce((id: string, content: string) => {
-        updateNoteContent(id, content);
+        updatePiece(id, { body: content });
       }, 500) as DebouncedFn<(id: string, content: string) => void>,
-    [updateNoteContent],
+    [updatePiece],
   );
 
   const editor = useEditor({
@@ -294,9 +237,6 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
           // Prevents native text drag ghost that WebKit/Tauri can't override.
           event.preventDefault();
 
-          const dragStartDoc = view.state.doc;
-          const dragStartNoteId = useAppStore.getState().activeNoteId;
-          const draggedText = dragStartDoc.textBetween(from, to, "\n");
           const startX = event.clientX;
           const startY = event.clientY;
           let dragging = false;
@@ -307,14 +247,20 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
               dragging = true;
               dragClickPosRef.current = null;
 
-              if (!draggedText.trim()) { cleanup(); return; }
+              const txt = view.state.doc.textBetween(from, to, "\n");
+              if (!txt.trim()) { cleanup(); return; }
 
               customDragRangeRef.current = { from, to };
               useAppStore.getState().setDraggingToHelper(true);
               useAppStore.getState().setFloatingDragCard({
-                content: draggedText, label: null, labelStatus: "idle",
+                content: txt, label: null, labelStatus: "loading",
               });
               view.dom.classList.add("is-snippet-dragging-out");
+
+              // Prefetch label
+              floatingLabelAbortRef.current?.abort();
+              floatingLabelAbortRef.current = new AbortController();
+              prefetchLabelRef.current?.(txt, floatingLabelAbortRef.current.signal);
             }
 
             // Position floating card directly on the DOM (no React re-renders)
@@ -330,93 +276,66 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
             document.removeEventListener("mouseup", onUp);
           };
 
-          const resetDragState = () => {
-            customDragRangeRef.current = null;
-            useAppStore.getState().setDraggingToHelper(false);
-            useAppStore.getState().setFloatingDragCard(null);
-            view.dom.classList.remove("is-snippet-dragging-out");
-          };
-
           const onUp = (e: MouseEvent) => {
             cleanup();
 
             if (dragging) {
-              if (
-                view.isDestroyed ||
-                useAppStore.getState().activeNoteId !== dragStartNoteId ||
-                !view.state.doc.eq(dragStartDoc)
-              ) {
-                resetDragState();
-                return;
-              }
-
               // Check if mouse is over the Snip Bar drop zone
               const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
               const el = document.elementFromPoint(e.clientX, e.clientY);
-              const destination = selectionDragDestination(view.dom, dropZone, el);
+              const isOverSnipBar = dropZone && (dropZone.contains(el) || el === dropZone);
 
-              if (destination === "snip-bar" && dropZone) {
+              if (isOverSnipBar) {
                 const range = customDragRangeRef.current;
-                const noteId = dragStartNoteId;
+                const pieceId = useAppStore.getState().activePieceId;
                 const card = useAppStore.getState().floatingDragCard;
-                if (range && noteId && card) {
+                if (range && pieceId && card) {
                   const idxAttr = dropZone.getAttribute("data-drop-index");
                   const dropIdx = idxAttr ? parseInt(idxAttr, 10) : undefined;
-                  // Tagged with the open idea as well as the note, so the
+                  // Tagged with the open idea as well as the fragment, so the
                   // parts you cut off a draft are still in the bar when you
                   // cross to that idea's pieces (see lib/snip-scope.ts).
                   const snippetId = useDataStore.getState().addSnippet(
-                    noteId, card.content,
+                    pieceId, card.content,
                     Number.isFinite(dropIdx) ? dropIdx : undefined,
                     useAppStore.getState().activeIdeaId ?? undefined,
                   );
 
+                  // Build snippet snapshot for undo tracking
                   const createdSnippet = useDataStore.getState().snippets[snippetId];
+                  if (createdSnippet) {
+                    pendingSnippetRecordRef.current = { snapshot: { ...createdSnippet }, isOutward: true };
+                  }
 
-                  // Deleting the source and creating the snippet are one movement.
-                  // Metadata binds the persisted half to this exact editor transaction.
+                  // Delete source text from editor (this transaction triggers onUpdate
+                  // which records the snippet in snippetRemoveMapRef for undo)
                   const tr = view.state.tr;
                   const docSize = tr.doc.content.size;
                   const sf = Math.min(range.from, docSize);
                   const st = Math.min(range.to, docSize);
-                  if (sf < st) {
-                    if (createdSnippet) {
-                      addSnippetMovementToHistory(tr, {
-                        direction: "to-snip-bar",
-                        snippet: createdSnippet,
-                      });
-                    }
-                    tr.delete(sf, st);
-                    view.dispatch(tr);
-                  }
+                  if (sf < st) { tr.delete(sf, st); view.dispatch(tr); }
 
                   // Apply label
                   if (card.labelStatus === "done" && card.label) {
                     useDataStore.getState().updateSnippetLabel(snippetId, card.label, "done");
                   } else {
-                    const nd = useDataStore.getState().notes[noteId];
-                    if (nd) labelSnippetRef.current(snippetId, card.content, nd.content, nd.goal, noteId);
+                    const source = useContentStore.getState().pieces[pieceId];
+                    if (source) {
+                      labelSnippetRef.current(snippetId, card.content, source.body, source.goal ?? "", pieceId);
+                    }
                   }
 
                   // Keep the Snip Bar open after a successful drop
                   useAppStore.getState().pinHelperBar();
                 }
-              } else if (destination === "source") {
-                // This custom drag used to own the gesture and then ignore a
-                // release back over the editor. Move the original Slice so
-                // marks and block structure survive the reorder.
-                const range = customDragRangeRef.current;
-                const drop = view.posAtCoords({ left: e.clientX, top: e.clientY });
-                if (range && drop) {
-                  const tr = moveEditorSelection(view.state, range, drop.pos, dragStartDoc);
-                  if (tr) {
-                    view.dispatch(tr);
-                    view.focus();
-                  }
-                }
               }
 
-              resetDragState();
+              // Clean up all drag state
+              customDragRangeRef.current = null;
+              useAppStore.getState().setDraggingToHelper(false);
+              floatingLabelAbortRef.current?.abort();
+              useAppStore.getState().setFloatingDragCard(null);
+              view.dom.classList.remove("is-snippet-dragging-out");
             }
             // Click-only (no drag): Tiptap mouseup handler places cursor
           };
@@ -439,22 +358,6 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
           }
           return false;
         },
-        contextmenu: (view, event) => {
-          const { from, to } = view.state.selection;
-          if (from === to) return false;
-
-          const mouseEvent = event as MouseEvent;
-          const pos = view.posAtCoords({ left: mouseEvent.clientX, top: mouseEvent.clientY });
-          if (!pos || pos.pos < from || pos.pos > to) return false;
-
-          mouseEvent.preventDefault();
-          setEditorContextMenu({
-            position: { x: mouseEvent.clientX, y: mouseEvent.clientY },
-            from,
-            to,
-          });
-          return true;
-        },
         dragstart: () => {
           // Only fires for pending-return drags (native DnD).
           // Custom drag prevented native drag via preventDefault in mousedown.
@@ -471,12 +374,35 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
           const isStartOfLine = $from.parentOffset === 0;
 
           if (isEmptyLine || isStartOfLine) {
+            const slashBlockType = state.schema.nodes.slashBlock;
+            if (!slashBlockType) return false;
+
             event.preventDefault();
-            // Suppress save while this transient node is in the document.
+
+            const paraStart = $from.before($from.depth);
+            const paraEnd = $from.after($from.depth);
+            const tr = state.tr;
+
+            if (isEmptyLine) {
+              // Replace the empty paragraph with the slash block
+              tr.replaceWith(
+                paraStart,
+                paraEnd,
+                slashBlockType.create({ replacedEmpty: true }),
+              );
+            } else {
+              // Insert the slash block before the current non-empty paragraph
+              tr.insert(
+                paraStart,
+                slashBlockType.create({ replacedEmpty: false }),
+              );
+            }
+
+            // Suppress save while this transient node is in the document
             isInternalUpdate.current = true;
-            const inserted = insertSlashBlock(_view);
+            _view.dispatch(tr);
             isInternalUpdate.current = false;
-            return inserted;
+            return true;
           }
         }
         return false;
@@ -511,21 +437,14 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
           const sizeBefore = editorInstance.state.doc.content.size;
 
-          // Insert via Tiptap's insertContentAt which correctly handles
-          // multi-paragraph content at any document position. Keep the snippet
-          // removal attached to the same history event as the insertion.
-          const insertChain = editorInstance.chain();
+          // Tag this update so onUpdate can record it for undo tracking
           if (snippetObj) {
-            insertChain
-              .command(({ tr }) => {
-                addSnippetMovementToHistory(tr, {
-                  direction: "to-editor",
-                  snippet: snippetObj,
-                });
-                return true;
-              });
+            pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
           }
-          insertChain.insertContentAt(dropPos.pos, contentNodes).run();
+
+          // Insert via Tiptap's insertContentAt which correctly handles
+          // multi-paragraph content at any document position
+          editorInstance.chain().insertContentAt(dropPos.pos, contentNodes).run();
 
           const sizeAfter = editorInstance.state.doc.content.size;
           const insertedSize = sizeAfter - sizeBefore;
@@ -550,14 +469,16 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
           // Focus the editor so the selection highlight is visible
           setTimeout(() => view.focus(), 0);
-        } catch { return false; }
+        } catch {
+          pendingSnippetRecordRef.current = null;
+          return false;
+        }
 
         setDraggingToHelper(false);
         return true;
       },
     },
     onSelectionUpdate: () => {
-      setEditorContextMenu(null);
       // If there's a pending snippet drop and user clicked elsewhere, commit it
       const pending = useAppStore.getState().pendingSnippetDrop;
       if (!pending || pending.cancelled) return;
@@ -572,17 +493,29 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     onUpdate: ({ editor: ed, transaction }) => {
       if (isInternalUpdate.current) return;
 
-      if (isHistoryTransaction(transaction)) {
-        // The non-document half travels inside the same ProseMirror history
-        // event as the text edit, so grouping and history pruning cannot detach it.
-        if (!isCancellingDropRef.current) {
-          for (const effect of snippetMovementEffects(transaction.steps)) {
-            if (effect.action === "restore") restoreSnippet(effect.snippet);
-            else removeSnippet(effect.snippet.id);
-          }
-        }
-        isCancellingDropRef.current = false;
+      const currentUD = undoDepth(ed.state);
+      const prevUD = prevUndoDepthRef.current;
 
+      if (isHistoryTransaction(transaction)) {
+        // Undo or redo — sync snippet state with editor history
+        if (currentUD < prevUD) {
+          // UNDO: reverse the step at depth prevUD
+          if (!isCancellingDropRef.current) {
+            // Restore snippet that was removed by a snippet-drop
+            const inserted = snippetInsertMapRef.current.get(prevUD);
+            if (inserted) restoreSnippet(inserted);
+            // Remove snippet that was created by a text-to-snippet drag
+            const removed = snippetRemoveMapRef.current.get(prevUD);
+            if (removed) removeSnippet(removed.id);
+          }
+          isCancellingDropRef.current = false;
+        } else if (currentUD > prevUD) {
+          // REDO: re-apply the step at depth currentUD
+          const inserted = snippetInsertMapRef.current.get(currentUD);
+          if (inserted) removeSnippet(inserted.id);
+          const removed = snippetRemoveMapRef.current.get(currentUD);
+          if (removed) restoreSnippet(removed);
+        }
         // Clear pending-drop visual state on any history event
         const pending = useAppStore.getState().pendingSnippetDrop;
         if (pending && !pending.cancelled) commitPendingDrop();
@@ -590,7 +523,28 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
         // Normal edit — commit pending drop and invalidate redo snippet entries
         const pending = useAppStore.getState().pendingSnippetDrop;
         if (pending && !pending.cancelled) commitPendingDrop();
+
+        // Any new edit after an undo clears the redo stack; prune stale entries
+        for (const depth of snippetInsertMapRef.current.keys()) {
+          if (depth > currentUD) snippetInsertMapRef.current.delete(depth);
+        }
+        for (const depth of snippetRemoveMapRef.current.keys()) {
+          if (depth > currentUD) snippetRemoveMapRef.current.delete(depth);
+        }
       }
+
+      // Record a snippet drop or text-to-snippet operation for future undo/redo
+      if (pendingSnippetRecordRef.current) {
+        const { snapshot, isOutward } = pendingSnippetRecordRef.current;
+        if (isOutward) {
+          snippetRemoveMapRef.current.set(currentUD, snapshot);
+        } else {
+          snippetInsertMapRef.current.set(currentUD, snapshot);
+        }
+        pendingSnippetRecordRef.current = null;
+      }
+
+      prevUndoDepthRef.current = currentUD;
 
       // Skip serialization while a transient slashBlock node is in the document
       // (the markdown serializer doesn't know how to handle it)
@@ -605,29 +559,30 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
       const rawMd = (ed.storage as any).markdown.getMarkdown();
       const md = preserveEmptyParagraphs(rawMd);
       contentRef.current = md;
-      const currentNoteId = useAppStore.getState().activeNoteId;
-      if (currentNoteId) {
-        setLiveEditorContent(currentNoteId, md);
-        debouncedSave(currentNoteId, md);
-        // Synchronous backup — survives any crash/refresh regardless of debounce timing
-        try { localStorage.setItem(`fragment:editor:${currentNoteId}`, md); } catch {}
+      const currentPieceId = useAppStore.getState().activePieceId;
+      if (currentPieceId) {
+        setLiveEditorContent(currentPieceId, md);
+        debouncedSave(currentPieceId, md);
+        // Synchronous backup, which survives any crash or refresh regardless of
+        // debounce timing.
+        try { localStorage.setItem(`fragment:editor:${currentPieceId}`, md); } catch {}
       }
     },
     immediatelyRender: false,
   });
 
   useEffect(() => {
-    if (!editor || !note) return;
+    if (!editor || !piece) return;
 
-    // Flush any pending debounced save so the previous note's content is persisted
+    // Flush any pending debounced save so the previous fragment's text is persisted
     debouncedSave.flush();
 
-    if (contentRef.current === note.content) return;
+    if (contentRef.current === piece.body) return;
 
     // Check for immediate localStorage backup that may be newer than DB
-    let content = note.content;
+    let content = piece.body;
     try {
-      const backup = localStorage.getItem(`fragment:editor:${note.id}`);
+      const backup = localStorage.getItem(`fragment:editor:${piece.id}`);
       if (backup && backup.length > content.length) {
         content = backup;
       }
@@ -637,20 +592,20 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     editor.commands.setContent(content || "");
     cleanupNbspParagraphs(editor);
     contentRef.current = content;
-    setLiveEditorContent(note.id, content);
+    setLiveEditorContent(piece.id, content);
     isInternalUpdate.current = false;
 
     // Sync recovered content back to the store if it came from backup
-    if (content !== note.content) {
-      updateNoteContent(note.id, content);
+    if (content !== piece.body) {
+      updatePiece(piece.id, { body: content });
     }
-  }, [editor, note?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor, piece?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle version preview mode.
   // Do not re-set content on every versions-map mutation (e.g. saving snapshots),
   // otherwise unsaved spacing can be normalized away.
   useEffect(() => {
-    if (!editor || !note) return;
+    if (!editor || !piece) return;
 
     if (timelinePreviewVersionId) {
       const version = versions[timelinePreviewVersionId];
@@ -670,20 +625,20 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
       if (wasPreviewingRef.current) {
         editor.setEditable(true);
         isInternalUpdate.current = true;
-        editor.commands.setContent(note.content || "");
+        editor.commands.setContent(piece.body || "");
         cleanupNbspParagraphs(editor);
-        contentRef.current = note.content;
-        setLiveEditorContent(note.id, note.content);
+        contentRef.current = piece.body;
+        setLiveEditorContent(piece.id, piece.body);
         isInternalUpdate.current = false;
       }
       wasPreviewingRef.current = false;
       lastPreviewVersionIdRef.current = null;
     }
-  }, [editor, timelinePreviewVersionId, versions, note, setLiveEditorContent]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor, timelinePreviewVersionId, versions, piece, setLiveEditorContent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stream AI-generated content into the editor in real time
   useEffect(() => {
-    if (!editor || streamingContent === null || generatingNoteId !== activeNoteId) return;
+    if (!editor || streamingContent === null || generatingPieceId !== activePieceId) return;
 
     isInternalUpdate.current = true;
     editor.commands.setContent(streamingContent);
@@ -692,16 +647,16 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     isInternalUpdate.current = false;
 
     // Keep liveEditorContent in sync so micro-save and flushAll
-    // don't overwrite the note with stale/empty content
-    if (activeNoteId) {
-      setLiveEditorContent(activeNoteId, streamingContent);
+    // don't overwrite the fragment with stale/empty content
+    if (activePieceId) {
+      setLiveEditorContent(activePieceId, streamingContent);
     }
 
     // Pin scroll to top so user sees the first tokens
     if (editorScrollRef.current) {
       editorScrollRef.current.scrollTop = 0;
     }
-  }, [editor, streamingContent, generatingNoteId, activeNoteId, setLiveEditorContent]);
+  }, [editor, streamingContent, generatingPieceId, activePieceId, setLiveEditorContent]);
 
   // Toggle editor editability during streaming generation
   useEffect(() => {
@@ -715,10 +670,10 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
   // If user navigates away during generation, abort and persist partial content
   useEffect(() => {
-    if (generatingNoteId && activeNoteId !== generatingNoteId) {
+    if (generatingPieceId && activePieceId !== generatingPieceId) {
       abortGeneration();
     }
-  }, [activeNoteId, generatingNoteId, abortGeneration]);
+  }, [activePieceId, generatingPieceId, abortGeneration]);
 
   // Toggle visual class on editor for pending drop highlight
   useEffect(() => {
@@ -760,19 +715,15 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
     const { from, to, snippetId } = pendingEditorDeletion;
 
-    const { tr } = editor.state;
-
-    // Tag the editor transaction with the persisted half of the movement.
+    // Tag for undo tracking: undoing this deletion should remove the created snippet
     if (snippetId) {
       const snippet = useDataStore.getState().snippets[snippetId];
       if (snippet) {
-        addSnippetMovementToHistory(tr, {
-          direction: "to-snip-bar",
-          snippet,
-        });
+        pendingSnippetRecordRef.current = { snapshot: { ...snippet }, isOutward: true };
       }
     }
 
+    const { tr } = editor.state;
     const docSize = editor.state.doc.content.size;
     const safeFrom = Math.min(from, docSize);
     const safeTo = Math.min(to, docSize);
@@ -788,17 +739,16 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
   const pendingSnippetInsert = useAppStore((s) => s.pendingSnippetInsert);
   useEffect(() => {
     if (!pendingSnippetInsert || !editor) return;
-    if (!activeNoteId || !note) {
-      useAppStore.getState().setPendingSnippetInsert(null);
-      useToastStore.getState().showToast("Open or create a draft before inserting a snippet.");
-      return;
-    }
     const { snippetId, content, clientX, clientY } = pendingSnippetInsert;
     useAppStore.getState().setPendingSnippetInsert(null);
 
-    const dropPos = clientX === undefined || clientY === undefined
-      ? { pos: editor.state.selection.from }
-      : editor.view.posAtCoords({ left: clientX, top: clientY });
+    // A card dropped on the page carries the coordinates it landed at. The
+    // Snip Bar's own "insert into draft" action carries none, and means the
+    // cursor: it never touched the document to name a position.
+    const dropPos =
+      clientX === undefined || clientY === undefined
+        ? { pos: editor.state.selection.from }
+        : editor.view.posAtCoords({ left: clientX, top: clientY });
     if (!dropPos) return;
 
     const lines = content.split("\n");
@@ -808,20 +758,12 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     }));
 
     const snippetObj = useDataStore.getState().snippets[snippetId];
+    if (snippetObj) {
+      pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
+    }
 
     const sizeBefore = editor.state.doc.content.size;
-    const insertChain = editor.chain();
-    if (snippetObj) {
-      insertChain
-        .command(({ tr }) => {
-          addSnippetMovementToHistory(tr, {
-            direction: "to-editor",
-            snippet: snippetObj,
-          });
-          return true;
-        });
-    }
-    insertChain.insertContentAt(dropPos.pos, contentNodes).run();
+    editor.chain().insertContentAt(dropPos.pos, contentNodes).run();
     const sizeAfter = editor.state.doc.content.size;
     const insertedSize = sizeAfter - sizeBefore;
     const from = dropPos.pos;
@@ -958,7 +900,7 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
 
   const handleAddToSnippets = useCallback(() => {
-    if (!editor || !activeNoteId || !note) return;
+    if (!editor || !activePieceId || !piece) return;
     const { from, to } = editor.state.selection;
     if (from === to) return;
 
@@ -966,34 +908,22 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
     if (!selectedText.trim()) return;
 
     const snippetId = addSnippet(
-      activeNoteId,
+      activePieceId,
       selectedText,
       undefined,
       useAppStore.getState().activeIdeaId ?? undefined,
     );
     if (!snippetId) return;
-    labelSnippet(snippetId, selectedText, note.content, note.goal, activeNoteId);
+    labelSnippet(snippetId, selectedText, piece.body, piece.goal ?? "", activePieceId);
 
-    const createdSnippet = useDataStore.getState().snippets[snippetId];
-    const deleteChain = editor.chain().focus();
-    if (createdSnippet) {
-      deleteChain.command(({ tr }) => {
-        addSnippetMovementToHistory(tr, {
-          direction: "to-snip-bar",
-          snippet: createdSnippet,
-        });
-        return true;
-      });
-    }
-
-    // Remove the snipped text from the editor as the document half of the move.
-    deleteChain.deleteRange({ from, to }).run();
+    // Remove the snipped text from the editor
+    editor.chain().focus().deleteRange({ from, to }).run();
 
     if (!helperBarOpen) toggleHelperBar();
   }, [
     editor,
-    activeNoteId,
-    note,
+    activePieceId,
+    piece,
     addSnippet,
     labelSnippet,
     helperBarOpen,
@@ -1037,7 +967,7 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
   const handleInlineEdit = useCallback(
     async (instruction: string): Promise<string | null> => {
-      if (!editor || !note || !inlineEditEnabled) return null;
+      if (!editor || !piece || !inlineEditEnabled) return null;
       const { from, to } = editor.state.selection;
       if (from === to) return null;
 
@@ -1056,86 +986,104 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
         selectedText,
         plainBefore,
         plainAfter,
-        note.goal || "",
-        note.audience || "",
-        note.tone || "",
-        note.remember || "",
+        piece.goal || "",
+        piece.audience || "",
+        piece.tone || "",
+        piece.remember || "",
         instruction,
-        activeNoteId ?? undefined,
-        note.voiceId,
+        activePieceId ?? undefined,
+        piece.voiceId,
       );
     },
-    [editor, note, inlineEdit, inlineEditEnabled],
+    [editor, piece, inlineEdit, inlineEditEnabled],
   );
 
-  const closeEditorContextMenu = useCallback(() => setEditorContextMenu(null), []);
-
-  const restoreEditorContextSelection = useCallback(() => {
-    if (!editor || !editorContextMenu) return null;
-    const { from, to } = editorContextMenu;
-    editor.chain().setTextSelection({ from, to }).run();
-    return { from, to };
-  }, [editor, editorContextMenu]);
-
-  const handleEditorClipboard = useCallback(async (cut: boolean) => {
-    if (!editor || !editorContextMenu) return;
-    const { from, to } = editorContextMenu;
-    editor.chain().focus().setTextSelection({ from, to }).run();
-    closeEditorContextMenu();
-
-    // Prefer the browser's native command so ProseMirror owns clipboard
-    // serialization and preserves marks, links, and block structure.
-    if (typeof document.execCommand === "function" && document.execCommand(cut ? "cut" : "copy")) {
-      return;
-    }
-
-    try {
-      await writeEditorSelection(editor.view);
-      if (cut) {
-        editor.chain().focus().deleteRange({ from, to }).run();
+  // Prefetch a label for the floating drag card
+  const prefetchLabel = useCallback(
+    async (content: string, signal: AbortSignal) => {
+      if (!settings.snippetLabeling.enabled) {
+        updateFloatingCardLabel(null, "idle" as "done");
+        return;
       }
-    } catch {
-      useToastStore.getState().showToast(`Couldn't ${cut ? "cut" : "copy"} the selection.`);
-    }
-  }, [editor, editorContextMenu, closeEditorContextMenu]);
+      try {
+        const app = useAppStore.getState();
+        const auth = resolveWorkingFeatureAuth(settings, app.badProviders, "snippetLabeling");
+        if (!auth) {
+          updateFloatingCardLabel(null, "idle" as "done");
+          return;
+        }
+        const { provider, model } = auth;
+        const { promptTemplate, maxEssayContext } = settings.snippetLabeling;
+        const truncatedEssayContent =
+          maxEssayContext > 0 ? (piece?.body ?? "").slice(0, maxEssayContext) : "";
 
-  const handleEditorPaste = useCallback(async () => {
-    if (!editor || !editorContextMenu) return;
-    const { from, to } = editorContextMenu;
-    editor.chain().focus().setTextSelection({ from, to }).run();
-    closeEditorContextMenu();
+        const buildBody = (codexToken: string | undefined) =>
+          JSON.stringify({
+            snippetContent: content,
+            essayContent: truncatedEssayContent,
+            goal: piece?.goal ?? "",
+            promptTemplate,
+            model,
+            provider,
+            apiKey: auth.apiKey || undefined,
+            codexToken,
+          });
 
-    // Let ProseMirror's native paste pipeline run first. It handles HTML and
-    // schema-aware parsing better than a custom text insertion path.
-    if (typeof document.execCommand === "function" && document.execCommand("paste")) {
-      return;
-    }
+        // Proactive token validation
+        let codexToken: string | undefined;
+        if (provider === "codex") {
+          const token = await ensureValidCodexToken(
+            settings.providerCredentials.codexAccessToken,
+            settings.providerCredentials.codexRefreshToken,
+            updateProviderCredentials,
+          );
+          if (!token) {
+            app.markProviderBad("codex");
+            app.openAiGate("auth-failed", "codex");
+            useToastStore.getState().showToast("ChatGPT disconnected. Reconnect in Settings.");
+            updateFloatingCardLabel(null, "error");
+            return;
+          }
+          codexToken = token;
+        }
 
-    try {
-      await pasteEditorClipboard(editor.view);
-    } catch {
-      useToastStore.getState().showToast("Couldn't read the clipboard.");
-    }
-  }, [editor, editorContextMenu, closeEditorContextMenu]);
+        let res = await postLabel(buildBody(codexToken), { signal });
 
-  const handleEditorContextSnip = useCallback(() => {
-    if (!restoreEditorContextSelection()) return;
-    closeEditorContextMenu();
-    handleAddToSnippets();
-  }, [restoreEditorContextSelection, closeEditorContextMenu, handleAddToSnippets]);
+        // Fallback: force refresh on 401
+        if (res.status === 401 && provider === "codex") {
+          const fresh = await forceRefreshCodexToken(updateProviderCredentials);
+          if (fresh) {
+            res = await postLabel(buildBody(fresh), { signal });
+          }
+        }
 
-  const handleEditorContextGenerate = useCallback(() => {
-    if (!editor || !restoreEditorContextSelection()) return;
-    closeEditorContextMenu();
-    if (!slashEnabled) {
-      onOpenAISettings?.();
-      return;
-    }
-    isInternalUpdate.current = true;
-    insertSlashBlock(editor.view);
-    isInternalUpdate.current = false;
-  }, [editor, restoreEditorContextSelection, closeEditorContextMenu, slashEnabled, onOpenAISettings]);
+        const data = await res.json();
+        if (data._meta) {
+          const modelUsed = (data._meta.modelUsed as string | undefined) || model;
+          logApiCall("label", "snip-drag-preview", provider, modelUsed, data._meta, activePieceId ?? undefined).catch(() => {});
+        }
+        if (!res.ok) {
+          if (isAiAuthFailureStatus(res.status)) {
+            app.markProviderBad(provider);
+            app.openAiGate("auth-failed", provider);
+            const toast = provider === "codex" ? "ChatGPT disconnected. Reconnect in Settings." : "API key invalid. Check Settings.";
+            useToastStore.getState().showToast(toast);
+          }
+          updateFloatingCardLabel(null, "error");
+          return;
+        }
+        updateFloatingCardLabel(data.label, "done");
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          updateFloatingCardLabel(null, "error");
+        }
+      }
+    },
+    [settings, piece?.body, piece?.goal, updateFloatingCardLabel, updateProviderCredentials],
+  );
+
   // Keep stable refs current for use inside Tiptap handleDOMEvents closures
+  prefetchLabelRef.current = prefetchLabel;
   labelSnippetRef.current = labelSnippet;
 
   // Only used for pending-return drags (native DnD).
@@ -1211,18 +1159,12 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
         }));
 
         const sizeBefore = editor.state.doc.content.size;
-        const insertChain = editor.chain();
+
         if (snippetObj) {
-          insertChain
-            .command(({ tr }) => {
-              addSnippetMovementToHistory(tr, {
-                direction: "to-editor",
-                snippet: snippetObj,
-              });
-              return true;
-            });
+          pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
         }
-        insertChain.insertContentAt(dropPos.pos, contentNodes).run();
+
+        editor.chain().insertContentAt(dropPos.pos, contentNodes).run();
 
         const sizeAfter = editor.state.doc.content.size;
         const insertedSize = sizeAfter - sizeBefore;
@@ -1241,18 +1183,20 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
 
         useAppStore.getState().setDraggingToEditor(false);
         setTimeout(() => editor.view.focus(), 0);
-      } catch {}
+      } catch {
+        pendingSnippetRecordRef.current = null;
+      }
       setDraggingToHelper(false);
     },
     [editor, removeSnippet, setDraggingToHelper, setPendingSnippetDrop],
   );
 
-  if (!note) {
-    return <NoteCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
+  if (!piece) {
+    return <FragmentCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
-  if (showCreationFlow && !note.content.trim()) {
-    return <NoteCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingNote={note} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
+  if (showCreationFlow && !piece.body.trim()) {
+    return <FragmentCreationFlow sidebarOpen={sidebarOpen} toggleSidebar={toggleSidebar} existingPiece={piece} onOpenAISettings={onOpenAISettings} onStartGeneration={startGeneration} leftToolbarSlot={leftToolbarSlot} />;
   }
 
   return (
@@ -1283,11 +1227,11 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                 Goal
               </span>
               <span className="truncate text-[13px] text-text-secondary">
-                {note.goal || <span className="text-text-faint">Add a goal…</span>}
+                {piece.goal || <span className="text-text-faint">Add a goal…</span>}
               </span>
               {voicesList.length > 0 && (
                 <span className="shrink-0 ml-1 px-1.5 py-0.5 rounded bg-surface-3 text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
-                  {note.voiceId === null ? "No voice" : resolvedVoice ? resolvedVoice.name : "No voice"}
+                  {piece.voiceId === null ? "No voice" : resolvedVoice ? resolvedVoice.name : "No voice"}
                 </span>
               )}
             </div>
@@ -1305,10 +1249,10 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                     <div className="flex flex-col gap-1.5">
                       <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Voice</span>
                       <select
-                        value={note.voiceId === null ? "__none__" : note.voiceId === undefined ? "__default__" : note.voiceId}
+                        value={piece.voiceId === null ? "__none__" : piece.voiceId === undefined ? "__default__" : piece.voiceId}
                         onChange={(e) => {
                           const v = e.target.value;
-                          updateNoteVoice(note.id, v === "__default__" ? undefined : v === "__none__" ? null : v);
+                          updatePiece(piece.id, { voiceId: v === "__default__" ? undefined : v === "__none__" ? null : v });
                         }}
                         className="bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-2 py-1 text-[13px] text-text-secondary outline-none focus:border-border-active"
                       >
@@ -1328,8 +1272,8 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                   <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Goal</span>
                   <input
                     type="text"
-                    value={note.goal}
-                    onChange={(e) => updateNoteGoal(note.id, e.target.value)}
+                    value={piece.goal ?? ""}
+                    onChange={(e) => updatePiece(piece.id, { goal: e.target.value })}
                     placeholder="What are you writing about?"
                     className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
                   />
@@ -1339,8 +1283,8 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                   <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Audience</span>
                   <input
                     type="text"
-                    value={note.audience ?? ""}
-                    onChange={(e) => updateNoteAudience(note.id, e.target.value)}
+                    value={piece.audience ?? ""}
+                    onChange={(e) => updatePiece(piece.id, { audience: e.target.value })}
                     placeholder="Who is this for?"
                     className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
                   />
@@ -1350,8 +1294,8 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                   <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Tone</span>
                   <input
                     type="text"
-                    value={note.tone ?? ""}
-                    onChange={(e) => updateNoteTone(note.id, e.target.value)}
+                    value={piece.tone ?? ""}
+                    onChange={(e) => updatePiece(piece.id, { tone: e.target.value })}
                     placeholder="e.g. conversational, formal, witty…"
                     className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
                   />
@@ -1360,8 +1304,8 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Remember</span>
                   <textarea
-                    value={note.remember ?? ""}
-                    onChange={(e) => updateNoteRemember(note.id, e.target.value)}
+                    value={piece.remember ?? ""}
+                    onChange={(e) => updatePiece(piece.id, { remember: e.target.value })}
                     placeholder="Things the AI should always keep in mind…"
                     rows={3}
                     className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none resize-none"
@@ -1407,7 +1351,7 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
         {/* Right action buttons */}
         <div className="flex items-center gap-2.5 shrink-0">
           {editor && !timelinePreviewVersionId && (
-            <CommentsAffordance noteId={note.id} editor={editor} />
+            <CommentsAffordance pieceId={piece.id} editor={editor} />
           )}
           {editor && !timelinePreviewVersionId && (
             <>
@@ -1431,7 +1375,7 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
           )}
           {/* Snip button removed — now in inline edit bubble menu */}
           {editor && !timelinePreviewVersionId && (
-            <ExportMenu noteId={note.id} editor={editor} />
+            <ExportMenu pieceId={piece.id} editor={editor} />
           )}
           <button
             onClick={toggleTimeline}
@@ -1462,8 +1406,8 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
       {timelinePreviewVersionId && <VersionPreviewBanner />}
 
       {/* Context fields tooltip — hidden during streaming generation */}
-      {!timelinePreviewVersionId && !isGenerating && !note.goal && !note.audience && !note.tone && !contextPromptDismissedNotes.has(note.id) && (
-        <ContextFieldsTooltip noteId={note.id} onOpenGoal={openGoal} />
+      {!timelinePreviewVersionId && !isGenerating && !piece.goal && !piece.audience && !piece.tone && !contextPromptDismissedPieces.has(piece.id) && (
+        <ContextFieldsTooltip pieceId={piece.id} onOpenGoal={openGoal} />
       )}
 
       {/* Editor */}
@@ -1475,14 +1419,14 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
         onDragOver={handleWrapperDragOver}
         onDrop={handleWrapperDrop}
       >
-        <NoteHeader
-          title={previewVersion ? previewVersion.title : note.title}
-          subtitle={previewVersion ? previewVersion.subtitle ?? "" : note.subtitle ?? ""}
+        <FragmentHeader
+          title={previewVersion ? previewVersion.title : piece.title ?? ""}
+          subtitle={previewVersion ? previewVersion.subtitle ?? "" : piece.subtitle ?? ""}
           disabled={!!timelinePreviewVersionId || isGenerating}
           generatingTitle={generatingTitle}
-          onTitleChange={(v) => updateNoteTitle(note.id, v)}
-          onGenerateTitle={() => generateTitle(note.id, contentRef.current || note.content)}
-          onSubtitleChange={(v) => updateNoteSubtitle(note.id, v)}
+          onTitleChange={(v) => updatePiece(piece.id, { title: v })}
+          onGenerateTitle={() => generateTitle(piece.id, contentRef.current || piece.body)}
+          onSubtitleChange={(v) => updatePiece(piece.id, { subtitle: v })}
           onFocusBody={() => {
             // Sync focus — Tiptap's focus() command defers to rAF, which loses
             // keystrokes typed immediately after Enter leaves the subtitle.
@@ -1494,72 +1438,17 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
           }}
         />
         <EditorContent editor={editor} />
-        {editorContextMenu && (
-          <ContextMenu
-            position={editorContextMenu.position}
-            onClose={closeEditorContextMenu}
-            ariaLabel="Editor actions"
-          >
-            <ContextMenuItem
-              label="Cut"
-              shortcut="⌘X"
-              icon={<Scissors size={13} />}
-              onSelect={() => void handleEditorClipboard(true)}
-            />
-            <ContextMenuItem
-              label="Copy"
-              shortcut="⌘C"
-              icon={<Copy size={13} />}
-              onSelect={() => void handleEditorClipboard(false)}
-            />
-            <ContextMenuItem
-              label="Paste"
-              shortcut="⌘V"
-              icon={<ClipboardPaste size={13} />}
-              onSelect={() => void handleEditorPaste()}
-            />
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              label="Snip to Helper Bar"
-              icon={<Clipboard size={13} />}
-              onSelect={handleEditorContextSnip}
-            />
-            <ContextMenuItem
-              label="Generate with AI..."
-              shortcut="/"
-              icon={<Sparkles size={13} />}
-              onSelect={handleEditorContextGenerate}
-            />
-            <ContextMenuItem
-              label="Image Generation"
-              badge="Coming Soon"
-              icon={<ImageIcon size={13} />}
-              disabled
-              onSelect={() => {}}
-            />
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              label="Settings..."
-              shortcut="⌘,"
-              icon={<Settings size={13} />}
-              onSelect={() => {
-                closeEditorContextMenu();
-                onOpenSettings?.();
-              }}
-            />
-          </ContextMenu>
-        )}
         {editor && editor.isEmpty && !timelinePreviewVersionId && !isGenerating && (
-          <EmptyNoteActions
-            noteId={note.id}
+          <EmptyFragmentActions
+            pieceId={piece.id}
             onInsertContent={(content, title) => {
-              if (title && !note.title) {
-                updateNoteTitle(note.id, title);
+              if (title && !piece.title) {
+                updatePiece(piece.id, { title });
               }
               editor.commands.setContent(content);
-              if (activeNoteId) {
-                setLiveEditorContent(activeNoteId, content);
-                updateNoteContent(activeNoteId, content);
+              if (activePieceId) {
+                setLiveEditorContent(activePieceId, content);
+                updatePiece(activePieceId, { body: content });
               }
             }}
             onStartGeneration={startGeneration}
@@ -1575,8 +1464,8 @@ export function Editor({ onOpenAISettings, onOpenSettings, leftToolbarSlot }: Ed
           />
         )}
       </div>
-      {activeNoteId && !timelinePreviewVersionId && (
-        <NoteUsageFooter noteId={activeNoteId} />
+      {activePieceId && !timelinePreviewVersionId && (
+        <FragmentUsageFooter pieceId={activePieceId} />
       )}
     </div>
   );

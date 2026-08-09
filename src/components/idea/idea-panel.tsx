@@ -11,7 +11,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
 import { draftsForIdea, hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
 import { useToastStore } from "@/hooks/use-toast";
@@ -39,15 +38,16 @@ const STATUS_WORD: Record<PieceStatus, string> = {
   published: "published",
 };
 
-/** First non-empty line of a piece, as a plain-text row label — markdown
- * syntax stripped so a `## heading` reads as a title, not as hashes. */
-function pieceLabel(piece: ContentPiece): string {
+/** First non-empty line of a fragment, as a plain-text row label: markdown
+ * syntax stripped so a `## heading` reads as a title, not as hashes. `empty`
+ * names what a fragment with nothing in it is called on the surface asking. */
+function pieceLabel(piece: ContentPiece, empty = "Empty fragment"): string {
   if (piece.title?.trim()) return piece.title.trim();
-  const firstLine = markdownToPlainText(piece.body ?? "")
+  const firstLine = markdownToPlainText(piece.body)
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.length > 0);
-  return firstLine || "Empty piece";
+  return firstLine || empty;
 }
 
 /**
@@ -66,12 +66,9 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const pieces = useContentStore((s) => s.pieces);
   const updateIdea = useContentStore((s) => s.updateIdea);
   const createPiece = useContentStore((s) => s.createPiece);
-  const linkNoteToIdea = useContentStore((s) => s.linkNoteToIdea);
-  const notes = useDataStore((s) => s.notes);
-  const createNote = useDataStore((s) => s.createNote);
-  const deleteNote = useDataStore((s) => s.deleteNote);
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
-  const setActiveNote = useAppStore((s) => s.setActiveNote);
+  const deletePieceCascade = useContentStore((s) => s.deletePieceCascade);
+  const activePieceId = useAppStore((s) => s.activePieceId);
+  const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
   const setCommentsPanelOpen = useAppStore((s) => s.setCommentsPanelOpen);
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
@@ -132,8 +129,8 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
    * panel on it — the idea view's "Started from a comment" backlink. */
   function openOriginComment() {
     if (!originComment) return;
-    if (originComment.noteId) {
-      setActiveNote(originComment.noteId);
+    if (originComment.pieceId) {
+      setActivePiece(originComment.pieceId);
     } else if (originComment.ideaId) {
       setActiveIdea(originComment.ideaId);
       setIdeaSpace(originComment.ideaId, "pieces");
@@ -141,27 +138,36 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     setCommentsPanelOpen(true);
   }
 
-  function openDraft(noteId: string) {
-    setActiveNote(noteId);
+  function openDraft(pieceId: string) {
+    setActivePiece(pieceId);
     setIdeaSpace(ideaId, "write");
   }
 
   function handleNewDraft() {
-    const noteId = createNote();
-    if (!noteId) return;
-    linkNoteToIdea(ideaId, noteId);
-    setActiveNote(noteId);
+    const pieceId = createPiece({
+      ideaId,
+      // Long-form, so it opens in the editor rather than as a card in the feed.
+      format: "essay",
+      origin: "user",
+      status: "in-progress",
+      seen: true,
+    });
+    if (!pieceId) return;
+    setActivePiece(pieceId);
     setIdeaSpace(ideaId, "write");
     setShowCreationFlow(true);
   }
 
-  function handleDeleteDraft(e: React.MouseEvent, noteId: string) {
+  function handleDeleteDraft(e: React.MouseEvent, pieceId: string) {
     e.stopPropagation();
-    deleteNote(noteId);
-    if (activeNoteId === noteId) {
-      const next = drafts.find((d) => d.noteId !== noteId);
-      setActiveNote(next?.noteId ?? null);
-    }
+    // The cascade hands back the fragment to look at next, so a delete from
+    // this list never leaves the editor pointed at something that is gone. The
+    // idea's remaining drafts come first: this list is what the eye is on, and
+    // the cascade's answer can be any fragment in the idea, card included.
+    const next = deletePieceCascade(pieceId);
+    if (activePieceId !== pieceId) return;
+    const nextDraft = drafts.find((d) => d.id !== pieceId);
+    setActivePiece(nextDraft?.id ?? next);
   }
 
   /** Open the pieces feed with this exact piece selected and scrolled to —
@@ -175,7 +181,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     const id = createPiece({ ideaId, format: "other", origin: "user", body: "" });
     if (!id) return;
     openPiece(id);
-    showToast("Piece added — edit it in the feed");
+    showToast("Fragment added. Edit it in the feed.");
   }
 
   return (
@@ -241,7 +247,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
-        {/* Drafts — the long-form notes that live in this idea */}
+        {/* Drafts: the long-form fragments that live in this idea */}
         <section>
           <SectionHeader
             label="Drafts"
@@ -265,18 +271,14 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
           ) : (
             <div className="space-y-0.5">
               {drafts.map((piece) => {
-                const noteId = piece.noteId;
-                if (!noteId) return null;
-                const note = notes[noteId];
-                if (!note) return null;
-                const isActive = activeNoteId === noteId && space === "write";
+                const isActive = activePieceId === piece.id && space === "write";
                 return (
                   <div
                     key={piece.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => openDraft(noteId)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openDraft(noteId); }}
+                    onClick={() => openDraft(piece.id)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openDraft(piece.id); }}
                     className={`group relative flex flex-col px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150
                       ${isActive ? "bg-surface-3" : "hover:bg-surface-2"}`}
                   >
@@ -286,10 +288,10 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                     <div className="flex items-center gap-2">
                       <FileText size={11} className={`shrink-0 ${isActive ? "text-gold" : "text-text-faint"}`} />
                       <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
-                        {note.title.trim() || "Untitled draft"}
+                        {pieceLabel(piece, "Untitled draft")}
                       </span>
                       <button
-                        onClick={(e) => handleDeleteDraft(e, noteId)}
+                        onClick={(e) => handleDeleteDraft(e, piece.id)}
                         title="Delete this draft"
                         className="opacity-0 group-hover:opacity-100 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
                       >
@@ -297,7 +299,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                       </button>
                     </div>
                     <span className="pl-[19px] text-[10px] text-text-faint font-[family-name:var(--font-mono)]">
-                      {wordCount(note.content)} words · {formatDate(note.updatedAt)}
+                      {wordCount(piece.body)} words · {formatDate(piece.updatedAt)}
                     </span>
                   </div>
                 );
@@ -306,12 +308,12 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
           )}
         </section>
 
-        {/* Pieces — the short-form feed, summarised */}
+        {/* Fragments: the short-form feed, summarised */}
         <section>
           <SectionHeader
-            label="Pieces"
+            label="Fragments"
             count={shortPieces.length}
-            actionLabel="New piece"
+            actionLabel="New fragment"
             onAction={handleNewPiece}
           />
           <p className="text-[10px] text-text-faint leading-relaxed mb-2">
@@ -383,7 +385,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
             text-[11px] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
         >
           {space === "write" ? <LayoutList size={12} /> : <FileText size={12} />}
-          {space === "write" ? "Open the pieces feed" : "Back to the draft"}
+          {space === "write" ? "Open the fragments feed" : "Back to the draft"}
           <kbd className="ml-auto text-[9px] text-text-faint font-[family-name:var(--font-mono)] bg-surface-2 px-1.5 py-0.5 rounded-[4px] border border-border-strong">
             {space === "write" ? "⌘2" : "⌘1"}
           </kbd>
@@ -406,7 +408,7 @@ export function IdeaPanelToggle() {
   return (
     <button
       onClick={() => setIdeaPanelOpen(true)}
-      title="Show this idea's drafts and pieces"
+      title="Show this idea's drafts and fragments"
       className="shrink-0 p-2.5 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
     >
       <PanelLeftOpen size={16} />

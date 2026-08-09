@@ -165,7 +165,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   const handleDelete = useCallback(
     (piece: ContentPiece) => {
       rejectPiece(piece.id);
-      showToast("Piece deleted", { label: "Undo", onClick: () => undeletePiece(piece.id) });
+      showToast("Fragment deleted", { label: "Undo", onClick: () => undeletePiece(piece.id) });
     },
     [rejectPiece, showToast, undeletePiece],
   );
@@ -250,7 +250,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
             {idea?.title || "Untitled idea"}
           </span>
           <span className="shrink-0 text-[11px] text-text-faint">
-            short-form pieces — snip one out, or let an agent drop a draft in the inbox
+            short-form fragments. Snip one out, or let an agent drop a draft in the inbox
           </span>
         </div>
       </div>

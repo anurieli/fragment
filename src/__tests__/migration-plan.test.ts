@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import type { ContentPiece, Idea } from "@/lib/content-engine";
+import type { Idea } from "@/lib/content-engine";
 import type { Note } from "@/lib/types";
 import { contentHash, optionalHash } from "@/lib/migration/hash";
 import {
@@ -8,6 +8,7 @@ import {
   deriveTitle,
   migratedIdeaId,
   migratedPieceId,
+  type LegacyPiece,
   type PlanInput,
   type SatelliteRow,
 } from "@/lib/migration/plan";
@@ -29,11 +30,13 @@ function note(overrides: Partial<Note> & { id: string }): Note {
   };
 }
 
-function piece(overrides: Partial<ContentPiece> & { id: string; ideaId: string }): ContentPiece {
+/** Rows as the planner meets them: still carrying the retired noteId column. */
+function piece(overrides: Partial<LegacyPiece> & { id: string; ideaId: string }): LegacyPiece {
   return {
     format: "essay",
     status: "in-progress",
     origin: "user",
+    body: "",
     seen: true,
     priority: 0,
     order: 0,

@@ -22,11 +22,11 @@ export interface GeneratePanelSubmit {
 }
 
 interface GeneratePanelProps {
-  /** Compact variant for the inline empty-note surface: tighter spacing,
+  /** Compact variant for the inline empty-fragment surface: tighter spacing,
    * context fields collapsed by default. The full variant (creation flow)
    * shows context fields expanded. */
   compact?: boolean;
-  /** Prefill for context fields, e.g. from an existing note. */
+  /** Prefill for context fields, e.g. from the fragment being written into. */
   initial?: Partial<Pick<GeneratePanelSubmit, "goal" | "audience" | "tone" | "remember" | "voiceId">>;
   onGenerate: (params: GeneratePanelSubmit) => void;
   onCancel?: () => void;
@@ -224,7 +224,7 @@ export function GeneratePanel({ compact, initial, onGenerate, onCancel, onOpenAI
             hover:bg-gold/20 disabled:opacity-40 disabled:cursor-not-allowed
             transition-all duration-150"
         >
-          Generate note
+          Generate draft
         </button>
       </div>
     </div>
