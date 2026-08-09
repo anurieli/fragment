@@ -1,9 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// Clear IndexedDB before each test for isolation
+/**
+ * Fresh library, no welcome screen.
+ *
+ * The IndexedDB wipe is for isolation. The onboarding flag is what makes the
+ * app reachable at all: a first-run install shows the welcome flow as a
+ * `fixed inset-0` layer, and every click in every test below was landing on
+ * that layer instead of the app. It has to be written before the reload,
+ * because AppShell reads it once in a useState initialiser.
+ */
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
+    localStorage.setItem("fragment:onboardingComplete", "true");
     const dbs = indexedDB.databases ? indexedDB.databases() : Promise.resolve([]);
     return dbs.then((databases: IDBDatabaseInfo[]) =>
       Promise.all(databases.map((db: IDBDatabaseInfo) => {
@@ -16,6 +25,10 @@ test.beforeEach(async ({ page }) => {
     () => !document.body.textContent?.includes("Loading..."),
     { timeout: 10000 },
   );
+  // Nothing should be covering the app. If the welcome screen ever comes back
+  // under a different flag, fail here rather than in a click 40 lines down
+  // with "intercepts pointer events".
+  await expect(page.locator(".fixed.inset-0")).toHaveCount(0);
 });
 
 /**
@@ -79,10 +92,13 @@ test.describe("Idea lifecycle", () => {
       { timeout: 10000 },
     );
 
-    // The title should still be on the page after hydration
-    await expect(page.getByText("My Persisted Title 9876")).toBeVisible({
-      timeout: 10000,
-    });
+    // The title should still be on the page after hydration. Asserted on the
+    // editor's own title field rather than on the text: the title also shows
+    // in the idea panel's draft row, so a bare text match is ambiguous.
+    await expect(page.getByPlaceholder("Untitled", { exact: true })).toHaveValue(
+      "My Persisted Title 9876",
+      { timeout: 10000 },
+    );
   });
 
   test("editor content persists after reload", async ({ page }) => {
@@ -122,7 +138,13 @@ test.describe("Idea lifecycle", () => {
     await startBlankDraft(page);
     await startBlankDraft(page);
 
-    const ideaRows = page.locator(".overflow-y-auto div[role='button']");
+    // Opening an idea drops the sidebar to its rail, so pin it back before
+    // counting rows — and scope the locator to the sidebar, since the idea
+    // panel beside it is a scroll container full of buttons too.
+    await page.getByLabel("Open sidebar", { exact: true }).click();
+    await page.waitForTimeout(400);
+
+    const ideaRows = page.locator("[data-sidebar] .overflow-y-auto div[role='button']");
     const countBefore = await ideaRows.count();
     expect(countBefore).toBeGreaterThanOrEqual(2);
 
