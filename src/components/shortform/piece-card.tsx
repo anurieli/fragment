@@ -12,6 +12,7 @@ import { useToastStore } from "@/hooks/use-toast";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useSnipLabeler } from "@/hooks/use-snip-labeler";
+import { useResolvedBrief } from "@/hooks/use-brief";
 import {
   buildRefineContext,
   buildFlowContext,
@@ -139,6 +140,9 @@ export function PieceCard({
   const { generateStream, abort: abortFlow, enabled: slashEnabled } = useSlashCommand();
   const labelSnip = useSnipLabeler();
   const idea = ideas[piece.ideaId];
+  // Fragment → idea → voice. Short-form used to send empty audience and tone,
+  // so a piece drafted here ignored the persona entirely.
+  const brief = useResolvedBrief(piece);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -255,7 +259,7 @@ export function PieceCard({
         Object.values(allResources),
       ),
     });
-    const ctx = buildFlowContext({ format: piece.format, idea, ideaBrief, instruction });
+    const ctx = buildFlowContext({ format: piece.format, idea, ideaBrief, instruction, brief });
     const baseBody = piece.body ?? "";
 
     setFlowGenerating(true);
@@ -265,8 +269,8 @@ export function PieceCard({
       ctx.contextAbove,
       "",
       ctx.goal,
-      "",
-      "",
+      ctx.audience,
+      ctx.tone,
       ctx.remember,
       ctx.instruction,
       {
@@ -299,6 +303,7 @@ export function PieceCard({
     allIdeas,
     allResources,
     idea,
+    brief,
     generateStream,
     updatePiece,
   ]);
@@ -351,8 +356,10 @@ export function PieceCard({
   // Refine: context-aware edit of the current textarea selection, routed
   // through the existing useInlineEdit flow. See buildRefineContext in
   // piece-ai.ts for how before/after context, the idea's title/summary, the
-  // voice chain (idea.voiceId -> default — a piece has no voiceId of its
-  // own), and the platform/char-limit hint are assembled.
+  // voice chain (fragment.voiceId -> idea.voiceId -> default) and the
+  // platform/char-limit hint are assembled. Goal, audience and tone come from
+  // the resolved brief, so a short-form fragment sees the same persona the
+  // editor does; they used to be passed as empty strings from here.
   const handleRefineEdit = useCallback(
     async (instruction: string, selectionStart: number, selectionEnd: number): Promise<string | null> => {
       if (!inlineEditEnabled) return null;
@@ -367,21 +374,22 @@ export function PieceCard({
         selectionStart: selection.start,
         selectionEnd: selection.end,
         idea,
+        brief,
       });
       return inlineEdit(
         selectedText,
         ctx.contextBefore,
         ctx.contextAfter,
         ctx.goal,
-        "",
-        "",
+        ctx.audience,
+        ctx.tone,
         ctx.remember,
         instruction,
         piece.id,
         ctx.voiceId,
       );
     },
-    [inlineEditEnabled, piece, idea, inlineEdit],
+    [inlineEditEnabled, piece, idea, brief, inlineEdit],
   );
 
   // Snip out: lifts the selection into the Snip Bar, filed against this

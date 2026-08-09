@@ -16,6 +16,8 @@ import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
 import { GeneratePanel, type GeneratePanelSubmit } from "./generate-panel";
+import { useBrief } from "@/hooks/use-brief";
+import { inheritedBrief } from "@/lib/brief-context";
 import type { ContentPiece } from "@/lib/content-engine";
 import type { StreamGenerationParams } from "@/hooks/use-stream-generation";
 
@@ -35,6 +37,7 @@ interface PieceCreationFlowProps {
 export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, onOpenAISettings, onStartGeneration, leftToolbarSlot }: PieceCreationFlowProps) {
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaTitle = useContentStore((s) => (activeIdeaId ? s.ideas[activeIdeaId]?.title : undefined));
+  const { idea: existingIdea, voice: existingVoice } = useBrief(existingPiece);
   const createPiece = useContentStore((s) => s.createPiece);
   const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
   const updatePiece = useContentStore((s) => s.updatePiece);
@@ -228,6 +231,8 @@ export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, o
               remember: existingPiece.remember,
               voiceId: existingPiece.voiceId,
             } : undefined}
+            inherited={inheritedBrief("fragment", { piece: existingPiece, idea: existingIdea, voice: existingVoice })}
+            voiceName={existingVoice?.name}
             onGenerate={handleGenerate}
             onCancel={() => setView("menu")}
             onOpenAISettings={onOpenAISettings}
@@ -427,6 +432,7 @@ export function EmptyPieceActions({
 }) {
   const settings = useSettingsStore((s) => s.settings);
   const piece = useContentStore((s) => s.pieces[pieceId]);
+  const { idea: pieceIdea, voice: pieceVoice } = useBrief(piece);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showGenerate, setShowGenerate] = useState(false);
 
@@ -468,6 +474,8 @@ export function EmptyPieceActions({
               // Respect whatever voice the fragment already has.
               voiceId: piece.voiceId,
             } : undefined}
+            inherited={inheritedBrief("fragment", { piece, idea: pieceIdea, voice: pieceVoice })}
+            voiceName={pieceVoice?.name}
             onGenerate={handleGenerate}
             onCancel={() => setShowGenerate(false)}
             onOpenAISettings={onOpenAISettings}

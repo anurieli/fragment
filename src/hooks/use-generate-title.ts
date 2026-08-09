@@ -12,10 +12,13 @@ import { cleanGeneratedTitle, titleContext } from "@/lib/note-title";
 import { logApiCall } from "@/lib/api-logger";
 import { captureEvent } from "@/lib/posthog";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
+import { briefForPiece } from "@/hooks/use-brief";
+import { composeVoiceContext } from "@/lib/voice-context";
 
 /**
- * Titles a fragment from what is already in it: the draft plus the fragment's
- * own context fields (goal, audience, tone, remember). One shot,
+ * Titles a fragment from what is already in it: the draft plus its resolved
+ * brief (goal, audience, tone, remember — the fragment's own, else its idea's,
+ * else its voice's) and that voice. One shot,
  * non-streaming: a title is a few words, so there is nothing to watch arrive.
  *
  * Reuses the slashCommand provider and gate the way voice analysis does
@@ -37,6 +40,8 @@ export function useGenerateTitle() {
       return;
     }
 
+    const { brief, voice } = briefForPiece(piece);
+
     const app = useAppStore.getState();
     const settingsStore = useSettingsStore.getState();
     const settings = settingsStore.settings;
@@ -52,10 +57,11 @@ export function useGenerateTitle() {
     const buildBody = (codexToken: string | undefined) =>
       JSON.stringify({
         contextAbove: draft,
-        goal: piece.goal,
-        audience: piece.audience,
-        tone: piece.tone,
-        remember: piece.remember,
+        goal: brief.goal,
+        audience: brief.audience,
+        tone: brief.tone,
+        remember: brief.remember,
+        voiceContext: composeVoiceContext(voice) || undefined,
         promptTemplate: DEFAULT_TITLE_PROMPT,
         model,
         provider,

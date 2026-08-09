@@ -28,11 +28,13 @@ import { PieceHeader } from "./piece-header";
 import { ExportMenu } from "./export-menu";
 import { CommentsAffordance } from "@/components/review/comments-affordance";
 import { InlineEditMenu } from "./inline-edit-menu";
+import { BriefField } from "./brief-field";
 import { VersionPreviewBanner } from "../timeline/version-preview-banner";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
-import { resolveVoice } from "@/lib/voice-context";
+import { useBrief, voiceIdFor } from "@/hooks/use-brief";
+import { inheritedBrief } from "@/lib/brief-context";
 import { useToastStore } from "@/hooks/use-toast";
 import { useContentStore } from "@/stores/content-store";
 import { titleFromText } from "@/lib/derive-title";
@@ -133,6 +135,10 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   // Stable refs for functions used inside Tiptap handleDOMEvents closures
   const prefetchLabelRef = useRef<((text: string, signal: AbortSignal) => Promise<void>) | null>(null);
   const labelSnippetRef = useRef(labelSnippet);
+  // The resolved goal, for the drag closure below: it cannot read the piece's
+  // own goal off the store and get the right answer any more, because the goal
+  // may be inherited from the idea.
+  const briefGoalRef = useRef("");
   // Refs for snippet undo/redo tracking
   const editorRef = useRef<TiptapEditor | null>(null);
   const snippetInsertMapRef = useRef<Map<number, import("@/lib/types").Snippet>>(new Map());
@@ -152,9 +158,23 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     () => Object.values(voicesMap).sort((a, b) => a.createdAt - b.createdAt),
     [voicesMap],
   );
-  const resolvedVoice = piece
-    ? resolveVoice(voicesMap, settings.brandVoice.defaultVoiceId, piece.voiceId)
-    : null;
+  // Voice and brief resolve together, fragment → idea → voice, so what the
+  // toolbar shows greyed is exactly what the model is sent. See use-brief.ts.
+  const { brief, voice: resolvedVoice, idea: pieceIdea } = useBrief(piece);
+  const resolvedVoiceId = voiceIdFor(piece, pieceIdea);
+  const resolvedBrief = useMemo(
+    () => ({
+      goal: brief.goal.value,
+      audience: brief.audience.value,
+      tone: brief.tone.value,
+      remember: brief.remember.value,
+    }),
+    [brief],
+  );
+  const inherited = useMemo(
+    () => inheritedBrief("fragment", { piece, idea: pieceIdea, voice: resolvedVoice }),
+    [piece, pieceIdea, resolvedVoice],
+  );
   const contentRef = useRef<string | null>(null);
   const isInternalUpdate = useRef(false);
 
@@ -418,7 +438,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                   } else {
                     const source = useContentStore.getState().pieces[pieceId];
                     if (source) {
-                      labelSnippetRef.current(snippetId, card.content, source.body, source.goal ?? "", pieceId);
+                      labelSnippetRef.current(snippetId, card.content, source.body, briefGoalRef.current, pieceId);
                     }
                   }
 
@@ -1044,7 +1064,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       useAppStore.getState().activeIdeaId ?? undefined,
     );
     if (!snippetId) return;
-    labelSnippet(snippetId, selectedText, piece.body, piece.goal ?? "", activePieceId);
+    labelSnippet(snippetId, selectedText, piece.body, resolvedBrief.goal, activePieceId);
 
     // Remove the snipped text from the editor
     editor.chain().focus().deleteRange({ from, to }).run();
@@ -1118,16 +1138,16 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         selectedText,
         plainBefore,
         plainAfter,
-        piece.goal || "",
-        piece.audience || "",
-        piece.tone || "",
-        piece.remember || "",
+        resolvedBrief.goal,
+        resolvedBrief.audience,
+        resolvedBrief.tone,
+        resolvedBrief.remember,
         instruction,
         activePieceId ?? undefined,
-        piece.voiceId,
+        resolvedVoiceId,
       );
     },
-    [editor, piece, inlineEdit, inlineEditEnabled],
+    [editor, piece, resolvedBrief, resolvedVoiceId, inlineEdit, inlineEditEnabled],
   );
 
   // Prefetch a label for the floating drag card
@@ -1153,7 +1173,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           JSON.stringify({
             snippetContent: content,
             essayContent: truncatedEssayContent,
-            goal: piece?.goal ?? "",
+            goal: resolvedBrief.goal,
             promptTemplate,
             model,
             provider,
@@ -1211,12 +1231,13 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         }
       }
     },
-    [settings, piece?.body, piece?.goal, updateFloatingCardLabel, updateProviderCredentials],
+    [settings, piece?.body, resolvedBrief.goal, updateFloatingCardLabel, updateProviderCredentials],
   );
 
   // Keep stable refs current for use inside Tiptap handleDOMEvents closures
   prefetchLabelRef.current = prefetchLabel;
   labelSnippetRef.current = labelSnippet;
+  briefGoalRef.current = resolvedBrief.goal;
 
   // Only used for pending-return drags (native DnD).
   // Normal editor→snippet drags use custom mouse-based drag (see handleDOMEvents.mousedown).
@@ -1359,7 +1380,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                 Goal
               </span>
               <span className="truncate text-[13px] text-text-secondary">
-                {piece.goal || <span className="text-text-faint">Add a goal…</span>}
+                {piece.goal
+                  ? piece.goal
+                  : resolvedBrief.goal
+                    ? <span className="text-text-faint">{resolvedBrief.goal}</span>
+                    : <span className="text-text-faint">Add a goal…</span>}
               </span>
               {voicesList.length > 0 && (
                 <span className="shrink-0 ml-1 px-1.5 py-0.5 rounded bg-surface-3 text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
@@ -1400,49 +1425,42 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                     <div className="border-t border-[var(--color-surface-3)]" />
                   </>
                 )}
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Goal</span>
-                  <input
-                    type="text"
-                    value={piece.goal ?? ""}
-                    onChange={(e) => updatePiece(piece.id, { goal: e.target.value })}
-                    placeholder="What are you writing about?"
-                    className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
-                  />
-                </div>
+                <BriefField
+                  label="Goal"
+                  value={piece.goal ?? ""}
+                  onChange={(v) => updatePiece(piece.id, { goal: v })}
+                  inherited={inherited.goal}
+                  voiceName={resolvedVoice?.name}
+                  placeholder="What are you writing about?"
+                />
                 <div className="border-t border-[var(--color-surface-3)]" />
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Audience</span>
-                  <input
-                    type="text"
-                    value={piece.audience ?? ""}
-                    onChange={(e) => updatePiece(piece.id, { audience: e.target.value })}
-                    placeholder="Who is this for?"
-                    className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
-                  />
-                </div>
+                <BriefField
+                  label="Audience"
+                  value={piece.audience ?? ""}
+                  onChange={(v) => updatePiece(piece.id, { audience: v })}
+                  inherited={inherited.audience}
+                  voiceName={resolvedVoice?.name}
+                  placeholder="Who is this for?"
+                />
                 <div className="border-t border-[var(--color-surface-3)]" />
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Tone</span>
-                  <input
-                    type="text"
-                    value={piece.tone ?? ""}
-                    onChange={(e) => updatePiece(piece.id, { tone: e.target.value })}
-                    placeholder="e.g. conversational, formal, witty…"
-                    className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
-                  />
-                </div>
+                <BriefField
+                  label="Tone"
+                  value={piece.tone ?? ""}
+                  onChange={(v) => updatePiece(piece.id, { tone: v })}
+                  inherited={inherited.tone}
+                  voiceName={resolvedVoice?.name}
+                  placeholder="e.g. conversational, formal, witty…"
+                />
                 <div className="border-t border-[var(--color-surface-3)]" />
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">Remember</span>
-                  <textarea
-                    value={piece.remember ?? ""}
-                    onChange={(e) => updatePiece(piece.id, { remember: e.target.value })}
-                    placeholder="Things the AI should always keep in mind…"
-                    rows={3}
-                    className="bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none resize-none"
-                  />
-                </div>
+                <BriefField
+                  label="Remember"
+                  value={piece.remember ?? ""}
+                  onChange={(v) => updatePiece(piece.id, { remember: v })}
+                  inherited={inherited.remember}
+                  voiceName={resolvedVoice?.name}
+                  placeholder="Things the AI should always keep in mind…"
+                  rows={3}
+                />
               </div>
             )}
           </div>
@@ -1538,7 +1556,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       {timelinePreviewVersionId && <VersionPreviewBanner />}
 
       {/* Context fields tooltip — hidden during streaming generation */}
-      {!timelinePreviewVersionId && !isGenerating && !piece.goal && !piece.audience && !piece.tone && !contextPromptDismissedPieces.has(piece.id) && (
+      {!timelinePreviewVersionId && !isGenerating && !resolvedBrief.goal && !resolvedBrief.audience && !resolvedBrief.tone && !contextPromptDismissedPieces.has(piece.id) && (
         <ContextFieldsTooltip pieceId={piece.id} onOpenGoal={openGoal} />
       )}
 

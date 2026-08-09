@@ -13,6 +13,7 @@ import { useContentStore } from "@/stores/content-store";
 import { useAppStore } from "@/stores/app-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
+import { composeVoiceContext, resolveVoice } from "@/lib/voice-context";
 import { postGenerate } from "@/lib/ai-client";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { DEFAULT_NOTE_CREATION_PROMPT } from "@/lib/defaults";
@@ -767,15 +768,25 @@ function IdeaCreationStep({ onCreated, onSkip }: IdeaCreationStepProps) {
         }
       }
 
+      // There is no fragment yet, so the brief comes straight off the voice
+      // the user set up two steps ago. Their first draft was being generated
+      // with no audience, no tone and no voice at all.
+      const onboardingVoice = resolveVoice(
+        useVoiceStore.getState().voices,
+        settings.brandVoice.defaultVoiceId,
+        undefined,
+      );
+
       const body = (token: string | undefined) => JSON.stringify({
         contextAbove: "",
         contextBelow: "",
         goal: "",
-        audience: "",
-        tone: "",
-        remember: "",
+        audience: onboardingVoice?.defaultAudience ?? "",
+        tone: onboardingVoice?.defaultTone ?? "",
+        remember: onboardingVoice?.defaultRemember ?? "",
         userInstruction: generatePrompt,
         promptTemplate: DEFAULT_NOTE_CREATION_PROMPT,
+        voiceContext: composeVoiceContext(onboardingVoice) || undefined,
         model: auth.model,
         provider: auth.provider,
         apiKey: auth.apiKey || undefined,

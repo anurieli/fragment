@@ -7,6 +7,8 @@ import { useVoiceStore } from "@/stores/voice-store";
 import { useSpeechDictation } from "@/hooks/use-speech-dictation";
 import { ModelSelector } from "@/components/settings/model-selector";
 import type { GenerateFormat, GenerateLength } from "@/lib/defaults";
+import type { ResolvedBrief } from "@/lib/brief-context";
+import { BriefField } from "./brief-field";
 
 /** Everything the panel collects; the caller turns it into a generation run. */
 export interface GeneratePanelSubmit {
@@ -28,6 +30,11 @@ interface GeneratePanelProps {
   compact?: boolean;
   /** Prefill for context fields, e.g. from the fragment being written into. */
   initial?: Partial<Pick<GeneratePanelSubmit, "goal" | "audience" | "tone" | "remember" | "voiceId">>;
+  /** What each field falls back to when left blank — shown as its placeholder
+   * so the panel reads as pre-filled without writing anything down. */
+  inherited?: ResolvedBrief;
+  /** Name of the voice the inherited values came from. */
+  voiceName?: string | null;
   onGenerate: (params: GeneratePanelSubmit) => void;
   onCancel?: () => void;
   onOpenAISettings?: () => void;
@@ -48,7 +55,7 @@ const LENGTH_OPTIONS: { value: GenerateLength; label: string }[] = [
   { value: "long", label: "Long" },
 ];
 
-export function GeneratePanel({ compact, initial, onGenerate, onCancel, onOpenAISettings }: GeneratePanelProps) {
+export function GeneratePanel({ compact, initial, inherited, voiceName, onGenerate, onCancel, onOpenAISettings }: GeneratePanelProps) {
   const settings = useSettingsStore((s) => s.settings);
   const updateFeatureProvider = useSettingsStore((s) => s.updateFeatureProvider);
   const voicesMap = useVoiceStore((s) => s.voices);
@@ -153,12 +160,14 @@ export function GeneratePanel({ compact, initial, onGenerate, onCancel, onOpenAI
             style={{ animation: "fadeIn 0.15s ease-out" }}
           >
             <p className="text-[10px] text-text-faint leading-relaxed">
-              Helps the AI write a better first draft. You can always edit these later in the toolbar.
+              Helps the AI write a better first draft. Blank means it uses what
+              your idea and your voice already say. You can edit these later in
+              the toolbar.
             </p>
-            <ContextInput label="Goal" value={goal} onChange={setGoal} placeholder="What are you writing about?" />
-            <ContextInput label="Audience" value={audience} onChange={setAudience} placeholder="Who is this for?" />
-            <ContextInput label="Tone" value={tone} onChange={setTone} placeholder="e.g. conversational, formal, witty..." />
-            <ContextInput label="Remember" value={remember} onChange={setRemember} placeholder="Things the AI should keep in mind..." />
+            <BriefField label="Goal" value={goal} onChange={setGoal} inherited={inherited?.goal} voiceName={voiceName} placeholder="What are you writing about?" />
+            <BriefField label="Audience" value={audience} onChange={setAudience} inherited={inherited?.audience} voiceName={voiceName} placeholder="Who is this for?" />
+            <BriefField label="Tone" value={tone} onChange={setTone} inherited={inherited?.tone} voiceName={voiceName} placeholder="e.g. conversational, formal, witty..." />
+            <BriefField label="Remember" value={remember} onChange={setRemember} inherited={inherited?.remember} voiceName={voiceName} placeholder="Things the AI should keep in mind..." />
             {voicesList.length > 0 && (
               <div className="flex flex-col gap-1">
                 <label className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
@@ -266,30 +275,3 @@ function ChipRow<T extends string>({
   );
 }
 
-function ContextInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
-        {label}
-      </span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="bg-surface-3/50 text-[12px] text-text-secondary placeholder:text-text-faint outline-none
-          border-b border-border-strong focus:border-border-active pb-1.5 transition-colors duration-150"
-      />
-    </div>
-  );
-}

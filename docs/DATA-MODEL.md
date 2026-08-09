@@ -171,6 +171,33 @@ checks this directly rather than folding it into a general presence check:
 `note.voiceId !== piece.voiceId` on its own line, separate from the hashed
 comparison used for the other brief fields.
 
+#### The writing brief resolves, it is not copied
+
+`goal`, `audience`, `tone` and `remember` exist on three levels, and the
+nearest one that has something to say wins:
+
+| Field | Chain |
+|---|---|
+| `audience`, `tone`, `remember` | `BrandVoice.default*` -> `Idea` -> `ContentPiece` |
+| `goal` | `Idea` -> `ContentPiece` |
+
+`goal` has no voice tier on purpose. A voice is a persona: it implies who it is
+talking to and how it sounds, but not what any one piece is trying to achieve.
+
+Nothing is ever written downward. A fragment that has not set its own audience
+stores nothing, and reads the tier above it at the moment of the call, so
+editing a voice moves every fragment that never overrode it. `resolveBrief` in
+`src/lib/brief-context.ts` is the single place this walk happens; every AI call
+site goes through it (via `useBrief` / `briefForPiece` in
+`src/hooks/use-brief.ts`) rather than reading `piece.goal` directly.
+
+Unlike `voiceId`, the brief fields have only two states, not three: empty string
+and `undefined` both mean "inherit". The editor writes `""` the moment a field
+is cleared, so the two are indistinguishable in stored data anyway, and clearing
+a field is exactly how a writer says "go back to my usual". There is no
+"explicitly no audience" to express, in the way that "explicitly no voice" is a
+real choice.
+
 #### Two kinds of deletion
 
 `deletedAt` on `Idea` and `ContentPiece` is an **application-level soft

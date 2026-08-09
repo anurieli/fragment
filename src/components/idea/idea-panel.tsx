@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
+  ChevronRight,
   FileText,
   Flag,
   LayoutList,
@@ -33,7 +35,12 @@ import { priorityMeta } from "@/lib/priority";
 import { formatDate, wordCount } from "@/lib/utils";
 import { findOriginComment } from "@/lib/persistence";
 import type { Comment } from "@/lib/types";
-import type { ContentPiece, PieceStatus } from "@/lib/content-engine";
+import type { ContentPiece, Idea, PieceStatus } from "@/lib/content-engine";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useVoiceStore } from "@/stores/voice-store";
+import { resolveVoice } from "@/lib/voice-context";
+import { inheritedBrief } from "@/lib/brief-context";
+import { BriefField } from "@/components/editor/brief-field";
 
 interface IdeaPanelProps {
   ideaId: string;
@@ -307,6 +314,11 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5">
+        {/* Brief: the middle tier. Set once here and every piece in the idea
+            follows, unless it says otherwise. Blank inherits from the voice
+            (audience, tone, remember) — goal has no voice above it. */}
+        <IdeaBrief ideaId={ideaId} idea={idea} />
+
         {/* Drafts: the long-form pieces that live in this idea */}
         <section>
           <SectionHeader
@@ -446,6 +458,107 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
  * panel's toolbar next to the Write | Pieces toggle, mirroring how the
  * sidebar's own collapse/expand pair works.
  */
+/**
+ * The idea's writing brief. Collapsed by default: most ideas never need one,
+ * and the fields that matter show what they inherit the moment you open it.
+ *
+ * Goal sits here as well as on a piece, but has no voice tier above it — an
+ * idea is a subject with a point to make, a voice is not.
+ */
+function IdeaBrief({ ideaId, idea }: { ideaId: string; idea: Idea }) {
+  const updateIdea = useContentStore((s) => s.updateIdea);
+  const voicesMap = useVoiceStore((s) => s.voices);
+  const defaultVoiceId = useSettingsStore((s) => s.settings.brandVoice.defaultVoiceId);
+  const voicesList = useMemo(
+    () => Object.values(voicesMap).sort((a, b) => a.createdAt - b.createdAt),
+    [voicesMap],
+  );
+  const voice = resolveVoice(voicesMap, defaultVoiceId, idea.voiceId);
+  const inherited = useMemo(() => inheritedBrief("idea", { idea, voice }), [idea, voice]);
+
+  const isSet = !!(idea.goal || idea.audience || idea.tone || idea.remember);
+  const [open, setOpen] = useState(isSet);
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-faint
+          hover:text-text-secondary font-[family-name:var(--font-mono)] transition-colors duration-150"
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        Brief
+        {!open && isSet && <span className="normal-case tracking-normal text-text-muted">set</span>}
+      </button>
+
+      {open && (
+        <div
+          className="mt-2 space-y-3 p-3 bg-surface-2 border border-border-strong rounded-[var(--radius-default)]"
+          style={{ animation: "fadeIn 0.15s ease-out" }}
+        >
+          <p className="text-[10px] text-text-faint leading-relaxed">
+            Every piece in this idea writes to this, unless it says otherwise.
+          </p>
+          <BriefField
+            label="Goal"
+            value={idea.goal ?? ""}
+            onChange={(v) => updateIdea(ideaId, { goal: v })}
+            placeholder="What is this idea trying to do?"
+          />
+          <BriefField
+            label="Audience"
+            value={idea.audience ?? ""}
+            onChange={(v) => updateIdea(ideaId, { audience: v })}
+            inherited={inherited.audience}
+            voiceName={voice?.name}
+            placeholder="Who is this for?"
+          />
+          <BriefField
+            label="Tone"
+            value={idea.tone ?? ""}
+            onChange={(v) => updateIdea(ideaId, { tone: v })}
+            inherited={inherited.tone}
+            voiceName={voice?.name}
+            placeholder="e.g. conversational, formal, witty…"
+          />
+          <BriefField
+            label="Remember"
+            value={idea.remember ?? ""}
+            onChange={(v) => updateIdea(ideaId, { remember: v })}
+            inherited={inherited.remember}
+            voiceName={voice?.name}
+            placeholder="Things the AI should always keep in mind…"
+            rows={2}
+          />
+          {voicesList.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[9px] uppercase tracking-wider text-text-muted font-[family-name:var(--font-mono)]">
+                Voice
+              </span>
+              <select
+                value={idea.voiceId ?? "__default__"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  updateIdea(ideaId, { voiceId: v === "__default__" ? undefined : v });
+                }}
+                className="bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-2 py-1
+                  text-[12px] text-text-secondary outline-none focus:border-border-active"
+              >
+                <option value="__default__">
+                  Default{defaultVoiceId && voicesMap[defaultVoiceId] ? ` (${voicesMap[defaultVoiceId].name})` : ""}
+                </option>
+                {voicesList.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name || "Untitled voice"}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function IdeaPanelToggle() {
   const ideaPanelOpen = useAppStore((s) => s.ideaPanelOpen);
   const setIdeaPanelOpen = useAppStore((s) => s.setIdeaPanelOpen);

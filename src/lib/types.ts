@@ -223,6 +223,17 @@ export interface BrandVoice {
   description: string;
   /** Structure guide, injected verbatim into generation prompts. */
   template: string;
+  /**
+   * The brief this voice writes to by default. A voice is a persona, and a
+   * persona already implies who it is talking to and how it sounds, so these
+   * travel with it: pick the voice and the audience and tone come along.
+   * Inherited by ideas and fragments that have not set their own — see
+   * resolveBrief in lib/brief-context.ts. Goal is deliberately absent: what a
+   * given piece is trying to achieve is the piece's business, not the persona's.
+   */
+  defaultAudience?: string;
+  defaultTone?: string;
+  defaultRemember?: string;
   profile: VoiceProfile | null;
   profileStale: boolean;
   profileUpdatedAt: number | null;

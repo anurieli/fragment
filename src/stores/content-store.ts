@@ -108,7 +108,12 @@ interface ContentState {
 
   // Ideas ---------------------------------------------------------------
   createIdea: (input: CreateIdeaInput) => string;
-  updateIdea: (id: string, partial: Partial<Pick<Idea, "title" | "summary" | "voiceId">>) => void;
+  updateIdea: (
+    id: string,
+    partial: Partial<
+      Pick<Idea, "title" | "summary" | "voiceId" | "goal" | "audience" | "tone" | "remember">
+    >,
+  ) => void;
   deleteIdea: (id: string) => void;
   undeleteIdea: (id: string) => void;
   /** Tombstone an idea together with everything only reachable through it: its

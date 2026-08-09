@@ -8,6 +8,7 @@ import { Loader2, Check, X, RotateCcw, Square } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { useSlashCommand } from "@/hooks/use-slash-command";
+import { useBrief, useResolvedBrief, voiceIdFor } from "@/hooks/use-brief";
 import markdownit from "markdown-it";
 
 const md = markdownit({ html: false, linkify: false, breaks: false });
@@ -23,6 +24,10 @@ export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
   const pieces = useContentStore((s) => s.pieces);
   const piece = activePieceId ? pieces[activePieceId] : null;
   const { generateStream, abort, enabled: slashEnabled } = useSlashCommand();
+  // Fragment → idea → voice, so "/" writes to the same brief the toolbar shows.
+  const brief = useResolvedBrief(piece);
+  const { idea: pieceIdea } = useBrief(piece);
+  const voiceId = voiceIdFor(piece, pieceIdea);
 
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -119,10 +124,10 @@ export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
     await generateStream(
       contextAbove,
       contextBelow,
-      piece.goal ?? "",
-      piece.audience ?? "",
-      piece.tone ?? "",
-      piece.remember ?? "",
+      brief.goal,
+      brief.audience,
+      brief.tone,
+      brief.remember,
       prompt,
       {
         onChunk: (accumulated) => {
@@ -141,9 +146,9 @@ export function SlashNodeView({ editor, getPos, node }: NodeViewProps) {
         },
       },
       activePieceId ?? undefined,
-      piece.voiceId,
+      voiceId,
     );
-  }, [editor, piece, prompt, generateStream, getNodePos, slashEnabled]);
+  }, [editor, piece, brief, voiceId, prompt, generateStream, getNodePos, slashEnabled]);
 
   const stopGeneration = useCallback(() => {
     abort();

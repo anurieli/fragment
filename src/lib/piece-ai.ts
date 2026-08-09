@@ -14,6 +14,7 @@
  * resolution path in here to disagree with the hook's.
  */
 
+import type { Brief } from "@/lib/brief-context";
 import type { ContentFormat } from "@/lib/content-engine";
 import type { PublishPlatform } from "@/lib/publish";
 import { PLATFORM_CHAR_LIMITS, charCount } from "@/lib/publish";
@@ -71,12 +72,16 @@ export interface RefineContextInput {
   selectionStart: number;
   selectionEnd: number;
   idea?: PieceIdeaContext;
+  /** Resolved fragment → idea → voice brief (see lib/brief-context.ts). */
+  brief?: Brief;
 }
 
 export interface RefineContext {
   contextBefore: string;
   contextAfter: string;
   goal: string;
+  audience: string;
+  tone: string;
   remember: string;
   voiceId: string | undefined;
 }
@@ -90,15 +95,21 @@ export interface RefineContext {
  * keep in mind" — a natural home for a hard limit the model must respect).
  */
 export function buildRefineContext(input: RefineContextInput): RefineContext {
-  const { format, body, selectionStart, selectionEnd, idea } = input;
+  const { format, body, selectionStart, selectionEnd, idea, brief } = input;
   const start = Math.max(0, Math.min(selectionStart, body.length));
   const end = Math.max(start, Math.min(selectionEnd, body.length));
   const hint = platformContextHint(format, body);
-  const remember = [idea?.summary, hint].filter((v): v is string => !!v).join("\n\n");
+  const remember = [brief?.remember, idea?.summary, hint]
+    .filter((v): v is string => !!v)
+    .join("\n\n");
   return {
     contextBefore: body.slice(0, start),
     contextAfter: body.slice(end),
-    goal: idea?.title ?? "",
+    // The idea's title is the fallback goal it always was; a real goal set on
+    // the fragment or the idea now takes precedence over it.
+    goal: brief?.goal || idea?.title || "",
+    audience: brief?.audience ?? "",
+    tone: brief?.tone ?? "",
     remember,
     voiceId: idea?.voiceId,
   };
@@ -128,11 +139,15 @@ export interface FlowContextInput {
    * asked for. Generating is now something you ask for in words.
    */
   instruction: string;
+  /** Resolved fragment → idea → voice brief (see lib/brief-context.ts). */
+  brief?: Brief;
 }
 
 export interface FlowContext {
   contextAbove: string;
   goal: string;
+  audience: string;
+  tone: string;
   remember: string;
   instruction: string;
   voiceId: string | undefined;
@@ -159,12 +174,18 @@ const FLOW_DRAFT_NOUN: Record<ContentFormat, string> = {
  * without the format overriding what was asked for.
  */
 export function buildFlowContext(input: FlowContextInput): FlowContext {
-  const { format, idea, ideaBrief, instruction } = input;
+  const { format, idea, ideaBrief, instruction, brief } = input;
   const hint = platformContextHint(format, "");
-  const remember = [idea?.summary, hint].filter((v): v is string => !!v).join("\n\n");
+  const remember = [brief?.remember, idea?.summary, hint]
+    .filter((v): v is string => !!v)
+    .join("\n\n");
   return {
     contextAbove: ideaBrief,
-    goal: idea?.title ?? "",
+    // The idea's title is the fallback goal it always was; a real goal set on
+    // the fragment or the idea now takes precedence over it.
+    goal: brief?.goal || idea?.title || "",
+    audience: brief?.audience ?? "",
+    tone: brief?.tone ?? "",
     remember,
     instruction: `${instruction.trim()}\n\nWrite it as a ${FLOW_DRAFT_NOUN[format]}, and use the context above so it belongs to this idea rather than restating it.`,
     voiceId: idea?.voiceId,

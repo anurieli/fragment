@@ -85,6 +85,15 @@ export interface Idea {
   priority: Priority;
   pinnedAt?: number;
   voiceId?: string;
+  // The idea's writing brief: the middle tier between the voice's defaults and
+  // a single fragment's own. An idea aimed somewhere other than your usual
+  // audience says so once here rather than on every fragment inside it.
+  // Resolution order and the empty-means-inherit rule live in
+  // lib/brief-context.ts.
+  goal?: string;
+  audience?: string;
+  tone?: string;
+  remember?: string;
   origin: PieceOrigin;
   createdAt: number;
   updatedAt: number;

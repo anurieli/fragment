@@ -7,6 +7,7 @@ import type { ContentPiece } from "@/lib/content-engine";
 import { useSettingsStore, waitForSettingsHydration } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { resolveVoice, composeVoiceContext } from "@/lib/voice-context";
+import { briefForPiece } from "@/hooks/use-brief";
 import { useToastStore } from "@/hooks/use-toast";
 import { postGenerateStream } from "@/lib/ai-client";
 import { isAiAuthFailureStatus, resolveWorkingFeatureAuth } from "@/lib/ai/connection-status";
@@ -164,21 +165,37 @@ export function useStreamGeneration() {
         : [],
     });
 
-    const briefLength = ideaBrief.length;
-    const promptLength = prompt.length + briefLength + (goal?.length ?? 0) + (audience?.length ?? 0) + (tone?.length ?? 0) + (remember?.length ?? 0);
+    // What the panel left blank is not blank: it falls through to the idea and
+    // then to the voice (see lib/brief-context.ts). Resolved here, after the
+    // typed values have been written onto the fragment, so the request carries
+    // the same brief the editor shows.
+    const resolved = generatedPiece
+      ? briefForPiece(generatedPiece)
+      : {
+          brief: { goal, audience, tone, remember },
+          voice: resolveVoice(
+            useVoiceStore.getState().voices,
+            useSettingsStore.getState().settings.brandVoice.defaultVoiceId,
+            voiceId,
+          ),
+        };
+    const effective = resolved.brief;
 
-    const { voices } = useVoiceStore.getState();
-    const defaultVoiceId = useSettingsStore.getState().settings.brandVoice.defaultVoiceId;
-    const voiceContext = composeVoiceContext(resolveVoice(voices, defaultVoiceId, voiceId));
+    const briefLength = ideaBrief.length;
+    const promptLength =
+      prompt.length + briefLength + effective.goal.length + effective.audience.length
+      + effective.tone.length + effective.remember.length;
+
+    const voiceContext = composeVoiceContext(resolved.voice);
 
     const buildBody = (token: string | undefined) =>
       JSON.stringify({
         contextAbove: ideaBrief,
         contextBelow: "",
-        goal,
-        audience,
-        tone,
-        remember,
+        goal: effective.goal,
+        audience: effective.audience,
+        tone: effective.tone,
+        remember: effective.remember,
         userInstruction: prompt,
         promptTemplate: buildNoteCreationPrompt(format ?? "freeform", length ?? "auto"),
         voiceContext,
