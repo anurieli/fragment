@@ -34,14 +34,37 @@ ChatGPT** for Codex.
 
 ## Project layout
 
-The architecture, data model, UI specs, and interaction flows are documented in
-[`PRD.md`](./PRD.md). Read it before making structural changes. In short:
+Read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), then
+[`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md), [`docs/SYNC.md`](./docs/SYNC.md) and
+[`docs/API.md`](./docs/API.md) before making structural changes.
+[`PRD.md`](./PRD.md) is product history and predates accounts, sync, and the
+Content Engine; do not treat it as the architecture. In short:
 
 - `src/app/` — Next.js App Router pages and API route handlers
 - `src/components/` — UI (editor, sidebar, Snip Bar, settings, etc.)
-- `src/stores/` — Zustand state (`app-store`, `data-store`, `settings-store`)
-- `src/lib/` — types, persistence (Dexie), AI provider runtime, utilities
+- `src/stores/` — Zustand state (`app-store`, `data-store`, `content-store`, `settings-store`)
+- `src/lib/` — types, persistence (Dexie), sync, AI provider runtime, utilities
+- `src/lib/server/` — hosted-only server code (Postgres, auth, sessions, shares)
 - `src/hooks/` — feature hooks (Snip labeling, Flow generation, Refine editing)
+- `db/migrations/` — SQL migrations, applied with `npm run db:migrate`
+- `packages/fragment-mcp/` — the MCP server agents use to file ideas
+
+## Docs change with the code
+
+A pull request that alters the schema, an HTTP route, or the sync wire updates
+the doc that describes it in the same change:
+
+| You changed | Update |
+|---|---|
+| A Dexie table, an entity field, or a SQL migration | `docs/DATA-MODEL.md` |
+| A route handler, its auth, or its request/response shape | `docs/API.md` |
+| `SYNCED_COLLECTIONS`, the outbox, or the sync engine | `docs/SYNC.md` |
+| A new subsystem, or how existing ones connect | `docs/ARCHITECTURE.md` |
+| The agent handoff format or an MCP tool | `docs/AGENT-API.md` |
+
+Docs that lag the code are worse than no docs, because the reader cannot tell
+which parts still hold. Keeping them in the same commit is the only version of
+this rule that survives contact with a busy week.
 
 ## Development workflow
 
