@@ -13,7 +13,7 @@ const SHORTCUTS = [
   { keys: "⌘ H", action: "Toggle Snip Bar" },
   { keys: "⌘ \\", action: "Toggle sidebar" },
   { keys: "⌘ 1", action: "Switch to Write space (active idea)" },
-  { keys: "⌘ 2", action: "Switch to Fragments space (active idea)" },
+  { keys: "⌘ 2", action: "Switch to Pieces space (active idea)" },
   { keys: "⌘ ⇧ F", action: "Search across every idea" },
   { keys: "⌘ /", action: "Open this help panel" },
   { keys: "⌘ F", action: "Find in the open draft (browser)" },
@@ -55,11 +55,11 @@ const FEATURES = [
   {
     category: "Ideas",
     items: [
-      { name: "What an Idea Is", desc: "A container for one thing you're writing about. Everything you write lives in one: long-form drafts, and the short-form fragments cut or spun out of them." },
+      { name: "What an Idea Is", desc: "A container for one thing you're writing about. Everything you write lives in one: long-form drafts, and the short-form pieces cut or spun out of them." },
       { name: "Create & Name", desc: "New idea in the sidebar makes one, with an empty draft already open in it. Double-click an idea to rename it; a name is how you find it later." },
       { name: "Capture a Tangent", desc: "Select text in a draft and press Idea in the floating toolbar. The passage is filed as an idea of its own, titled from what you selected, and the draft is left exactly as it was. Unlike Snip, nothing is cut. A toast offers to open it; ignore it and keep your sentence." },
-      { name: "Idea Workspace", desc: "Opening an idea adds a second column beside the sidebar listing its drafts and fragments, with the editor to the right. Collapse it from its header; reopen it from the toolbar button." },
-      { name: "Scanning the List", desc: "Sidebar rows are one line each and sub-ideas start collapsed. Hover a row for its draft and fragment counts, and watch for the gold number, which counts fragments waiting in that idea's inbox." },
+      { name: "Idea Workspace", desc: "Opening an idea adds a second column beside the sidebar listing its drafts and pieces, with the editor to the right. Collapse it from its header; reopen it from the toolbar button." },
+      { name: "Scanning the List", desc: "Sidebar rows are one line each and sub-ideas start collapsed. Hover a row for its draft and piece counts, and watch for the gold number, which counts pieces waiting in that idea's inbox." },
       { name: "Drafts Inside", desc: "Click a draft in the workspace to write in it. The + beside Drafts adds another; anything you write or generate while an idea is open belongs to that idea automatically." },
       { name: "Sub-ideas", desc: "⋯ → New sub-idea nests one level deep in the sidebar. A parent's Pieces feed and workspace roll up its children's pieces." },
       { name: "Delete", desc: "⋯ → Delete idea removes the idea, its sub-ideas, and everything inside them, with an Undo toast. Nothing lives outside an idea, so its drafts go with it." },
@@ -78,7 +78,7 @@ const FEATURES = [
       { name: "Copy & Delete", desc: "C copies a piece's exact text. Backspace deletes it, with an Undo toast." },
       { name: "New Piece & Filters", desc: "N creates a new piece. Number keys 1-4 jump between the All / Inbox / In progress / Ready filters." },
       { name: "Drag Bridge", desc: "Drag a Snip Bar snippet onto the gold line between pieces to drop it in as a new piece." },
-      { name: "Agent Inbox", desc: "Agents can drop fragments straight into an idea's inbox: connect fragment-mcp and see them land here." },
+      { name: "Agent Inbox", desc: "Agents can drop pieces straight into an idea's inbox: connect fragment-mcp and see them land here." },
     ],
   },
   {

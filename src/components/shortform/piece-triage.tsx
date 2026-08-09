@@ -22,8 +22,8 @@ interface PieceTriageBarProps {
  * once a piece has been triaged the row disappears and the card goes back to
  * being just the piece.
  *
- * A fourth, "Make it a draft", promotes the fragment to a long-form format.
- * That is now the whole move: format is what decides which surface a fragment
+ * A fourth, "Make it a draft", promotes the piece to a long-form format.
+ * That is now the whole move: format is what decides which surface a piece
  * is edited on, so changing it hands the same text to the editor. An essay has
  * no business being written in a card wedged between two tweets.
  */
@@ -34,7 +34,7 @@ export function PieceTriageBar({ piece, onDismiss }: PieceTriageBarProps) {
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
   const showToast = useToastStore((s) => s.showToast);
 
-  // Already long-form, so there is nothing to promote. A fragment in that
+  // Already long-form, so there is nothing to promote. A piece in that
   // shape belongs to the Write space and does not reach the feed at all.
   const longform = isLongformFormat(piece.format);
 

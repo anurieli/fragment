@@ -67,6 +67,11 @@ const ALLOWED: readonly { file: string; text: string; why: string }[] = [
     text: "anurieli/fragment",
     why: "the GitHub repo path",
   },
+  {
+    file: "help/help-overlay.tsx",
+    text: "fragment-mcp",
+    why: "the npm package an agent connects through, named after the app",
+  },
 ];
 
 interface Finding {
@@ -147,18 +152,24 @@ function findingsIn(file: string, word: RegExp = NOTE_WORD): Finding[] {
 
   // A JSX text node is whatever sits between a closing and an opening angle
   // bracket. A run that still holds an unbalanced brace after the expression
-  // pass is the middle of an expression rather than rendered text, so it is
-  // skipped instead of guessed at.
+  // pass has an expression starting inside it, so only the words before that
+  // brace are rendered text. Skipping the whole run instead is what let a
+  // literal "Fragments" label sit in the space toggle for two releases: the
+  // word was followed by `{hasUnseen && (`, and the check gave up at the
+  // brace rather than reading the line in front of it.
   for (const match of source.matchAll(/>([^<>]+)</g)) {
-    const text = stripExpressions(match[1]);
-    if (text.includes("{") || text.includes("}")) continue;
+    const expanded = stripExpressions(match[1]);
+    const text = expanded.split(/[{}]/)[0];
     if (looksLikeCode(text)) continue;
     if (word.test(text)) findings.push({ file: name, text: text.replace(/\s+/g, " ").trim() });
   }
 
   // Copy that reaches the screen through an expression rather than as a text
-  // node: `{condition ? "one sentence" : "another"}`.
-  for (const match of source.matchAll(/"([^"\\n]{25,})"/g)) {
+  // node: `{condition ? "one sentence" : "another"}`. The class was once
+  // written `[^"\\n]`, which in a regex literal excludes the letter n as well
+  // as the newline — so every sentence containing an "n" went unread, which
+  // is most of them.
+  for (const match of source.matchAll(/"([^"\n]{25,})"/g)) {
     const text = match[1];
     if (!looksLikeProse(text)) continue;
     if (word.test(text)) findings.push({ file: name, text });

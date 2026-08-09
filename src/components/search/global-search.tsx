@@ -147,7 +147,7 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
                       {getSnippet(piece.body, query)}
                     </p>
                     <span className="text-[10px] text-text-faint">
-                      {ideaTitle} · {longform ? "draft" : "fragment"}
+                      {ideaTitle} · {longform ? "draft" : "piece"}
                     </span>
                   </div>
                 </button>

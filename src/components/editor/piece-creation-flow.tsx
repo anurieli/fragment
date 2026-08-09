@@ -254,7 +254,7 @@ export function PieceCreationFlow({ sidebarOpen, toggleSidebar, existingPiece, o
         </h2>
         <p className="text-[13px] text-text-muted mb-7 text-center leading-relaxed">
           {activeIdeaId
-            ? "Whatever you write here stays inside this idea, alongside its short-form fragments. Switch between them with Write | Fragments above."
+            ? "Whatever you write here stays inside this idea, alongside its short-form pieces. Switch between them with Write | Pieces above."
             : "Choose how you'd like to begin"}
         </p>
 
