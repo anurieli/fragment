@@ -23,9 +23,17 @@ interface PendingEditorDeletion {
   snippetId?: string;
 }
 
-/** Set by snippet card custom drag; editor watches and processes insertion. */
+/**
+ * Text on its way into the editor from the right-hand bar, set by a card's
+ * custom drag and consumed by the editor.
+ *
+ * `snippetId` is null when the text did not come from a snip: dragging one of
+ * the idea's other pieces into the draft copies its words in and leaves the
+ * piece itself alone, so there is nothing to remove and nothing to offer an
+ * undo for. A snip, by contrast, moves.
+ */
 interface PendingSnippetInsert {
-  snippetId: string;
+  snippetId: string | null;
   content: string;
   /** Pointer coordinates for drag/drop. Omitted by the context-menu action,
    * which inserts at the editor's current selection. */

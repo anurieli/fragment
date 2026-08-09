@@ -757,7 +757,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       content: line.length > 0 ? [{ type: "text" as const, text: line }] : [],
     }));
 
-    const snippetObj = useDataStore.getState().snippets[snippetId];
+    // Null for text dragged in from a piece rather than a snip: it is a copy,
+    // so nothing is consumed and no undo pairing is recorded.
+    const snippetObj = snippetId ? useDataStore.getState().snippets[snippetId] : undefined;
     if (snippetObj) {
       pendingSnippetRecordRef.current = { snapshot: { ...snippetObj } };
     }
@@ -769,7 +771,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     const from = dropPos.pos;
     const to = Math.min(from + Math.max(insertedSize, 1), sizeAfter - 1);
 
-    if (snippetObj) {
+    if (snippetObj && snippetId) {
       removeSnippet(snippetId);
       setPendingSnippetDrop({
         snippet: { ...snippetObj },

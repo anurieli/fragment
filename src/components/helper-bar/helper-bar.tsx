@@ -1,16 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { PanelRightClose, Puzzle } from "lucide-react";
+import { Layers, PanelRightClose, Puzzle } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import { visibleSnippets } from "@/lib/snip-scope";
 import { SnippetCard } from "./snippet-card";
+import { PieceChip } from "./piece-chip";
 
 export function HelperBar() {
   const { activePieceId, activeIdeaId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
   const { snippets, addSnippet, reorderSnippets } = useDataStore();
+  const allPieces = useContentStore((s) => s.pieces);
   const labelSnip = useSnipLabeler();
   const [dragOver, setDragOver] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -37,6 +40,26 @@ export function HelperBar() {
     () => visibleSnippets(snippets, activePieceId, activeIdeaId),
     [snippets, activePieceId, activeIdeaId],
   );
+
+  /**
+   * The idea's other pieces, so the draft can reach them without leaving it.
+   * Rolled to this idea only (not its children): the bar is about what is
+   * within arm's reach, and a child idea's feed is a different room. Empty
+   * ones are left out because there is nothing to drag out of them, which is
+   * also why the count is of what you can actually use.
+   */
+  const ideaPieces = useMemo(() => {
+    if (!activeIdeaId) return [];
+    return Object.values(allPieces)
+      .filter(
+        (piece) =>
+          piece.ideaId === activeIdeaId &&
+          piece.id !== activePieceId &&
+          piece.deletedAt === undefined &&
+          piece.body.trim().length > 0,
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [allPieces, activeIdeaId, activePieceId]);
 
   const getDropIndex = useCallback(
     (clientY: number) => {
@@ -285,6 +308,28 @@ export function HelperBar() {
           </div>
         )}
       </div>
+
+      {/* The idea's other pieces. Below the snips rather than beside them: the
+          snip list is the working surface with the drop zone, and this is a
+          shelf you reach for. */}
+      {ideaPieces.length > 0 && (
+        <div className="shrink-0 border-t border-border max-h-[38%] flex flex-col">
+          <div className="flex items-center gap-2.5 px-5 h-11 shrink-0">
+            <Layers size={13} className="text-text-muted" />
+            <span className="text-[12px] font-medium text-text-secondary">
+              Also in this idea
+            </span>
+            <span className="text-[11px] text-text-faint font-[family-name:var(--font-mono)]">
+              {ideaPieces.length}
+            </span>
+          </div>
+          <div className="overflow-y-auto px-4 pb-4 space-y-1.5">
+            {ideaPieces.map((piece) => (
+              <PieceChip key={piece.id} piece={piece} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
