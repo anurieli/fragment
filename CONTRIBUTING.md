@@ -14,17 +14,23 @@ contributions that keep it simple and focused are very welcome.
 
 ## Getting set up
 
+This is `fragment-cloud`, the private hosted edition. Unlike the public client, it
+has a backend: Postgres, Google sign-in, and sync.
+
 ```bash
-git clone https://github.com/anurieli/fragment.git
-cd fragment
+git clone https://github.com/anurieli/fragment-cloud.git
+cd fragment-cloud
 npm install
+cp .env.example .env.local   # then fill it in, see CLOUD.md
 npm run dev
 ```
 
-Open http://localhost:3100. That's it: Fragment runs entirely in your browser
-(IndexedDB) with no backend and no configuration. To use AI, open **Settings > AI**
-and either paste an API key (OpenRouter, OpenAI, Anthropic, Perplexity), point it at
-a local **Ollama** instance, or click **Sign in with ChatGPT** for Codex.
+Open http://localhost:3100. Writing works offline against IndexedDB with no
+configuration, but accounts, sync, and share links need the environment variables
+and database described in [`CLOUD.md`](./CLOUD.md). To use AI, open
+**Settings > AI** and either paste an API key (OpenRouter, OpenAI, Anthropic,
+Perplexity), point it at a local **Ollama** instance, or click **Sign in with
+ChatGPT** for Codex.
 
 ## Project layout
 
