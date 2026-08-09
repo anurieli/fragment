@@ -239,13 +239,26 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
             }
           }
 
-          // ── Custom mouse-based drag (replaces HTML5 DnD for editor→snippet) ──
+          // ── Custom mouse-based drag (replaces HTML5 DnD) ──
           // Prevents native text drag ghost that WebKit/Tauri can't override.
+          // Two destinations: the Snip Bar (cut the passage out into a snip)
+          // and the draft itself (move the passage to where you dropped it).
+          // Anywhere else, and Escape, cancel: nothing is dispatched, so the
+          // text is exactly where it started and there is nothing to undo.
           event.preventDefault();
 
           const startX = event.clientX;
           const startY = event.clientY;
           let dragging = false;
+          let labelRequested = false;
+
+          /** The Snip Bar drop zone if the pointer is over it, else null. */
+          const snipBarUnder = (clientX: number, clientY: number) => {
+            const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
+            if (!dropZone) return null;
+            const el = document.elementFromPoint(clientX, clientY);
+            return dropZone.contains(el) || el === dropZone ? dropZone : null;
+          };
 
           const onMove = (e: MouseEvent) => {
             if (!dragging) {
@@ -258,15 +271,26 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
               customDragRangeRef.current = { from, to };
               useAppStore.getState().setDraggingToHelper(true);
+              // "idle", not "loading": a label only means something for a snip,
+              // and this drag may well end as a move within the draft.
               useAppStore.getState().setFloatingDragCard({
-                content: txt, label: null, labelStatus: "loading",
+                content: txt, label: null, labelStatus: "idle",
               });
               view.dom.classList.add("is-snippet-dragging-out");
+            }
 
-              // Prefetch label
-              floatingLabelAbortRef.current?.abort();
-              floatingLabelAbortRef.current = new AbortController();
-              prefetchLabelRef.current?.(txt, floatingLabelAbortRef.current.signal);
+            // Labelling starts the moment the passage is over the Snip Bar, so
+            // the label is usually ready by the time it is dropped, without
+            // spending a call on every passage the writer merely moves.
+            if (!labelRequested && snipBarUnder(e.clientX, e.clientY)) {
+              labelRequested = true;
+              const dragged = useAppStore.getState().floatingDragCard;
+              if (dragged) {
+                useAppStore.getState().updateFloatingCardLabel(null, "loading");
+                floatingLabelAbortRef.current?.abort();
+                floatingLabelAbortRef.current = new AbortController();
+                prefetchLabelRef.current?.(dragged.content, floatingLabelAbortRef.current.signal);
+              }
             }
 
             // Position floating card directly on the DOM (no React re-renders)
@@ -280,6 +304,75 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           const cleanup = () => {
             document.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseup", onUp);
+            document.removeEventListener("keydown", onKeyDown, true);
+          };
+
+          /** Drop every trace of the drag. Shared by all four exits (snip,
+           * move, drop-outside, Escape) so no two of them can disagree. */
+          const teardown = () => {
+            customDragRangeRef.current = null;
+            useAppStore.getState().setDraggingToHelper(false);
+            floatingLabelAbortRef.current?.abort();
+            useAppStore.getState().setFloatingDragCard(null);
+            view.dom.classList.remove("is-snippet-dragging-out");
+          };
+
+          const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            e.stopPropagation();
+            cleanup();
+            if (dragging) teardown();
+          };
+
+          /** Move the dragged passage to the drop point. One transaction, so
+           * one undo puts the draft back the way it was. */
+          const moveWithinDraft = (clientX: number, clientY: number) => {
+            const range = customDragRangeRef.current;
+            const scrollEl = editorScrollRef.current;
+            if (!range || !scrollEl) return;
+
+            // Dropped outside the writing surface → cancel, leave the text be.
+            const el = document.elementFromPoint(clientX, clientY);
+            if (!el || !scrollEl.contains(el)) return;
+
+            const target = view.posAtCoords({ left: clientX, top: clientY });
+            if (!target) return;
+
+            const { state } = view;
+            const docSize = state.doc.content.size;
+            const sf = Math.min(range.from, docSize);
+            const st = Math.min(range.to, docSize);
+            if (sf >= st) return;
+
+            // Dropped back onto itself: a no-op, not a delete-and-reinsert.
+            const at = target.pos;
+            if (at >= sf && at <= st) return;
+
+            // Move the slice, not the text, so marks and block structure survive.
+            const slice = state.doc.slice(sf, st);
+            const tr = state.tr;
+            tr.delete(sf, st);
+            const insertAt = tr.mapping.map(at);
+            const sizeBefore = tr.doc.content.size;
+            tr.replaceRange(insertAt, insertAt, slice);
+            const inserted = tr.doc.content.size - sizeBefore;
+
+            // Leave the passage selected where it landed, so it can be moved
+            // again or acted on from the selection toolbar.
+            if (inserted > 0) {
+              try {
+                const end = Math.min(insertAt + inserted, tr.doc.content.size);
+                tr.setSelection(
+                  TextSelection.between(tr.doc.resolve(insertAt), tr.doc.resolve(end)),
+                );
+              } catch {
+                // Selection is a nicety; the move itself already succeeded.
+              }
+            }
+
+            view.dispatch(tr);
+            view.focus();
           };
 
           const onUp = (e: MouseEvent) => {
@@ -287,11 +380,9 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
 
             if (dragging) {
               // Check if mouse is over the Snip Bar drop zone
-              const dropZone = document.querySelector("[data-snip-bar-drop-zone]");
-              const el = document.elementFromPoint(e.clientX, e.clientY);
-              const isOverSnipBar = dropZone && (dropZone.contains(el) || el === dropZone);
+              const dropZone = snipBarUnder(e.clientX, e.clientY);
 
-              if (isOverSnipBar) {
+              if (dropZone) {
                 const range = customDragRangeRef.current;
                 const pieceId = useAppStore.getState().activePieceId;
                 const card = useAppStore.getState().floatingDragCard;
@@ -334,20 +425,18 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
                   // Keep the Snip Bar open after a successful drop
                   useAppStore.getState().pinHelperBar();
                 }
+              } else {
+                moveWithinDraft(e.clientX, e.clientY);
               }
 
-              // Clean up all drag state
-              customDragRangeRef.current = null;
-              useAppStore.getState().setDraggingToHelper(false);
-              floatingLabelAbortRef.current?.abort();
-              useAppStore.getState().setFloatingDragCard(null);
-              view.dom.classList.remove("is-snippet-dragging-out");
+              teardown();
             }
             // Click-only (no drag): Tiptap mouseup handler places cursor
           };
 
           document.addEventListener("mousemove", onMove);
           document.addEventListener("mouseup", onUp);
+          document.addEventListener("keydown", onKeyDown, true);
           return true;
         },
         mouseup: (view, event) => {
@@ -811,13 +900,16 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     };
   }, []);
 
-  // Show a drop indicator in the editor while a snippet is being dragged over it.
+  // Show a drop indicator in the editor while something is being dragged over
+  // it: a snippet coming in from the bar, or a passage being moved within the
+  // draft (both land at a position, so both want the same caret).
   // Two modes:
   //   • Between blocks (paragraph boundaries) → horizontal gold line centered in the gap
   //   • Inside text (mid-paragraph) → thin vertical gold caret
   const isDraggingSnippetIn = useAppStore((s) => s.isDraggingToEditor);
+  const isDraggingOut = useAppStore((s) => s.isDraggingToHelper);
   useEffect(() => {
-    if (!isDraggingSnippetIn || !editor) return;
+    if ((!isDraggingSnippetIn && !isDraggingOut) || !editor) return;
     const scrollEl = editorScrollRef.current;
     if (!scrollEl) return;
 
@@ -903,29 +995,38 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       if (lineEl) lineEl.remove();
       if (caretEl) caretEl.remove();
     };
-  }, [isDraggingSnippetIn, editor]);
+  }, [isDraggingSnippetIn, isDraggingOut, editor]);
 
-  // Auto-scroll editor when dragging near edges
-  const isDraggingOut = useAppStore((s) => s.isDraggingToHelper);
+  // Auto-scroll editor when dragging near edges. Listens to mousemove as well
+  // as dragover: the editor→snippet and move-within-the-draft gestures are
+  // hand-rolled mouse drags, so no dragover ever fires for them and without
+  // this you cannot move a passage past the visible window.
   useEffect(() => {
-    if (!isDraggingOut) return;
+    if (!isDraggingOut && !isDraggingSnippetIn) return;
 
-    const handleDragOver = (e: DragEvent) => {
+    const nudge = (clientY: number) => {
       if (editorScrollRef.current) {
         const rect = editorScrollRef.current.getBoundingClientRect();
         const SCROLL_ZONE = 60;
         const SCROLL_SPEED = 8;
-        if (e.clientY < rect.top + SCROLL_ZONE) {
+        if (clientY < rect.top + SCROLL_ZONE) {
           editorScrollRef.current.scrollTop -= SCROLL_SPEED;
-        } else if (e.clientY > rect.bottom - SCROLL_ZONE) {
+        } else if (clientY > rect.bottom - SCROLL_ZONE) {
           editorScrollRef.current.scrollTop += SCROLL_SPEED;
         }
       }
     };
 
+    const handleDragOver = (e: DragEvent) => nudge(e.clientY);
+    const handleMouseMove = (e: MouseEvent) => nudge(e.clientY);
+
     document.addEventListener("dragover", handleDragOver);
-    return () => document.removeEventListener("dragover", handleDragOver);
-  }, [isDraggingOut]);
+    document.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      document.removeEventListener("dragover", handleDragOver);
+      document.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [isDraggingOut, isDraggingSnippetIn]);
 
 
   const handleAddToSnippets = useCallback(() => {
