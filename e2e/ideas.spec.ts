@@ -168,6 +168,46 @@ test.describe("Idea lifecycle", () => {
     await page.waitForTimeout(300);
     expect(await ideaRows.count()).toBe(countBefore - 1);
   });
+
+  test("a piece dragged into Drafts becomes a draft, and dragging it back undoes that", async ({ page }) => {
+    await startBlankDraft(page);
+
+    // A piece to carry. "New piece" switches the middle panel to the feed;
+    // the idea panel's two lists stay put beside it, which is what we drag in.
+    await page.getByRole("button", { name: "New piece", exact: true }).click();
+    await page.waitForTimeout(500);
+
+    const drafts = page.locator("[data-idea-drop='drafts']");
+    const pieces = page.locator("[data-idea-drop='pieces']");
+    const draftRows = drafts.locator("div[role='button']");
+    const pieceRows = pieces.locator("div[role='button']");
+
+    await expect(draftRows).toHaveCount(1);
+    await expect(pieceRows).toHaveCount(1);
+
+    // Press, move past the 5px threshold, release over the other list. Raw
+    // mouse moves rather than .dragTo(): this is a hand-rolled mouse drag, not
+    // HTML5 drag-and-drop, because native DnD does not work in Tauri's WebView.
+    async function carry(from: ReturnType<typeof page.locator>, to: ReturnType<typeof page.locator>) {
+      const row = await from.boundingBox();
+      const zone = await to.boundingBox();
+      if (!row || !zone) throw new Error("row or drop zone is not on screen");
+      await page.mouse.move(row.x + row.width / 2, row.y + row.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(row.x + row.width / 2 - 40, row.y + row.height / 2, { steps: 6 });
+      await page.mouse.move(zone.x + zone.width / 2, zone.y + 40, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(500);
+    }
+
+    await carry(pieceRows.first(), drafts);
+    await expect(draftRows).toHaveCount(2);
+    await expect(pieceRows).toHaveCount(0);
+
+    await carry(draftRows.last(), pieces);
+    await expect(draftRows).toHaveCount(1);
+    await expect(pieceRows).toHaveCount(1);
+  });
 });
 
 test.describe("Panel toggles", () => {

@@ -17,7 +17,7 @@ Your existing library migrates on first open. The migration snapshots the databa
 - **Author spacing is preserved.** Blank lines and runs of spaces survive saving, reopening, sharing, publishing, and export. Empty lines render at full height in the read view instead of collapsing.
 - **Drag a passage to a new place in the draft.** Select text and move it, in the long-form editor and in short-form cards.
 - **The selection toolbar stays with the selection**, including when the text scrolls out of view and back, and it appears immediately over a selection that is already standing.
-- **Capture an idea from a highlighted passage** without losing your place in what you were writing.
+- **Turn a highlighted passage into a piece of its own**, in the idea you are already writing in, without losing your place in what you were writing. Works in the long-form editor and inside a short-form piece. What you highlighted is left exactly where it was.
 - **Right-click menus** in the editor and the sidebar.
 
 ### AI
@@ -33,7 +33,11 @@ Your existing library migrates on first open. The migration snapshots the databa
 - **Search collapses into a button** and expands in place of the create buttons.
 - **Archive instead of delete.** Put work away and reach it again, from a right-click menu, rather than choosing between keeping clutter and destroying it.
 - **Pin and priority flags** show in the list.
+- **Move a draft or a piece into the other list**, by dragging its row between Drafts and Pieces in the idea panel, or by right-clicking it. Nothing is copied and no words move: a draft and a piece are the same thing in a different shape, so the move keeps its text, its brief, its snips and its history. A piece waiting in the inbox stops waiting when you drag it into Drafts, because that drag is the decision it was waiting for. The same menu promotes either into an idea of its own, nested under the one it came from. Everything here undoes from the toast.
 - **Rename a draft or a piece from its row** in the idea panel: double-click it, or right-click and choose Rename. The box opens with the name the row is showing, and clearing it hands the label back to the writing, so the row follows the first line again.
+- **Drop a snip into the idea panel** and it becomes a draft or a piece there, named from the label the AI wrote for it, and leaves the bar. A snip is something set aside to be placed, so once it has been placed it stops sitting in the list of things still waiting. Undo puts it back exactly.
+- **Edit a snip where it sits.** Double-click one and the card becomes a text box holding the whole snip instead of the trimmed preview; click anywhere outside and it saves. Escape leaves it alone, and emptying the box is not a way to delete it. Edited words earn a fresh label, since the old one described text that no longer exists.
+- **Right-click a snip** for the same edit, a copy, a fresh label, insertion into the draft at your cursor, either of the two moves above, or delete.
 - **The snip bar expands, marks what landed**, and holds the idea's other pieces alongside its snips, so the LinkedIn version or last week's paragraph is a panel switch away while you write. Pulling words out of a piece copies them; the piece stays where it is.
 - **The inbox holds only work that arrived from elsewhere**, not your own writing.
 - **Comments moved onto pieces.** Comments used to be anchored to notes, which no longer exist, so they now live on the piece or idea they were left against, including the "started from a comment" backlink on an idea.

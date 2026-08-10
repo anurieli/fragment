@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { Snippet, AIProvider } from "@/lib/types";
+import type { PanelSection } from "@/lib/piece-section";
 
 interface PendingSnippetDrop {
   snippet: Snippet;
@@ -15,6 +16,12 @@ interface FloatingDragCard {
   label: string | null;
   /** "idle": nothing is being fetched — a drag that labels only on drop. */
   labelStatus: "idle" | "loading" | "done" | "error";
+}
+
+interface PanelDrag {
+  pieceId: string;
+  /** The list it was picked up from, so only the other one invites a drop. */
+  from: PanelSection;
 }
 
 interface PendingEditorDeletion {
@@ -80,6 +87,10 @@ interface AppState {
   liveEditorContent: string | null;
   isDraggingToHelper: boolean;
   isDraggingToEditor: boolean;
+  /** A row being dragged between the idea panel's two lists. Held in the store
+   * rather than in the panel because the drop zone that has to light up is a
+   * sibling of the row, not a child of it. Null whenever nothing is moving. */
+  panelDrag: PanelDrag | null;
   pendingSnippetDrop: PendingSnippetDrop | null;
   pendingEditorDeletion: PendingEditorDeletion | null;
   floatingDragCard: FloatingDragCard | null;
@@ -142,6 +153,7 @@ interface AppState {
   setLiveEditorContent: (pieceId: string, content: string) => void;
   setDraggingToHelper: (v: boolean) => void;
   setDraggingToEditor: (v: boolean) => void;
+  setPanelDrag: (v: PanelDrag | null) => void;
   setPendingSnippetDrop: (v: PendingSnippetDrop | null) => void;
   commitPendingDrop: () => void;
   cancelPendingDrop: () => void;
@@ -171,6 +183,7 @@ export const useAppStore = create<AppState>((set) => ({
   liveEditorContent: null,
   isDraggingToHelper: false,
   isDraggingToEditor: false,
+  panelDrag: null,
   pendingSnippetDrop: null,
   pendingEditorDeletion: null,
   floatingDragCard: null,
@@ -263,6 +276,7 @@ export const useAppStore = create<AppState>((set) => ({
   }),
   setDraggingToHelper: (v) => set({ isDraggingToHelper: v }),
   setDraggingToEditor: (v) => set({ isDraggingToEditor: v }),
+  setPanelDrag: (v) => set({ panelDrag: v }),
   setPendingSnippetDrop: (v) => set({ pendingSnippetDrop: v }),
   setPendingEditorDeletion: (v) => set({ pendingEditorDeletion: v }),
   commitPendingDrop: () => set({ pendingSnippetDrop: null }),
