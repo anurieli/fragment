@@ -6,7 +6,7 @@
 > hosted side, and it predates the one-entity restructure that removed `Note`
 > and made every piece of writing a fragment inside an idea. It was the live
 > spec until August 2026. The current spec is [`PRD.md`](../../PRD.md); for the
-> shape of the data on disk see [`docs/DATA-MODEL.md`](../DATA-MODEL.md).
+> shape of the data on disk see the Dexie schema in `src/lib/db.ts`.
 
 ---
 

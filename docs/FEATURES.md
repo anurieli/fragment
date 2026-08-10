@@ -7,8 +7,8 @@ This document describes every feature in Fragment, how it works, how to test it,
 > whose format is long-form (`essay`, `substack`, `script`) is a **draft**, and
 > a **snip** is a cut of text parked in the Snip Bar. A fragment and a draft are
 > the same object at different sizes, so there is no convert step between them.
-> The product spec is [`PRD.md`](../PRD.md); the on-disk shape is
-> [`docs/DATA-MODEL.md`](./DATA-MODEL.md). The sync wire and the MCP contract
+> The product spec is [`PRD.md`](../PRD.md); the on-disk shape is the Dexie
+> schema in `src/lib/db.ts`. The sync wire and the MCP contract
 > still say `piece` where the UI says fragment, deliberately; where this document
 > says "piece" (mostly in section 19, which tracks the code closely) it means the
 > same object as "fragment".

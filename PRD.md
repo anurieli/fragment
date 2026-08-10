@@ -7,9 +7,8 @@ inside an **idea**.
 
 The previous spec, which treated a note as the primary entity, is kept at
 [`docs/history/prd-v1-notes.md`](./docs/history/prd-v1-notes.md). For the shape
-of the data on disk, including which parts of the restructure have landed, see
-[`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md). This document is the product spec;
-that one is the record of the bytes.
+of the data on disk, read `src/lib/db.ts`: the Dexie versions are the record of
+the bytes, and each one carries the comment explaining why it exists.
 
 ---
 
@@ -397,10 +396,6 @@ their library missing half its contents will start recreating it.
 
 ## 8. Related documents
 
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), the layers and how a keystroke reaches Postgres
-- [`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md), every entity, table, and invariant
-- [`docs/SYNC.md`](./docs/SYNC.md), the wire format and convergence rules
-- [`docs/API.md`](./docs/API.md), every HTTP route
 - [`docs/AGENT-API.md`](./docs/AGENT-API.md), the agent handoff contract
 - [`docs/FEATURES.md`](./docs/FEATURES.md), feature behaviour and QA reference
 - [`docs/ONBOARDING.md`](./docs/ONBOARDING.md), the first-run guide

@@ -34,32 +34,27 @@ ChatGPT** for Codex.
 
 ## Project layout
 
-Read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), then
-[`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md), [`docs/SYNC.md`](./docs/SYNC.md) and
-[`docs/API.md`](./docs/API.md) before making structural changes.
-[`PRD.md`](./PRD.md) is product history and predates accounts, sync, and the
-Content Engine; do not treat it as the architecture. In short:
+[`PRD.md`](./PRD.md) is the product spec: what Fragment is and how it should
+behave. For structure, read the code, starting with `src/lib/db.ts` (the Dexie
+schema) and `src/lib/content-engine/` (ideas and the pieces inside them). In
+short:
 
 - `src/app/` — Next.js App Router pages and API route handlers
 - `src/components/` — UI (editor, sidebar, Snip Bar, settings, etc.)
 - `src/stores/` — Zustand state (`app-store`, `data-store`, `content-store`, `settings-store`)
 - `src/lib/` — types, persistence (Dexie), sync, AI provider runtime, utilities
-- `src/lib/server/` — hosted-only server code (Postgres, auth, sessions, shares)
 - `src/hooks/` — feature hooks (Snip labeling, Flow generation, Refine editing)
-- `db/migrations/` — SQL migrations, applied with `npm run db:migrate`
 - `packages/fragment-mcp/` — the MCP server agents use to file ideas
 
 ## Docs change with the code
 
-A pull request that alters the schema, an HTTP route, or the sync wire updates
-the doc that describes it in the same change:
+A pull request that changes how something behaves updates the doc that
+describes it in the same change:
 
 | You changed | Update |
 |---|---|
-| A Dexie table, an entity field, or a SQL migration | `docs/DATA-MODEL.md` |
-| A route handler, its auth, or its request/response shape | `docs/API.md` |
-| `SYNCED_COLLECTIONS`, the outbox, or the sync engine | `docs/SYNC.md` |
-| A new subsystem, or how existing ones connect | `docs/ARCHITECTURE.md` |
+| A feature's behaviour | `docs/FEATURES.md` |
+| The first-run walkthrough | `docs/ONBOARDING.md` |
 | The agent handoff format or an MCP tool | `docs/AGENT-API.md` |
 
 Docs that lag the code are worse than no docs, because the reader cannot tell

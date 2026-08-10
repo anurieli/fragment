@@ -17,6 +17,9 @@ interface InlineEditMenuProps {
 
 export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: InlineEditMenuProps) {
   const [mode, setMode] = useState<EditMode>("idle");
+  /** True while the toolbar is down only because its selection scrolled out
+   * of view, which is what tells the scroll handler to put it back. */
+  const hiddenByScrollRef = useRef(false);
   const [customPrompt, setCustomPrompt] = useState("");
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [visible, setVisible] = useState(false);
@@ -88,6 +91,12 @@ export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: Inline
       updatePosition();
     };
 
+    // A selection can already be standing when this mounts (the menu is
+    // remounted while text stays highlighted). Tiptap only fires
+    // selectionUpdate on a *change*, so without this first read the toolbar
+    // would sit invisible over a selection the writer can see.
+    handleSelectionUpdate();
+
     editor.on("selectionUpdate", handleSelectionUpdate);
     editor.on("blur", () => {
       // Small delay to allow clicking the menu itself
@@ -104,6 +113,53 @@ export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: Inline
       editor.off("selectionUpdate", handleSelectionUpdate);
     };
   }, [editor, updatePosition]);
+
+  // Follow the selection as the page scrolls. The menu is anchored to text,
+  // so text scrolled out of the visible band should take its toolbar with it,
+  // and bring it back on the way in. Only `visible` is toggled: mode and any
+  // half-typed custom instruction survive the round trip, because losing a
+  // sentence you were mid-way through writing to a scroll is not a tradeoff
+  // anyone accepts.
+  useEffect(() => {
+    if (!visible && !hiddenByScrollRef.current) return;
+
+    const onScroll = () => {
+      const editorDom = editor.view.dom.closest(".overflow-y-auto");
+      if (!editorDom) return;
+
+      const { from, to } = editor.state.selection;
+      if (from === to) return;
+
+      const rect = editorDom.getBoundingClientRect();
+      const startCoords = editor.view.coordsAtPos(from);
+      const offscreen = startCoords.bottom < rect.top || startCoords.top > rect.bottom;
+
+      if (offscreen) {
+        if (!hiddenByScrollRef.current) {
+          hiddenByScrollRef.current = true;
+          setVisible(false);
+        }
+        return;
+      }
+
+      if (hiddenByScrollRef.current) {
+        hiddenByScrollRef.current = false;
+        updatePosition();
+      }
+    };
+
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [editor, visible, updatePosition]);
+
+  // A custom instruction that was on screen, scrolled away, and came back
+  // deserves the cursor it had. The focus effect below keys on mode, which
+  // does not change across a scroll, so it cannot do this on its own.
+  useEffect(() => {
+    if (visible && mode === "custom-input") {
+      inputRef.current?.focus();
+    }
+  }, [visible, mode]);
 
   // Reposition on window resize: the selection has not moved, but the column
   // it sits in has, so the cached coordinates are stale.
