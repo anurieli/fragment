@@ -29,7 +29,7 @@ import {
   ContextMenuItem,
   useContextMenu,
 } from "@/components/common/context-menu";
-import { PieceMenuItems } from "@/components/shortform/piece-menu-items";
+import { PieceMenuItems, PieceShapeItems } from "@/components/shortform/piece-menu-items";
 import { markdownToPlainText } from "@/lib/publish";
 import { priorityMeta } from "@/lib/priority";
 import { formatDate, wordCount } from "@/lib/utils";
@@ -713,6 +713,8 @@ function DraftRow({
             hint="The title the editor shows. Double-clicking the row does this too"
             onClick={() => { close(); setRenaming(true); }}
           />
+          <ContextMenuDivider />
+          <PieceShapeItems piece={piece} onClose={close} />
           <ContextMenuDivider />
           <ContextMenuItem
             label="Archive"

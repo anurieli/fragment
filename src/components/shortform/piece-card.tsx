@@ -28,6 +28,7 @@ import {
   selectionDragDestination,
   textareaSelectionRange,
 } from "@/lib/textarea-selection";
+import { titleFromText } from "@/lib/derive-title";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
@@ -434,6 +435,36 @@ export function PieceCard({
     [snipOut],
   );
 
+  /**
+   * Lift the selection into a piece of its own, in the same idea. Unlike Snip
+   * it takes nothing away from this card: a second post hiding inside the one
+   * you are writing should become its own card without gutting this one.
+   */
+  const handleCapturePiece = useCallback(
+    (selectionStart: number, selectionEnd: number) => {
+      const selectedText = (piece.body ?? "").slice(selectionStart, selectionEnd).trim();
+      if (!selectedText) return;
+
+      const content = useContentStore.getState();
+      const newId = content.createPiece({
+        ideaId: piece.ideaId,
+        format: "other",
+        origin: "user",
+        // Yours, written just now: already triaged by the act of writing it.
+        status: "in-progress",
+        body: selectedText,
+        seen: true,
+      });
+      if (!newId) return;
+
+      showToast(`Piece created: ${titleFromText(selectedText) || "Untitled"}`, {
+        label: "Open",
+        onClick: () => useAppStore.getState().revealPiece(newId),
+      });
+    },
+    [piece.body, piece.ideaId, showToast],
+  );
+
   // Kept in a ref because the drag's mouseup fires from a document listener
   // installed once, at mousedown, and must not act on a stale piece body.
   const snipOutRef = useRef(snipOut);
@@ -774,6 +805,7 @@ export function PieceCard({
                 containerRef={cardRef}
                 onEdit={handleRefineEdit}
                 onSnip={handleRefineSnip}
+                onCapturePiece={handleCapturePiece}
               />
             )}
           </>

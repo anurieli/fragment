@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight } from "lucide-react";
+import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight, LayoutList } from "lucide-react";
 import { estimateSelectionAnchor } from "@/lib/piece-ai";
 
 type Mode = "idle" | "loading" | "custom-input";
@@ -17,6 +17,9 @@ interface PieceRefineMenuProps {
    * moved cursor. */
   onEdit: (instruction: string, selectionStart: number, selectionEnd: number) => Promise<string | null>;
   onSnip: (selectionStart: number, selectionEnd: number) => void;
+  /** Lift the selection into a new piece in the same idea, leaving this one as
+   * it is — the short-form twin of the editor's Piece button. */
+  onCapturePiece?: (selectionStart: number, selectionEnd: number) => void;
 }
 
 /**
@@ -33,7 +36,7 @@ interface PieceRefineMenuProps {
  * selection untouched, and undo-friendly (setRangeText is a native editing
  * op the browser's own undo stack understands).
  */
-export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip }: PieceRefineMenuProps) {
+export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onCapturePiece }: PieceRefineMenuProps) {
   const [mode, setMode] = useState<Mode>("idle");
   const [customPrompt, setCustomPrompt] = useState("");
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -134,6 +137,14 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip }: P
     setMode("idle");
   }, [textareaRef, onSnip]);
 
+  const handleCapturePiece = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el || !onCapturePiece || el.selectionStart === el.selectionEnd) return;
+    onCapturePiece(el.selectionStart, el.selectionEnd);
+    setAnchor(null);
+    setMode("idle");
+  }, [textareaRef, onCapturePiece]);
+
   if (!anchor) return null;
 
   return (
@@ -186,6 +197,16 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip }: P
               <Scissors size={12} />
               <span>Snip</span>
             </button>
+            {onCapturePiece && (
+              <button
+                onClick={handleCapturePiece}
+                className="inline-edit-btn"
+                title="Start a new piece in this idea from this, without changing this one"
+              >
+                <LayoutList size={12} />
+                <span>Piece</span>
+              </button>
+            )}
             <div className="w-px h-4 bg-border mx-0.5" />
             <button
               onClick={() => handlePresetEdit("Make this more concise. Tighten the language, remove redundancy, keep the core meaning.")}
