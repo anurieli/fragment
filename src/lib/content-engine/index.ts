@@ -19,7 +19,6 @@ export {
   pieceHandoffFrontmatterSchema,
   parsePieceHandoffJson,
   contentPieceSchema,
-  pieceContentHome,
   assertIdeaParentAllowed,
 } from "./contract";
 export type {

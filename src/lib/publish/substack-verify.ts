@@ -1,5 +1,5 @@
 // Substack verified-publish loop support: parsing an RSS feed, fuzzy-matching
-// a piece/note title against it, an SSRF-shape guard for the rss-proxy
+// a fragment title against it, an SSRF-shape guard for the rss-proxy
 // route, and a small pure helper for the "awaiting confirmation" badge's
 // pending/nudge state. Everything here is pure (no network, no DOM
 // mutation beyond a throwaway DOMParser document) so it's fully unit
@@ -182,8 +182,8 @@ const PENDING_NUDGE_MS = 24 * 60 * 60 * 1000;
 export type PublishPendingState = "none" | "pending" | "nudge";
 
 /**
- * Presentational state for the "awaiting confirmation" badge on a piece
- * card (or long-form note): `"pending"` while a Substack publish attempt is
+ * Presentational state for the "awaiting confirmation" badge on a fragment
+ * card or in the draft editor: `"pending"` while a Substack publish attempt is
  * younger than 24h, `"nudge"` once it's 24h old or older (a gentle "did
  * this go live?" prompt — no modal, per the spec), `"none"` when there's no
  * attempt in flight (`attemptedAt` undefined). Pure, so the 24h boundary is

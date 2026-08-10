@@ -84,7 +84,7 @@ That's what we built. 🧵 below.
 
 - The body is **everything after the closing `---`**, preserved byte-exact: spaces, blank lines, and newlines survive import → edit → publish untouched.
 - Write plain markdown. For `tweet`, separate thread segments with a `---` line.
-- Long-form (`essay`, `substack`) bodies are imported into a full Fragment note; short-form bodies stay inline.
+- Every body is imported inline, whatever the format. `format` decides which surface edits the piece, the long-form editor or the feed, and never where its text is stored. This line previously claimed long-form bodies became separate Fragment notes; that was never true of the importer, and notes no longer exist.
 
 ## Import semantics
 
@@ -231,4 +231,4 @@ Agent-pushed content is untrusted input, full stop. Fragment renders a piece's m
 
 The sharper edge: **once you pull an agent-pushed piece's text into your document, or otherwise treat it as material you're drafting from, it can become AI context.** Fragment's own AI features (Flow's slash-command generation, Refine's inline edits) send the surrounding document text to whatever provider you've configured, and that surrounding text can include content an agent wrote. A prompt-injection attempt embedded in a drafted piece ("ignore prior instructions and...") is just more markdown to Fragment and to any AI call that later includes it as context — it has no special authority, but it also isn't filtered out.
 
-The practical rule: **your review before a piece leaves `inbox` is the trust boundary**, not the moment it's imported (import itself is automatic — that's the inbox's whole point). Read a piece before promoting it, before dragging its content into a note you're actively drafting with AI assistance, and before publishing it anywhere. Never wire up automatic accept/promote/publish for agent-pushed content — the `update_status` tool intentionally only lets an agent report `"published"` after *it* posted something, precisely so "accept" always stays a human action taken inside Fragment.
+The practical rule: **your review before a piece leaves `inbox` is the trust boundary**, not the moment it's imported (import itself is automatic, that is the inbox's whole point). Read a piece before promoting it, before dragging its content into a draft you're actively writing with AI assistance, and before publishing it anywhere. Never wire up automatic accept/promote/publish for agent-pushed content: the `update_status` tool intentionally only lets an agent report `"published"` after *it* posted something, precisely so "accept" always stays a human action taken inside Fragment.

@@ -12,6 +12,9 @@ interface VoiceEditorProps {
   voice: BrandVoice;
 }
 
+const FIELD_CLASS =
+  "w-full bg-surface-3 border border-border-strong rounded-[var(--radius-sm)] px-3 py-2 text-xs text-text-secondary font-[family-name:var(--font-body)] leading-relaxed outline-none focus:border-border-active transition-colors duration-150 placeholder:text-text-faint";
+
 export function VoiceEditor({ voice }: VoiceEditorProps) {
   const updateBrandVoice = useVoiceStore((s) => s.updateBrandVoice);
   const deleteBrandVoice = useVoiceStore((s) => s.deleteBrandVoice);
@@ -84,6 +87,44 @@ export function VoiceEditor({ voice }: VoiceEditorProps) {
           </p>
         </div>
 
+        {/* Default brief. A voice is a persona, so it already implies who it
+            speaks to and how it sounds; ideas and pieces inherit these
+            until they say otherwise (see lib/brief-context.ts). No goal here:
+            what a given piece is trying to achieve is the piece's business. */}
+        <div className="mb-8">
+          <label className="block text-[11px] text-text-muted font-[family-name:var(--font-mono)] uppercase tracking-wider mb-1.5">
+            Default Brief
+          </label>
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={voice.defaultAudience ?? ""}
+              onChange={(e) => updateBrandVoice(voice.id, { defaultAudience: e.target.value })}
+              placeholder="Audience — who this voice is talking to"
+              className={FIELD_CLASS}
+            />
+            <input
+              type="text"
+              value={voice.defaultTone ?? ""}
+              onChange={(e) => updateBrandVoice(voice.id, { defaultTone: e.target.value })}
+              placeholder="Tone — e.g. direct, plain, no hype"
+              className={FIELD_CLASS}
+            />
+            <textarea
+              value={voice.defaultRemember ?? ""}
+              onChange={(e) => updateBrandVoice(voice.id, { defaultRemember: e.target.value })}
+              placeholder="Remember — things the AI should always keep in mind in this voice"
+              rows={2}
+              className={`${FIELD_CLASS} resize-y`}
+            />
+          </div>
+          <p className="text-[10px] text-text-faint mt-1.5">
+            Every idea and piece using this voice starts here. Change one on a
+            piece and only that piece detaches; change it here and everything that
+            never overrode it follows.
+          </p>
+        </div>
+
         {/* Footer actions */}
         <div className="flex items-center justify-between pt-4 border-t border-border">
           <button
@@ -98,7 +139,7 @@ export function VoiceEditor({ voice }: VoiceEditorProps) {
           {confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-text-muted">
-                Notes using this voice fall back to your default voice.
+                Pieces using this voice fall back to your default voice.
               </span>
               <button
                 onClick={() => deleteBrandVoice(voice.id)}

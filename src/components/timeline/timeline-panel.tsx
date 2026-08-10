@@ -25,24 +25,24 @@ function getDayKey(ts: number): string {
 }
 
 export function TimelinePanel() {
-  const { activeNoteId, setTimelineOpen, setTimelinePreviewVersionId } = useAppStore();
+  const { activePieceId, setTimelineOpen, setTimelinePreviewVersionId } = useAppStore();
   const { versions, createVersion } = useDataStore();
   const showToast = useToastStore((s) => s.showToast);
 
   const [isNaming, setIsNaming] = useState(false);
   const [snapshotName, setSnapshotName] = useState("");
 
-  const noteVersions = useMemo(() => {
+  const pieceVersions = useMemo(() => {
     return Object.values(versions)
-      .filter((v) => v.noteId === activeNoteId)
+      .filter((v) => v.pieceId === activePieceId)
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [versions, activeNoteId]);
+  }, [versions, activePieceId]);
 
   const groupedVersions = useMemo(() => {
-    const groups: { label: string; key: string; versions: typeof noteVersions }[] = [];
+    const groups: { label: string; key: string; versions: typeof pieceVersions }[] = [];
     let currentKey = "";
 
-    for (const v of noteVersions) {
+    for (const v of pieceVersions) {
       const key = getDayKey(v.createdAt);
       if (key !== currentKey) {
         currentKey = key;
@@ -51,7 +51,7 @@ export function TimelinePanel() {
       groups[groups.length - 1].versions.push(v);
     }
     return groups;
-  }, [noteVersions]);
+  }, [pieceVersions]);
 
   function handleClose() {
     setTimelineOpen(false);
@@ -59,15 +59,15 @@ export function TimelinePanel() {
   }
 
   function handleSaveSnapshot() {
-    if (!activeNoteId) return;
+    if (!activePieceId) return;
 
     if (!isNaming) {
-      createVersion(activeNoteId, "", "manual");
+      createVersion(activePieceId, "", "manual");
       showToast("Snapshot saved");
       return;
     }
 
-    createVersion(activeNoteId, snapshotName.trim(), "manual");
+    createVersion(activePieceId, snapshotName.trim(), "manual");
     showToast("Snapshot saved");
     setIsNaming(false);
     setSnapshotName("");
@@ -95,7 +95,7 @@ export function TimelinePanel() {
             Timeline
           </span>
           <span className="text-[10px] text-text-faint font-[family-name:var(--font-mono)]">
-            {noteVersions.length}
+            {pieceVersions.length}
           </span>
         </div>
         <button
@@ -142,7 +142,7 @@ export function TimelinePanel() {
 
       {/* Version list */}
       <div className="flex-1 overflow-y-auto px-4 pb-4">
-        {noteVersions.length === 0 ? (
+        {pieceVersions.length === 0 ? (
           <div className="px-4 py-16 text-center">
             <Clock size={24} className="mx-auto mb-3 text-text-faint opacity-40" />
             <p className="text-[13px] text-text-muted">No snapshots yet</p>

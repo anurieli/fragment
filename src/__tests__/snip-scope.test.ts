@@ -16,58 +16,58 @@ function makeSnippet(over: Partial<Snippet> = {}): Snippet {
 }
 
 describe("snippetHome", () => {
-  it("a snip off a draft belongs to the note, even when tagged with an idea", () => {
-    expect(snippetHome({ noteId: "note-1", ideaId: "idea-1" })).toBe("note:note-1");
+  it("a snip cut out of a fragment belongs to the fragment, even when tagged with an idea", () => {
+    expect(snippetHome({ pieceId: "piece-1", ideaId: "idea-1" })).toBe("piece:piece-1");
   });
 
-  it("a snip off a piece belongs to the idea", () => {
-    expect(snippetHome({ noteId: null, ideaId: "idea-1" })).toBe("idea:idea-1");
+  it("a snip cut with no fragment open belongs to the idea", () => {
+    expect(snippetHome({ ideaId: "idea-1" })).toBe("idea:idea-1");
   });
 
   it("has no home with neither", () => {
-    expect(snippetHome({ noteId: null })).toBeNull();
+    expect(snippetHome({})).toBeNull();
     expect(snipHomeKey(null, undefined)).toBeNull();
   });
 });
 
 describe("isSnippetVisible", () => {
-  it("shows the active note's snips", () => {
-    expect(isSnippetVisible({ noteId: "note-1" }, "note-1", null)).toBe(true);
+  it("shows the open fragment's snips", () => {
+    expect(isSnippetVisible({ pieceId: "piece-1" }, "piece-1", null)).toBe(true);
   });
 
-  it("shows the open idea's snips even with no note open", () => {
-    expect(isSnippetVisible({ noteId: null, ideaId: "idea-1" }, null, "idea-1")).toBe(true);
+  it("shows the open idea's snips even with no fragment open", () => {
+    expect(isSnippetVisible({ ideaId: "idea-1" }, null, "idea-1")).toBe(true);
   });
 
   it("keeps a draft's snips on screen after crossing to that idea's pieces", () => {
-    // Write -> Pieces clears nothing: the note stays active, and the snippet
-    // carries the idea too.
-    expect(isSnippetVisible({ noteId: "note-1", ideaId: "idea-1" }, null, "idea-1")).toBe(true);
+    // Write -> Pieces clears nothing: the fragment stays active, and the
+    // snippet carries the idea too.
+    expect(isSnippetVisible({ pieceId: "piece-1", ideaId: "idea-1" }, null, "idea-1")).toBe(true);
   });
 
-  it("hides another note's and another idea's snips", () => {
-    expect(isSnippetVisible({ noteId: "note-2" }, "note-1", "idea-1")).toBe(false);
-    expect(isSnippetVisible({ noteId: null, ideaId: "idea-2" }, "note-1", "idea-1")).toBe(false);
+  it("hides another fragment's and another idea's snips", () => {
+    expect(isSnippetVisible({ pieceId: "piece-2" }, "piece-1", "idea-1")).toBe(false);
+    expect(isSnippetVisible({ ideaId: "idea-2" }, "piece-1", "idea-1")).toBe(false);
   });
 
   it("hides everything when nothing is open", () => {
-    expect(isSnippetVisible({ noteId: "note-1", ideaId: "idea-1" }, null, null)).toBe(false);
+    expect(isSnippetVisible({ pieceId: "piece-1", ideaId: "idea-1" }, null, null)).toBe(false);
   });
 });
 
 describe("visibleSnippets", () => {
   it("merges both homes, ordered, with createdAt breaking ties", () => {
     const all: Snippet[] = [
-      makeSnippet({ id: "note-b", noteId: "note-1", order: 1, createdAt: 10 }),
+      makeSnippet({ id: "piece-b", pieceId: "piece-1", order: 1, createdAt: 10 }),
       makeSnippet({ id: "idea-a", ideaId: "idea-1", order: 0, createdAt: 20 }),
-      makeSnippet({ id: "note-a", noteId: "note-1", order: 0, createdAt: 5 }),
-      makeSnippet({ id: "elsewhere", noteId: "note-9", order: 0, createdAt: 1 }),
+      makeSnippet({ id: "piece-a", pieceId: "piece-1", order: 0, createdAt: 5 }),
+      makeSnippet({ id: "elsewhere", pieceId: "piece-9", order: 0, createdAt: 1 }),
     ];
 
-    expect(visibleSnippets(all, "note-1", "idea-1").map((s) => s.id)).toEqual([
-      "note-a",
+    expect(visibleSnippets(all, "piece-1", "idea-1").map((s) => s.id)).toEqual([
+      "piece-a",
       "idea-a",
-      "note-b",
+      "piece-b",
     ]);
   });
 

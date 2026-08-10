@@ -4,10 +4,11 @@ import { useAppStore } from "@/stores/app-store";
 function resetStore() {
   useAppStore.setState({
     sidebarOpen: true,
+    sidebarPinned: true,
     helperBarOpen: true,
     timelineOpen: false,
     timelinePreviewVersionId: null,
-    activeNoteId: null,
+    activePieceId: null,
     isDraggingToHelper: false,
     isDraggingToEditor: false,
   });
@@ -16,12 +17,41 @@ function resetStore() {
 describe("app-store", () => {
   beforeEach(resetStore);
 
-  it("toggleSidebar flips the boolean", () => {
+  it("toggleSidebar flips the boolean, and pins together with it", () => {
     expect(useAppStore.getState().sidebarOpen).toBe(true);
     useAppStore.getState().toggleSidebar();
     expect(useAppStore.getState().sidebarOpen).toBe(false);
+    expect(useAppStore.getState().sidebarPinned).toBe(false);
     useAppStore.getState().toggleSidebar();
     expect(useAppStore.getState().sidebarOpen).toBe(true);
+    expect(useAppStore.getState().sidebarPinned).toBe(true);
+  });
+
+  /**
+   * Peeking is what hovering the rail does. It must never touch the pinned
+   * flag, or a hover would be remembered as a preference; and it must do
+   * nothing at all while pinned, or leaving the sidebar would close a sidebar
+   * the user deliberately opened.
+   */
+  it("peekSidebar opens without pinning, and is inert while pinned", () => {
+    useAppStore.setState({ sidebarOpen: false, sidebarPinned: false });
+
+    useAppStore.getState().peekSidebar(true);
+    expect(useAppStore.getState().sidebarOpen).toBe(true);
+    expect(useAppStore.getState().sidebarPinned).toBe(false);
+
+    useAppStore.getState().peekSidebar(false);
+    expect(useAppStore.getState().sidebarOpen).toBe(false);
+
+    useAppStore.setState({ sidebarOpen: true, sidebarPinned: true });
+    useAppStore.getState().peekSidebar(false);
+    expect(useAppStore.getState().sidebarOpen).toBe(true);
+  });
+
+  it("setSidebarOpen(false) hands the column back to hover-peek", () => {
+    useAppStore.setState({ sidebarOpen: true, sidebarPinned: true });
+    useAppStore.getState().setSidebarOpen(false);
+    expect(useAppStore.getState().sidebarPinned).toBe(false);
   });
 
   it("toggleIdeaPanel flips the idea workspace column, setIdeaPanelOpen sets it", () => {
@@ -38,12 +68,12 @@ describe("app-store", () => {
     expect(useAppStore.getState().helperBarOpen).toBe(false);
   });
 
-  it("setActiveNote sets and clears", () => {
-    useAppStore.getState().setActiveNote("note-123");
-    expect(useAppStore.getState().activeNoteId).toBe("note-123");
+  it("setActivePiece sets and clears", () => {
+    useAppStore.getState().setActivePiece("piece-123");
+    expect(useAppStore.getState().activePieceId).toBe("piece-123");
 
-    useAppStore.getState().setActiveNote(null);
-    expect(useAppStore.getState().activeNoteId).toBeNull();
+    useAppStore.getState().setActivePiece(null);
+    expect(useAppStore.getState().activePieceId).toBeNull();
   });
 
   it("setDraggingToHelper sets flag", () => {

@@ -154,11 +154,19 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   }, [revealPieceId, visible, filter, setFilter, clearRevealPiece]);
 
   const handleNewPiece = useCallback(() => {
-    const id = createPiece({ ideaId, format: "other", origin: "user", body: "" });
+    const id = createPiece({
+      ideaId,
+      format: "other",
+      origin: "user",
+      status: "in-progress",
+      body: "",
+      seen: true,
+    });
     if (!id) return;
-    // A fresh piece is always "inbox" — switch back to a filter that shows
-    // it so it's immediately focusable/editable.
-    if (filter !== "all" && filter !== "inbox") setFilter("all");
+    // You just made this, so it starts in progress rather than in the inbox.
+    // A narrower filter would hide the card the instant it appeared, so widen
+    // to "all" unless the writer is already looking at in-progress.
+    if (filter !== "all" && filter !== "in-progress") setFilter("all");
     setPendingFocusId(id);
   }, [createPiece, ideaId, filter, setFilter]);
 
@@ -221,7 +229,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
         case "1":
         case "2":
         case "3":
-        case "4": {
+        case "4":
+        case "5": {
           e.preventDefault();
           const next = PIECE_FILTERS[Number(e.key) - 1];
           if (next) setFilter(next);
@@ -250,7 +259,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
             {idea?.title || "Untitled idea"}
           </span>
           <span className="shrink-0 text-[11px] text-text-faint">
-            short-form pieces — snip one out, or let an agent drop a draft in the inbox
+            short-form pieces. Snip one out, or let an agent drop a draft in the inbox
           </span>
         </div>
       </div>

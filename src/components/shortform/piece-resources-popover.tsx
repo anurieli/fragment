@@ -121,7 +121,7 @@ export function PieceResourcesPopover({ pieceId, onClose, anchorRef }: PieceReso
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (optional)"
+            placeholder="Comment (optional)"
             className="text-[11px] bg-surface-2 border border-border rounded-[4px] px-1.5 py-1 text-text-primary placeholder:text-text-faint outline-none"
           />
           <div className="flex items-center gap-2 mt-0.5">

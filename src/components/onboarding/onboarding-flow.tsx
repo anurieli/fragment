@@ -9,10 +9,11 @@ import {
   ChevronRight,
   ArrowLeft,
 } from "lucide-react";
-import { useDataStore } from "@/stores/data-store";
+import { useContentStore } from "@/stores/content-store";
 import { useAppStore } from "@/stores/app-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
+import { composeVoiceContext, resolveVoice } from "@/lib/voice-context";
 import { postGenerate } from "@/lib/ai-client";
 import { ensureValidCodexToken, forceRefreshCodexToken } from "@/lib/codex-token-manager";
 import { DEFAULT_NOTE_CREATION_PROMPT } from "@/lib/defaults";
@@ -684,23 +685,21 @@ function FeatureStep({
   );
 }
 
-// ─── Step 1 — Note creation ───────────────────────────────────────────────────
+// ─── Step 1: First idea ──────────────────────────────────────────────────────
 
-interface NoteCreationStepProps {
-  onNoteCreated: (id: string) => void;
+interface IdeaCreationStepProps {
+  onCreated: (ids: { ideaId: string; pieceId: string }) => void;
   onSkip: () => void;
 }
 
-function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
+function IdeaCreationStep({ onCreated, onSkip }: IdeaCreationStepProps) {
   const [view, setView] = useState<Step1View>("grid");
   const [pasteText, setPasteText] = useState("");
   const [generatePrompt, setGeneratePrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
 
-  const createNote = useDataStore((s) => s.createNote);
-  const updateNoteContent = useDataStore((s) => s.updateNoteContent);
-  const updateNoteTitle = useDataStore((s) => s.updateNoteTitle);
+  const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
   const settings = useSettingsStore((s) => s.settings);
   const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
   const badProviders = useAppStore((s) => s.badProviders);
@@ -709,19 +708,19 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBlank = useCallback(() => {
-    const id = createNote();
-    onNoteCreated(id);
-  }, [createNote, onNoteCreated]);
+    onCreated(createIdeaWithFragment());
+  }, [createIdeaWithFragment, onCreated]);
 
   const handlePasteConfirm = useCallback(() => {
     if (!pasteText.trim()) return;
-    const id = createNote();
-    // Extract a title from the first non-empty line
+    // The first non-empty line names the idea and its first draft together, so
+    // the sidebar reads as something recognisable from the very first screen.
     const firstLine = pasteText.trim().split("\n")[0].replace(/^#+\s*/, "").trim();
-    if (firstLine) updateNoteTitle(id, firstLine.slice(0, 80));
-    updateNoteContent(id, pasteText.trim());
-    onNoteCreated(id);
-  }, [pasteText, createNote, updateNoteContent, updateNoteTitle, onNoteCreated]);
+    onCreated(createIdeaWithFragment({
+      title: firstLine.slice(0, 80),
+      body: pasteText.trim(),
+    }));
+  }, [pasteText, createIdeaWithFragment, onCreated]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -730,15 +729,15 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
       const reader = new FileReader();
       reader.onload = (evt) => {
         const text = (evt.target?.result as string) ?? "";
-        const id = createNote();
         const firstLine = text.trim().split("\n")[0].replace(/^#+\s*/, "").trim();
-        if (firstLine) updateNoteTitle(id, firstLine.slice(0, 80));
-        updateNoteContent(id, text.trim());
-        onNoteCreated(id);
+        onCreated(createIdeaWithFragment({
+          title: firstLine.slice(0, 80),
+          body: text.trim(),
+        }));
       };
       reader.readAsText(file);
     },
-    [createNote, updateNoteContent, updateNoteTitle, onNoteCreated],
+    [createIdeaWithFragment, onCreated],
   );
 
   const handleGenerate = useCallback(async () => {
@@ -769,15 +768,25 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
         }
       }
 
+      // There is no fragment yet, so the brief comes straight off the voice
+      // the user set up two steps ago. Their first draft was being generated
+      // with no audience, no tone and no voice at all.
+      const onboardingVoice = resolveVoice(
+        useVoiceStore.getState().voices,
+        settings.brandVoice.defaultVoiceId,
+        undefined,
+      );
+
       const body = (token: string | undefined) => JSON.stringify({
         contextAbove: "",
         contextBelow: "",
         goal: "",
-        audience: "",
-        tone: "",
-        remember: "",
+        audience: onboardingVoice?.defaultAudience ?? "",
+        tone: onboardingVoice?.defaultTone ?? "",
+        remember: onboardingVoice?.defaultRemember ?? "",
         userInstruction: generatePrompt,
         promptTemplate: DEFAULT_NOTE_CREATION_PROMPT,
+        voiceContext: composeVoiceContext(onboardingVoice) || undefined,
         model: auth.model,
         provider: auth.provider,
         apiKey: auth.apiKey || undefined,
@@ -799,16 +808,16 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
       const data = await res.json() as { content?: string };
       const content = data.content ?? "";
 
-      const id = createNote();
-      updateNoteTitle(id, generatePrompt.slice(0, 80));
-      updateNoteContent(id, content.trim());
-      onNoteCreated(id);
+      onCreated(createIdeaWithFragment({
+        title: generatePrompt.slice(0, 80),
+        body: content.trim(),
+      }));
     } catch {
       setGenerateError("Generation failed. Check your AI settings and try again.");
     } finally {
       setIsGenerating(false);
     }
-  }, [generatePrompt, settings, updateProviderCredentials, createNote, updateNoteContent, updateNoteTitle, onNoteCreated]);
+  }, [generatePrompt, settings, updateProviderCredentials, createIdeaWithFragment, onCreated]);
 
   const isAiConfigured = hasWorkingProvider(settings, badProviders, "slashCommand");
 
@@ -855,7 +864,7 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
                 color: "var(--color-gold)",
               }}
             >
-              Create note
+              Create idea
             </button>
           </div>
         </div>
@@ -932,7 +941,7 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
   const OPTIONS = [
     {
       icon: <FileText size={20} className="text-text-muted" />,
-      title: "Blank note",
+      title: "Blank draft",
       desc: "Start with an empty page",
       onClick: handleBlank,
       disabled: false,
@@ -975,7 +984,7 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
 
       <div className="px-7 pt-7 pb-5 flex flex-col gap-2">
         <span className="text-[10px] uppercase tracking-widest text-text-faint font-[family-name:var(--font-mono)]">
-          Your First Note
+          Your First Idea
         </span>
         <h2
           className="text-2xl text-text-primary leading-snug"
@@ -984,7 +993,7 @@ function NoteCreationStep({ onNoteCreated, onSkip }: NoteCreationStepProps) {
           How do you want to start?
         </h2>
         <p className="text-sm text-text-muted leading-relaxed">
-          You can always create new notes from the sidebar. For now, pick one.
+          You can always create new ideas from the sidebar. For now, pick one.
         </p>
       </div>
 
@@ -1040,6 +1049,8 @@ interface ConnectStepProps {
 }
 
 function ConnectStep({ onDone }: ConnectStepProps) {
+  const [confirmingSkip, setConfirmingSkip] = useState(false);
+
   return (
     <div
       className="w-[560px] max-h-[90vh] bg-surface rounded-[var(--radius-xl)] border border-border-strong shadow-2xl flex flex-col overflow-hidden"
@@ -1068,14 +1079,37 @@ function ConnectStep({ onDone }: ConnectStepProps) {
           onConnected={onDone}
         />
 
-        <div className="flex items-center justify-center">
-          <button
-            onClick={onDone}
-            className="text-xs text-text-faint hover:text-text-muted transition-colors duration-150"
-          >
-            I&apos;ll do this later
-          </button>
-        </div>
+        {confirmingSkip ? (
+          <div className="flex flex-col items-center gap-3 rounded-[var(--radius-default)] border border-border-strong bg-surface-2 p-4 text-center">
+            <p className="text-xs text-text-muted leading-relaxed">
+              Without AI connected, Snip labeling, Flow, and Refine won&apos;t work - you can
+              still write, organize, and snip text normally. Connect anytime from Settings.
+            </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setConfirmingSkip(false)}
+                className="text-xs text-gold hover:text-gold/80 transition-colors duration-150"
+              >
+                Actually, let&apos;s connect
+              </button>
+              <button
+                onClick={onDone}
+                className="text-xs text-text-faint hover:text-text-muted transition-colors duration-150"
+              >
+                Continue without AI
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center">
+            <button
+              onClick={() => setConfirmingSkip(true)}
+              className="text-xs text-text-faint hover:text-text-muted transition-colors duration-150"
+            >
+              I&apos;ll do this later
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1096,7 +1130,7 @@ const ONBOARDING_STEPS = {
   CONNECT: 1,
   ABOUT_YOU: 2,
   VOICE_SETUP: 3,
-  NOTE_CREATION: 4,
+  IDEA_CREATION: 4,
   FEATURE_START: 5,
   FEATURE_END: 7,
   READY: 8,
@@ -1104,10 +1138,16 @@ const ONBOARDING_STEPS = {
 
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [step, setStep] = useState(0);
-  const createdNoteIdRef = useRef<string | null>(null);
+  // "Skip" on the welcome screen still routes through Connect AI when no
+  // provider exists (see the Skip button below) - this flag says the rest of
+  // the walkthrough should be skipped too once that step is done/declined,
+  // instead of continuing into About You / Voice Setup like "Begin" does.
+  const [skippingRest, setSkippingRest] = useState(false);
+  const createdPieceIdRef = useRef<string | null>(null);
 
-  const createNote = useDataStore((s) => s.createNote);
-  const setActiveNote = useAppStore((s) => s.setActiveNote);
+  const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
+  const setActivePiece = useAppStore((s) => s.setActivePiece);
+  const setActiveIdea = useAppStore((s) => s.setActiveIdea);
   const settings = useSettingsStore((s) => s.settings);
 
   // Skip the Connect step only when this device already has AI access.
@@ -1116,13 +1156,17 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  const handleNoteCreated = useCallback(
-    (id: string) => {
-      createdNoteIdRef.current = id;
-      setActiveNote(id);
+  const handleCreated = useCallback(
+    ({ ideaId, pieceId }: { ideaId: string; pieceId: string }) => {
+      // The store refuses writes until the library is hydrated, which the shell
+      // guarantees before it renders this. Nothing made means nothing to open.
+      if (!pieceId) return;
+      createdPieceIdRef.current = pieceId;
+      setActivePiece(pieceId);
+      setActiveIdea(ideaId);
       setStep(ONBOARDING_STEPS.FEATURE_START);
     },
-    [setActiveNote],
+    [setActivePiece, setActiveIdea],
   );
 
   const handleSkipStep2 = useCallback(() => {
@@ -1130,13 +1174,21 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   }, []);
 
   const handleStartWriting = useCallback(() => {
-    let noteId = createdNoteIdRef.current;
-    if (!noteId) {
-      noteId = createNote();
+    const existing = createdPieceIdRef.current;
+    if (existing) {
+      setActivePiece(existing);
+      onComplete();
+      return;
     }
-    setActiveNote(noteId);
+    // Skipped the create step, so there is nothing to open yet. An empty idea
+    // with an empty draft in it is what "Start writing" has to land on.
+    const { ideaId, pieceId } = createIdeaWithFragment();
+    if (pieceId) {
+      setActivePiece(pieceId);
+      setActiveIdea(ideaId);
+    }
     onComplete();
-  }, [createNote, setActiveNote, onComplete]);
+  }, [createIdeaWithFragment, setActivePiece, setActiveIdea, onComplete]);
 
   const advance = useCallback(() => {
     setStep((s) => s + 1);
@@ -1252,7 +1304,14 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               Begin
             </button>
             <button
-              onClick={onComplete}
+              onClick={() => {
+                if (showConnectStep) {
+                  setSkippingRest(true);
+                  setStep(ONBOARDING_STEPS.CONNECT);
+                } else {
+                  onComplete();
+                }
+              }}
               className="text-xs text-text-faint hover:text-text-muted transition-colors"
             >
               Skip
@@ -1263,7 +1322,9 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
       {/* Step 1 — Connect AI (skipped when hosted or already connected) */}
       {step === ONBOARDING_STEPS.CONNECT && showConnectStep && (
-        <ConnectStep onDone={() => setStep(ONBOARDING_STEPS.ABOUT_YOU)} />
+        <ConnectStep
+          onDone={() => (skippingRest ? onComplete() : setStep(ONBOARDING_STEPS.ABOUT_YOU))}
+        />
       )}
 
       {/* Step 2 — About You */}
@@ -1277,15 +1338,15 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       {/* Step 3 — Voice setup */}
       {step === ONBOARDING_STEPS.VOICE_SETUP && (
         <VoiceSetupStep
-          onContinue={() => setStep(ONBOARDING_STEPS.NOTE_CREATION)}
-          onSkip={() => setStep(ONBOARDING_STEPS.NOTE_CREATION)}
+          onContinue={() => setStep(ONBOARDING_STEPS.IDEA_CREATION)}
+          onSkip={() => setStep(ONBOARDING_STEPS.IDEA_CREATION)}
         />
       )}
 
-      {/* Step 4 — Create your first note */}
-      {step === ONBOARDING_STEPS.NOTE_CREATION && (
-        <NoteCreationStep
-          onNoteCreated={handleNoteCreated}
+      {/* Step 4: Create your first idea */}
+      {step === ONBOARDING_STEPS.IDEA_CREATION && (
+        <IdeaCreationStep
+          onCreated={handleCreated}
           onSkip={handleSkipStep2}
         />
       )}

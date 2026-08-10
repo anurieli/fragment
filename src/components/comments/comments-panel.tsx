@@ -10,12 +10,12 @@ import { useToastStore } from "@/hooks/use-toast";
 /**
  * The bottom Comments panel: pops up over the editor, independent of the
  * side panels (Snip Bar, Timeline). Shows the commentary units for whichever
- * note or idea is currently the comment's home (see comment-scope.ts) —
- * quick notes-first jottings that can later be "turned into an idea"
- * without leaving the panel.
+ * piece or idea is currently the comment's home (see comment-scope.ts) —
+ * quick jottings against the draft in front of you, which can later be
+ * "turned into an idea" without leaving the panel.
  */
 export function CommentsPanel() {
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const activePieceId = useAppStore((s) => s.activePieceId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const activeIdeaSpace = useAppStore((s) => (s.activeIdeaId ? s.ideaSpaces[s.activeIdeaId] : undefined));
   const closeCommentsPanel = useAppStore((s) => s.closeCommentsPanel);
@@ -28,12 +28,12 @@ export function CommentsPanel() {
 
   const [draft, setDraft] = useState("");
 
-  const home = commentHome(activeNoteId, activeIdeaId, activeIdeaSpace);
+  const home = commentHome(activePieceId, activeIdeaId, activeIdeaSpace);
   const list = useMemo(() => visibleComments(comments, home), [comments, home]);
 
   function handleSubmit() {
     if (!home || !draft.trim()) return;
-    addComment(home.noteId, home.ideaId, draft.trim());
+    addComment(home.pieceId, home.ideaId, draft.trim());
     setDraft("");
   }
 
@@ -77,7 +77,7 @@ export function CommentsPanel() {
       <div className="flex-1 overflow-y-auto px-6 space-y-2.5">
         {!home ? (
           <p className="py-8 text-center text-[12px] text-text-faint">
-            Open a note or idea to leave a comment.
+            Open a draft or idea to leave a comment.
           </p>
         ) : list.length === 0 ? (
           <p className="py-8 text-center text-[12px] text-text-faint">
@@ -131,7 +131,7 @@ export function CommentsPanel() {
               handleSubmit();
             }
           }}
-          placeholder={home ? "Add a comment..." : "Open a note or idea first"}
+          placeholder={home ? "Add a comment..." : "Open a draft or idea first"}
           disabled={!home}
           rows={2}
           className="w-full bg-surface-2 border border-border-strong rounded-[var(--radius-lg)] px-3 py-2

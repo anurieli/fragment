@@ -21,7 +21,7 @@ export function useLabelSnippet() {
       snippetContent: string,
       essayContent: string,
       goal: string,
-      noteId?: string,
+      pieceId?: string,
     ) => {
       if (!settings.snippetLabeling.enabled) {
         updateSnippetLabel(snippetId, null, "idle");
@@ -87,7 +87,7 @@ export function useLabelSnippet() {
 
         if (data._meta) {
           const modelUsed = (data._meta.modelUsed as string | undefined) || model;
-          logApiCall("label", "snip", provider, modelUsed, data._meta, noteId).catch(() => {});
+          logApiCall("label", "snip", provider, modelUsed, data._meta, pieceId).catch(() => {});
         }
 
         if (!res.ok) {

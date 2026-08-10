@@ -38,13 +38,13 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
 
   const handleRetryLabel = useCallback(() => {
     updateSnippetLabel(snippet.id, null, "loading");
-    labelSnip(snippet.id, snippet.content, { noteId: snippet.noteId, ideaId: snippet.ideaId });
+    labelSnip(snippet.id, snippet.content, { pieceId: snippet.pieceId ?? null, ideaId: snippet.ideaId });
   }, [snippet, updateSnippetLabel, labelSnip]);
 
   const handleInsertIntoEditor = useCallback(() => {
     setContextMenuPosition(null);
     const app = useAppStore.getState();
-    if (!app.activeNoteId) {
+    if (!app.activePieceId) {
       useToastStore.getState().showToast("Open or create a draft before inserting a snippet.");
       return;
     }
@@ -137,8 +137,9 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
           }
           // Check: dropped on a short-form piece separator (ARI-154 drag
           // bridge)? Creates a new short-form piece at that position instead
-          // of a note snippet — the separator's data attributes carry the
-          // idea id and the sort-order to insert at (see piece-separator.tsx).
+          // of leaving the snip in the bar: the separator's data attributes
+          // carry the idea id and the sort-order to insert at (see
+          // piece-separator.tsx).
           const separatorEl = (target as Element | null)?.closest?.(
             "[data-piece-separator]",
           ) as HTMLElement | null;
@@ -151,6 +152,9 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
                 ideaId,
                 format: "other",
                 origin: "user",
+                // Dragged out of your own snip bar, so it is already yours.
+                status: "in-progress",
+                seen: true,
                 body: snippet.content,
                 order: Number.isFinite(insertOrder) ? insertOrder : undefined,
               });
@@ -166,11 +170,11 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
               if (dropIdx !== null && Number.isFinite(dropIdx)) {
                 const app = useAppStore.getState();
                 // Reorder across everything the bar is showing, not just one
-                // note's snippets — an idea's pieces put their snips in the
-                // same list (see snip-scope.ts).
+                // fragment's snippets: an idea's other fragments put their
+                // snips in the same list (see snip-scope.ts).
                 const allSnippets = visibleSnippets(
                   useDataStore.getState().snippets,
-                  app.activeNoteId,
+                  app.activePieceId,
                   app.activeIdeaId,
                 );
                 const currentIndex = allSnippets.findIndex((s) => s.id === snippet.id);

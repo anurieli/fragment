@@ -213,6 +213,17 @@ export interface ChatRequest {
 export interface ChatRequestError {
   error: string;
   status: number;
+  /**
+   * Which of the two 401s this is. Callers used to tell them apart by status
+   * code, which cannot work: a missing credential and a rejected one both
+   * answer 401, so "no key at all" was being reported to the writer as
+   * "Provider not authenticated" and the label route's graceful-degradation
+   * path (keyed on 400) was unreachable.
+   *
+   *   "no-key"      nothing was supplied. The fix is to add a key or sign in.
+   *   "unauthenticated"  something was supplied and the provider refused it.
+   */
+  reason: "no-key" | "unauthenticated";
 }
 
 export interface BuildChatOptions {
@@ -264,7 +275,10 @@ export function buildChatRequest(opts: BuildChatOptions): ChatRequest | ChatRequ
       };
 
     case "openai-responses": {
-      if (!opts.codexToken) return { error: "Codex not authenticated", status: 401 };
+      // "unauthenticated", not "no-key": Codex is an OAuth connection, and a
+      // missing token means the sign-in lapsed and can be renewed, which is
+      // worth telling the writer about. A never-configured API key is not.
+      if (!opts.codexToken) return { error: "Codex not authenticated", status: 401, reason: "unauthenticated" };
       return {
         url: config.chatEndpoint,
         headers: {
@@ -279,7 +293,7 @@ export function buildChatRequest(opts: BuildChatOptions): ChatRequest | ChatRequ
 
     case "anthropic-messages": {
       const key = normalizeApiKey(opts.apiKey ?? undefined);
-      if (!key) return { error: "No API key configured", status: 401 };
+      if (!key) return { error: "No API key configured", status: 401, reason: "no-key" };
       return {
         url: config.chatEndpoint,
         headers: buildAnthropicHeaders(key, browserDirect),
@@ -290,7 +304,7 @@ export function buildChatRequest(opts: BuildChatOptions): ChatRequest | ChatRequ
     case "openai-chat":
     default: {
       const key = normalizeApiKey(opts.apiKey ?? undefined);
-      if (!key) return { error: "No API key configured", status: 401 };
+      if (!key) return { error: "No API key configured", status: 401, reason: "no-key" };
       return {
         url: config.chatEndpoint,
         headers: buildApiKeyHeaders(provider, key),
