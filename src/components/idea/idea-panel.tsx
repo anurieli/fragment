@@ -73,6 +73,58 @@ function pieceLabel(piece: ContentPiece, empty = "Empty piece"): string {
 }
 
 /**
+ * What a rename box opens with. The piece's own title if it has one, else the
+ * line the row is currently showing — but never the "Untitled draft" / "Empty
+ * piece" placeholder, which is the app admitting it has no name, not a name
+ * anyone would want to edit. Hence `pieceLabel(piece, "")`.
+ */
+function renameSeed(piece: ContentPiece): string {
+  return piece.title?.trim() || pieceLabel(piece, "");
+}
+
+/**
+ * The inline rename box, shared by draft rows and piece rows so the two cannot
+ * drift apart. Enter commits, Escape cancels, and clicking away commits —
+ * leaving a text box by clicking elsewhere is what people do, and throwing the
+ * words away for it punishes the wrong thing.
+ *
+ * Every event is stopped at the input: the row around it is a button that
+ * opens the piece, and the app shell listens for Escape and ⌘1/⌘2 globally.
+ */
+function RenameInput({
+  seed,
+  placeholder,
+  onCommit,
+  onCancel,
+}: {
+  seed: string;
+  placeholder: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(seed);
+
+  return (
+    <input
+      autoFocus
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onBlur={() => onCommit(value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") onCommit(value);
+        if (e.key === "Escape") onCancel();
+      }}
+      placeholder={placeholder}
+      className="flex-1 min-w-0 bg-surface-2 border border-border-active rounded-[var(--radius-sm)]
+        px-1.5 py-0.5 text-[12px] text-text-primary outline-none"
+    />
+  );
+}
+
+/**
  * The workspace for whichever idea is open: a second column between the
  * sidebar and the editor. The sidebar navigates *across* ideas; this panel
  * shows what's *inside* one — its long-form drafts and its short-form pieces —
@@ -87,6 +139,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const ideas = useContentStore((s) => s.ideas);
   const pieces = useContentStore((s) => s.pieces);
   const updateIdea = useContentStore((s) => s.updateIdea);
+  const updatePiece = useContentStore((s) => s.updatePiece);
   const createPiece = useContentStore((s) => s.createPiece);
   const deletePieceCascade = useContentStore((s) => s.deletePieceCascade);
   const restorePieceCascade = useContentStore((s) => s.restorePieceCascade);
@@ -221,6 +274,16 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     });
   }
 
+  /**
+   * Rename from the row. An empty name is not a refusal to rename, it is
+   * asking for the name back: a piece with no title of its own labels itself
+   * with its first line, so clearing the box returns the row to following the
+   * writing instead of freezing whatever it said the day it was named.
+   */
+  function handleRenamePiece(pieceId: string, title: string) {
+    updatePiece(pieceId, { title: title.trim() });
+  }
+
   function handleDeletePiece(pieceId: string) {
     const next = deletePieceCascade(pieceId);
     selectAfterLeaving(pieceId, next);
@@ -348,6 +411,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   piece={piece}
                   isActive={activePieceId === piece.id && space === "write"}
                   onOpen={() => openDraft(piece.id)}
+                  onRename={(title) => handleRenamePiece(piece.id, title)}
                   onArchive={() => handleArchiveDraft(piece.id)}
                   onDelete={() => handleDeleteDraft(piece.id)}
                 />
@@ -392,6 +456,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                         key={piece.id}
                         piece={piece}
                         onOpen={() => openPiece(piece.id)}
+                        onRename={(title) => handleRenamePiece(piece.id, title)}
                         onDelete={() => handleDeletePiece(piece.id)}
                       />
                     ))}
@@ -418,6 +483,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                         key={piece.id}
                         piece={piece}
                         onOpen={() => openPiece(piece.id)}
+                        onRename={(title) => handleRenamePiece(piece.id, title)}
                         onDelete={() => handleDeletePiece(piece.id)}
                       />
                     ))}
@@ -587,16 +653,19 @@ function DraftRow({
   piece,
   isActive,
   onOpen,
+  onRename,
   onArchive,
   onDelete,
 }: {
   piece: ContentPiece;
   isActive: boolean;
   onOpen: () => void;
+  onRename: (title: string) => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
   const { point, openAt, close } = useContextMenu();
+  const [renaming, setRenaming] = useState(false);
 
   return (
     <div
@@ -604,6 +673,7 @@ function DraftRow({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
+      onDoubleClick={() => setRenaming(true)}
       onContextMenu={openAt}
       className={`group relative flex flex-col px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150
         ${isActive ? "bg-surface-3" : "hover:bg-surface-2"}`}
@@ -611,9 +681,18 @@ function DraftRow({
       {isActive && <div className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-gold" />}
       <div className="flex items-center gap-2">
         <FileText size={11} className={`shrink-0 ${isActive ? "text-gold" : "text-text-faint"}`} />
-        <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
-          {pieceLabel(piece, "Untitled draft")}
-        </span>
+        {renaming ? (
+          <RenameInput
+            seed={renameSeed(piece)}
+            placeholder="Name this draft…"
+            onCommit={(v) => { onRename(v); setRenaming(false); }}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
+          <span className={`flex-1 min-w-0 truncate text-[12px] ${isActive ? "text-text-primary" : "text-text-secondary"}`}>
+            {pieceLabel(piece, "Untitled draft")}
+          </span>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           title="Delete this draft"
@@ -629,6 +708,11 @@ function DraftRow({
       {point && (
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the editor" onClick={() => { close(); onOpen(); }} />
+          <ContextMenuItem
+            label="Rename"
+            hint="The title the editor shows. Double-clicking the row does this too"
+            onClick={() => { close(); setRenaming(true); }}
+          />
           <ContextMenuDivider />
           <ContextMenuItem
             label="Archive"
@@ -663,10 +747,12 @@ function DraftRow({
 function PieceRow({
   piece,
   onOpen,
+  onRename,
   onDelete,
 }: {
   piece: ContentPiece;
   onOpen: () => void;
+  onRename: (title: string) => void;
   onDelete: () => void;
 }) {
   const focusedPieceId = useAppStore((s) => s.focusedPieceId);
@@ -676,6 +762,7 @@ function PieceRow({
   const isHovered = hoveredPieceId === piece.id;
   const priority = priorityMeta(piece.priority);
   const { point, openAt, close } = useContextMenu();
+  const [renaming, setRenaming] = useState(false);
 
   return (
     <div
@@ -683,6 +770,7 @@ function PieceRow({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
+      onDoubleClick={() => setRenaming(true)}
       onContextMenu={openAt}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
@@ -703,11 +791,20 @@ function PieceRow({
         <Pin size={9} fill="currentColor" className="shrink-0 text-gold" />
       )}
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />
-      <span
-        className={`flex-1 min-w-0 truncate text-[12px] ${isFocused ? "text-text-primary" : "text-text-muted"}`}
-      >
-        {pieceLabel(piece)}
-      </span>
+      {renaming ? (
+        <RenameInput
+          seed={renameSeed(piece)}
+          placeholder="Name this piece…"
+          onCommit={(v) => { onRename(v); setRenaming(false); }}
+          onCancel={() => setRenaming(false)}
+        />
+      ) : (
+        <span
+          className={`flex-1 min-w-0 truncate text-[12px] ${isFocused ? "text-text-primary" : "text-text-muted"}`}
+        >
+          {pieceLabel(piece)}
+        </span>
+      )}
       {priority && <Flag size={9} fill="currentColor" className={`shrink-0 ${priority.className}`} />}
 
       {!piece.seen && piece.origin === "agent" && (
@@ -721,7 +818,12 @@ function PieceRow({
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
           <ContextMenuDivider />
-          <PieceMenuItems piece={piece} onClose={close} onDelete={onDelete} />
+          <PieceMenuItems
+            piece={piece}
+            onClose={close}
+            onRename={() => setRenaming(true)}
+            onDelete={onDelete}
+          />
         </ContextMenu>
       )}
     </div>

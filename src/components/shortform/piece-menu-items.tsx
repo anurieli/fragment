@@ -18,6 +18,10 @@ interface PieceMenuItemsProps {
   flowDisabledReason?: string;
   /** Omitted where there's no anchor for the popover to hang off. */
   onOpenResources?: () => void;
+  /** Omitted where the surface has nowhere to put a name. A feed card shows
+   * the writing itself and has no title line; the idea panel's rows are
+   * labels, so renaming is the whole of what they can be edited for. */
+  onRename?: () => void;
 }
 
 /**
@@ -36,6 +40,7 @@ export function PieceMenuItems({
   onWriteWithFlow,
   flowDisabledReason,
   onOpenResources,
+  onRename,
 }: PieceMenuItemsProps) {
   const setPiecePriority = useContentStore((s) => s.setPiecePriority);
   const pinPiece = useContentStore((s) => s.pinPiece);
@@ -50,6 +55,14 @@ export function PieceMenuItems({
 
   return (
     <>
+      {onRename && (
+        <ContextMenuItem
+          label="Rename"
+          hint="Double-clicking the row does this too"
+          onClick={() => { onClose(); onRename(); }}
+        />
+      )}
+
       {onOpenResources && (
         <ContextMenuItem
           label="Resources"
