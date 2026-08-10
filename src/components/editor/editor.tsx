@@ -149,6 +149,8 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const isCancellingDropRef = useRef(false);
 
   const piece = activePieceId ? pieces[activePieceId] : null;
+  // Stable across edits to the draft's text, unlike `piece` itself.
+  const draftIdeaId = piece?.ideaId ?? null;
   const previewVersion = timelinePreviewVersionId ? versions[timelinePreviewVersionId] ?? null : null;
   const voicesMap = useVoiceStore((s) => s.voices);
   const voicesList = useMemo(
@@ -1095,26 +1097,30 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   ]);
 
   /**
-   * Turn a highlighted passage into an idea of its own.
+   * Turn a highlighted passage into a piece of its own, inside the idea you
+   * are already writing in.
    *
    * Deliberately non-destructive, which is what separates this from Snip. A
    * tangent that occurs to you mid-paragraph is not something you want to cut;
    * you want it filed so you can keep going. The draft is left exactly as it
    * was, and the toast offers the jump rather than taking it, because being
    * moved somewhere else is the opposite of what capture is for.
+   *
+   * A piece, not an idea: capture should be cheap, and an idea is a container
+   * you have to name and then live with. If the tangent turns out to deserve
+   * one, right-click the piece and promote it (see PieceShapeItems).
    */
-  const handleCaptureIdea = useCallback((text: string) => {
+  const handleCapturePiece = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
     const content = useContentStore.getState();
     if (!content.hydrated) return;
 
-    const title = titleFromText(trimmed) || "Untitled idea";
-    const ideaId = content.createIdea({ title, origin: "user" });
+    const ideaId = draftIdeaId ?? useAppStore.getState().activeIdeaId;
     if (!ideaId) return;
 
-    content.createPiece({
+    const pieceId = content.createPiece({
       ideaId,
       format: "other",
       origin: "user",
@@ -1124,12 +1130,23 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       body: trimmed,
       seen: true,
     });
+    if (!pieceId) return;
 
-    useToastStore.getState().showToast(`Idea created: ${title}`, {
-      label: "Open",
-      onClick: () => useAppStore.getState().setActiveIdea(ideaId),
-    });
-  }, []);
+    useToastStore.getState().showToast(
+      `Piece created: ${titleFromText(trimmed) || "Untitled"}`,
+      {
+        label: "Open",
+        onClick: () => {
+          const app = useAppStore.getState();
+          app.setActiveIdea(ideaId);
+          app.setIdeaSpace(ideaId, "pieces");
+          app.revealPiece(pieceId);
+        },
+      },
+    );
+    // The idea, not the whole piece: `piece` changes identity on every
+    // keystroke, and this only needs to know which idea it is inside.
+  }, [draftIdeaId]);
 
   const handleInlineEdit = useCallback(
     async (instruction: string): Promise<string | null> => {
@@ -1616,7 +1633,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
             editor={editor}
             onSnip={handleAddToSnippets}
             onEdit={handleInlineEdit}
-            onCaptureIdea={handleCaptureIdea}
+            onCapturePiece={handleCapturePiece}
           />
         )}
       </div>
