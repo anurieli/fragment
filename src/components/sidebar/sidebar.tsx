@@ -622,7 +622,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
           <Lightbulb size={16} />
         </RailButton>
         <RailButton
-          label="Search ideas and fragments"
+          label="Search ideas and pieces"
           onClick={() => { pinSidebar(); openSearch(); }}
         >
           <Search size={16} />
