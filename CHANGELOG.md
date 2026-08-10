@@ -17,7 +17,7 @@ Your existing library migrates on first open. The migration snapshots the databa
 - **Author spacing is preserved.** Blank lines and runs of spaces survive saving, reopening, sharing, publishing, and export. Empty lines render at full height in the read view instead of collapsing.
 - **Drag a passage to a new place in the draft.** Select text and move it, in the long-form editor and in short-form cards.
 - **The selection toolbar stays with the selection**, including when the text scrolls out of view and back, and it appears immediately over a selection that is already standing.
-- **Capture an idea from a highlighted passage** without losing your place in what you were writing.
+- **Turn a highlighted passage into a piece of its own**, in the idea you are already writing in, without losing your place in what you were writing. Works in the long-form editor and inside a short-form piece. What you highlighted is left exactly where it was.
 - **Right-click menus** in the editor and the sidebar.
 
 ### AI
@@ -33,6 +33,7 @@ Your existing library migrates on first open. The migration snapshots the databa
 - **Search collapses into a button** and expands in place of the create buttons.
 - **Archive instead of delete.** Put work away and reach it again, from a right-click menu, rather than choosing between keeping clutter and destroying it.
 - **Pin and priority flags** show in the list.
+- **Change what a piece is from its row.** Right-click a draft or a piece and turn it into the other, or promote either into an idea of its own. Shape is shape only, so nothing is copied and no words move; promotion takes the piece into a new idea nested under the one it came from. Both undo from the toast.
 - **Rename a draft or a piece from its row** in the idea panel: double-click it, or right-click and choose Rename. The box opens with the name the row is showing, and clearing it hands the label back to the writing, so the row follows the first line again.
 - **The snip bar expands, marks what landed**, and holds the idea's other pieces alongside its snips, so the LinkedIn version or last week's paragraph is a panel switch away while you write. Pulling words out of a piece copies them; the piece stays where it is.
 - **The inbox holds only work that arrived from elsewhere**, not your own writing.
