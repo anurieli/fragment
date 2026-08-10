@@ -6,6 +6,7 @@ import type { ContentPiece } from "@/lib/content-engine";
 import { isLongformFormat } from "@/lib/content-engine";
 import { useContentStore } from "@/stores/content-store";
 import { useAppStore } from "@/stores/app-store";
+import { moveToSection } from "@/lib/piece-section";
 import { PRIORITY_OPTIONS } from "@/lib/priority";
 import { titleFromText } from "@/lib/derive-title";
 import { useToastStore } from "@/hooks/use-toast";
@@ -192,14 +193,20 @@ export function PieceShapeItems({
   }
 
   function changeShape() {
-    const previous = piece.format;
-    const next = isDraft ? "other" : "essay";
-    updatePiece(piece.id, { format: next });
+    // The rule itself lives in lib/piece-section.ts, because dragging a row
+    // between the idea panel's two lists is this same move made with the
+    // mouse. One of them silently triaging an inbox piece while the other
+    // didn't would be a difference nobody could see and everybody would hit.
+    const change = moveToSection(piece, isDraft ? "pieces" : "drafts");
+    if (!change) return;
+    const previous = { format: piece.format, status: piece.status };
+
+    updatePiece(piece.id, change);
     show(isDraft ? "piece" : "draft", piece.id, piece.ideaId);
     showToast(isDraft ? "Now a piece. It lives in the feed." : "Now a draft. It opens in the editor.", {
       label: "Undo",
       onClick: () => {
-        updatePiece(piece.id, { format: previous });
+        updatePiece(piece.id, previous);
         show(isDraft ? "draft" : "piece", piece.id, piece.ideaId);
       },
     });

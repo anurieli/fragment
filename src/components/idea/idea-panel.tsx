@@ -873,11 +873,6 @@ function DraftRow({
             hint="The title the editor shows. Double-clicking the row does this too"
             onClick={() => { close(); setRenaming(true); }}
           />
-          <ContextMenuItem
-            label="Move into Pieces"
-            hint="Same words, edited as a card in the feed. Dragging the row does this too"
-            onClick={() => { close(); onMove("pieces"); }}
-          />
           <ContextMenuDivider />
           <PieceShapeItems piece={piece} onClose={close} />
           <ContextMenuDivider />
@@ -988,11 +983,6 @@ function PieceRow({
       {point && (
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
-          <ContextMenuItem
-            label="Move into Drafts"
-            hint="Same words, opened in the editor. Dragging the row does this too"
-            onClick={() => { close(); onMove("drafts"); }}
-          />
           <ContextMenuDivider />
           <PieceMenuItems
             piece={piece}
