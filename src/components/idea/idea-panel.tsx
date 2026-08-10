@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -31,6 +31,7 @@ import {
 } from "@/components/common/context-menu";
 import { PieceMenuItems, PieceShapeItems } from "@/components/shortform/piece-menu-items";
 import { markdownToPlainText } from "@/lib/publish";
+import { moveToSection, type PanelSection } from "@/lib/piece-section";
 import { priorityMeta } from "@/lib/priority";
 import { formatDate, wordCount } from "@/lib/utils";
 import { findOriginComment } from "@/lib/persistence";
@@ -122,6 +123,128 @@ function RenameInput({
         px-1.5 py-0.5 text-[12px] text-text-primary outline-none"
     />
   );
+}
+
+/** How far the pointer has to travel before a press on a row becomes a drag
+ * rather than a click. Same 5px the Snip Bar's cards use, so the two kinds of
+ * drag feel identical to the hand. */
+const DRAG_THRESHOLD = 5;
+
+/**
+ * One of the panel's two lists, wearing a drop target.
+ *
+ * The zone is marked with data attributes rather than React handlers because
+ * the things dropped on it arrive from a custom mouse drag, not from HTML5
+ * drag-and-drop: a snip card resolves its drop with `elementFromPoint` and
+ * then `closest("[data-idea-drop]")`, exactly as it already does for the
+ * feed's `[data-piece-separator]`. Native DnD is unusable in Tauri's WebView,
+ * which is why the whole app drags this way.
+ *
+ * It only lights up when something is actually in flight and this list is not
+ * where that something came from — an invitation to drop a draft into Drafts
+ * is a lie, since nothing would happen.
+ */
+function DropSection({
+  section,
+  ideaId,
+  children,
+}: {
+  section: PanelSection;
+  ideaId: string;
+  children: React.ReactNode;
+}) {
+  const draggingSnip = useAppStore((s) => s.isDraggingToEditor);
+  const panelDrag = useAppStore((s) => s.panelDrag);
+  const [hover, setHover] = useState(false);
+
+  const invited = draggingSnip || (panelDrag !== null && panelDrag.from !== section);
+  const active = invited && hover;
+
+  return (
+    <section
+      data-idea-drop={section}
+      data-idea-id={ideaId}
+      onMouseEnter={() => { if (invited) setHover(true); }}
+      onMouseLeave={() => setHover(false)}
+      className={`relative rounded-[var(--radius-default)] transition-all duration-150 ${
+        active ? "bg-gold-muted/20 outline outline-1 outline-gold/40 -outline-offset-1" : ""
+      }`}
+    >
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Press-and-move on a row to carry the fragment to the other list.
+ *
+ * Deliberately not `preventDefault`ing the mousedown the way the Snip Bar's
+ * cards do: these rows are focusable buttons, and swallowing the default would
+ * cost them their focus ring on click. Text selection is suppressed only once
+ * a drag has genuinely started.
+ *
+ * `dragged` exists because a mouseup at the end of a drag still produces a
+ * click, and a click on one of these rows opens the fragment. It is cleared on
+ * the next tick so the click that follows is the only one it swallows.
+ */
+function useRowDrag(
+  piece: ContentPiece,
+  from: PanelSection,
+  onMove: (to: PanelSection) => void,
+) {
+  const dragged = useRef(false);
+  const label = pieceLabel(piece, from === "drafts" ? "Untitled draft" : "Empty piece");
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      // Buttons act, inputs take text. Neither is a handle.
+      if ((e.target as HTMLElement).closest("button, input, textarea")) return;
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let dragging = false;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (dragging) return;
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD) return;
+        dragging = true;
+        dragged.current = true;
+        document.body.style.userSelect = "none";
+        useAppStore.getState().setPanelDrag({ pieceId: piece.id, from });
+        // The same card the Snip Bar flies. "Draft"/"Piece" sits where a
+        // snip's AI label would, because what you are carrying is a whole
+        // fragment and the useful thing to say about it is what it is now.
+        useAppStore.getState().setFloatingDragCard({
+          content: label,
+          label: from === "drafts" ? "Draft" : "Piece",
+          labelStatus: "done",
+        });
+      };
+
+      const onMouseUp = (ev: MouseEvent) => {
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", onMouseUp);
+        if (!dragging) return;
+
+        document.body.style.userSelect = "";
+        useAppStore.getState().setPanelDrag(null);
+        useAppStore.getState().setFloatingDragCard(null);
+        setTimeout(() => { dragged.current = false; }, 0);
+
+        const target = document.elementFromPoint(ev.clientX, ev.clientY);
+        const zone = (target as Element | null)?.closest?.("[data-idea-drop]");
+        const to = zone?.getAttribute("data-idea-drop") as PanelSection | null;
+        if (to && to !== from) onMove(to);
+      };
+
+      document.addEventListener("mousemove", onMouseMove);
+      document.addEventListener("mouseup", onMouseUp);
+    },
+    [piece.id, from, label, onMove],
+  );
+
+  return { onMouseDown, dragged };
 }
 
 /**
@@ -284,6 +407,34 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     updatePiece(pieceId, { title: title.trim() });
   }
 
+  /**
+   * Carry a fragment between the panel's two lists. Nothing is created and
+   * nothing is copied: the same fragment changes shape, so its words, its
+   * brief, its snips and its history all come with it (see piece-section.ts).
+   *
+   * Undo puts back the exact format and status it had, which matters most for
+   * a short-form piece that named a platform — Drafts has nowhere to keep
+   * "linkedin", so only the undo can give it back.
+   */
+  function handleMovePiece(pieceId: string, to: PanelSection) {
+    const piece = pieces[pieceId];
+    if (!piece) return;
+    const change = moveToSection(piece, to);
+    if (!change) return;
+    const before = { format: piece.format, status: piece.status };
+
+    updatePiece(pieceId, change);
+    // A draft that has become a card is gone from the editor's list, so the
+    // editor cannot be left pointing at it.
+    if (to === "pieces") {
+      selectAfterLeaving(pieceId, drafts.find((d) => d.id !== pieceId)?.id ?? null);
+    }
+    showToast(to === "drafts" ? "Moved into Drafts" : "Moved into Pieces", {
+      label: "Undo",
+      onClick: () => updatePiece(pieceId, before),
+    });
+  }
+
   function handleDeletePiece(pieceId: string) {
     const next = deletePieceCascade(pieceId);
     selectAfterLeaving(pieceId, next);
@@ -382,8 +533,9 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
             (audience, tone, remember) — goal has no voice above it. */}
         <IdeaBrief ideaId={ideaId} idea={idea} />
 
-        {/* Drafts: the long-form pieces that live in this idea */}
-        <section>
+        {/* Drafts: the long-form pieces that live in this idea. Also a drop
+            target for a snip from the bar, or a piece from the list below. */}
+        <DropSection section="drafts" ideaId={ideaId}>
           <SectionHeader
             label="Drafts"
             count={drafts.length}
@@ -412,16 +564,18 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   isActive={activePieceId === piece.id && space === "write"}
                   onOpen={() => openDraft(piece.id)}
                   onRename={(title) => handleRenamePiece(piece.id, title)}
+                  onMove={(to) => handleMovePiece(piece.id, to)}
                   onArchive={() => handleArchiveDraft(piece.id)}
                   onDelete={() => handleDeleteDraft(piece.id)}
                 />
               ))}
             </div>
           )}
-        </section>
+        </DropSection>
 
-        {/* Pieces: the short-form feed, summarised */}
-        <section>
+        {/* Pieces: the short-form feed, summarised. Same drop target as above,
+            so a snip or a draft can be dropped straight into it. */}
+        <DropSection section="pieces" ideaId={ideaId}>
           <SectionHeader
             label="Pieces"
             count={shortPieces.length}
@@ -457,6 +611,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                         piece={piece}
                         onOpen={() => openPiece(piece.id)}
                         onRename={(title) => handleRenamePiece(piece.id, title)}
+                        onMove={(to) => handleMovePiece(piece.id, to)}
                         onDelete={() => handleDeletePiece(piece.id)}
                       />
                     ))}
@@ -484,6 +639,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                         piece={piece}
                         onOpen={() => openPiece(piece.id)}
                         onRename={(title) => handleRenamePiece(piece.id, title)}
+                        onMove={(to) => handleMovePiece(piece.id, to)}
                         onDelete={() => handleDeletePiece(piece.id)}
                       />
                     ))}
@@ -498,7 +654,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
               )}
             </div>
           )}
-        </section>
+        </DropSection>
       </div>
 
       {/* Jump to the space this panel isn't currently showing */}
@@ -654,6 +810,7 @@ function DraftRow({
   isActive,
   onOpen,
   onRename,
+  onMove,
   onArchive,
   onDelete,
 }: {
@@ -661,17 +818,20 @@ function DraftRow({
   isActive: boolean;
   onOpen: () => void;
   onRename: (title: string) => void;
+  onMove: (to: PanelSection) => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
   const { point, openAt, close } = useContextMenu();
   const [renaming, setRenaming] = useState(false);
+  const { onMouseDown, dragged } = useRowDrag(piece, "drafts", onMove);
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={onOpen}
+      onMouseDown={onMouseDown}
+      onClick={() => { if (!dragged.current) onOpen(); }}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
       onDoubleClick={() => setRenaming(true)}
       onContextMenu={openAt}
@@ -713,6 +873,11 @@ function DraftRow({
             hint="The title the editor shows. Double-clicking the row does this too"
             onClick={() => { close(); setRenaming(true); }}
           />
+          <ContextMenuItem
+            label="Move into Pieces"
+            hint="Same words, edited as a card in the feed. Dragging the row does this too"
+            onClick={() => { close(); onMove("pieces"); }}
+          />
           <ContextMenuDivider />
           <PieceShapeItems piece={piece} onClose={close} />
           <ContextMenuDivider />
@@ -750,11 +915,13 @@ function PieceRow({
   piece,
   onOpen,
   onRename,
+  onMove,
   onDelete,
 }: {
   piece: ContentPiece;
   onOpen: () => void;
   onRename: (title: string) => void;
+  onMove: (to: PanelSection) => void;
   onDelete: () => void;
 }) {
   const focusedPieceId = useAppStore((s) => s.focusedPieceId);
@@ -765,12 +932,14 @@ function PieceRow({
   const priority = priorityMeta(piece.priority);
   const { point, openAt, close } = useContextMenu();
   const [renaming, setRenaming] = useState(false);
+  const { onMouseDown, dragged } = useRowDrag(piece, "pieces", onMove);
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={onOpen}
+      onMouseDown={onMouseDown}
+      onClick={() => { if (!dragged.current) onOpen(); }}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
       onDoubleClick={() => setRenaming(true)}
       onContextMenu={openAt}
@@ -819,6 +988,11 @@ function PieceRow({
       {point && (
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
+          <ContextMenuItem
+            label="Move into Drafts"
+            hint="Same words, opened in the editor. Dragging the row does this too"
+            onClick={() => { close(); onMove("drafts"); }}
+          />
           <ContextMenuDivider />
           <PieceMenuItems
             piece={piece}
