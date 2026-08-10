@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronDown,
   Pin,
+  Flag,
   MoreHorizontal,
   Monitor,
   Download,
@@ -24,6 +25,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { archivedIdeas, draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { PRIORITY_OPTIONS, priorityMeta } from "@/lib/priority";
 import { useToastStore } from "@/hooks/use-toast";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncStore } from "@/stores/sync-store";
@@ -189,6 +191,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
   const createPiece = useContentStore((s) => s.createPiece);
   const updateIdea = useContentStore((s) => s.updateIdea);
+  const setIdeaPriority = useContentStore((s) => s.setIdeaPriority);
   const pinIdea = useContentStore((s) => s.pinIdea);
   const unpinIdea = useContentStore((s) => s.unpinIdea);
   const deleteIdeaCascade = useContentStore((s) => s.deleteIdeaCascade);
@@ -213,6 +216,10 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // default here is the shortest list that still shows every idea you have.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Which row has its priority list expanded, if any. Keyed by id rather
+  // than a boolean so closing one menu and opening another never inherits
+  // the first one's open submenu.
+  const [priorityMenuId, setPriorityMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -430,6 +437,9 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   function renderIdeaRow(idea: Idea, depth: 0 | 1) {
     const isActive = idea.id === activeIdeaId;
     const isPinned = idea.pinnedAt !== undefined;
+    // The sidebar has always *sorted* by priority and never shown it, so a
+    // list ordered by something invisible looked arbitrary.
+    const ideaPriority = priorityMeta(idea.priority);
     const kids = depth === 0 ? childrenFor(idea) : [];
     const drafts = draftsForIdea(idea.id, allPieces);
     const hasChildren = kids.length > 0;
@@ -473,6 +483,11 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {isPinned && <Pin size={10} className="shrink-0 text-gold" fill="currentColor" />}
+            {ideaPriority && (
+              <span title={`${ideaPriority.label} priority`} className={`shrink-0 ${ideaPriority.className}`}>
+                <Flag size={9} fill="currentColor" />
+              </span>
+            )}
             {isRenaming ? (
               <input
                 autoFocus
@@ -509,9 +524,9 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             )}
             <IdeaRowMenu
               open={menuOpen}
-              onToggle={() => setOpenMenuId(menuOpen ? null : idea.id)}
+              onToggle={() => { setPriorityMenuId(null); setOpenMenuId(menuOpen ? null : idea.id); }}
               onOpen={() => setOpenMenuId(idea.id)}
-              onClose={() => setOpenMenuId(null)}
+              onClose={() => { setPriorityMenuId(null); setOpenMenuId(null); }}
             >
                   <IdeaMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
                   <IdeaMenuItem
@@ -537,6 +552,29 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                     label={isPinned ? "Unpin" : "Pin"}
                     onClick={() => { isPinned ? unpinIdea(idea.id) : pinIdea(idea.id); setOpenMenuId(null); }}
                   />
+                  <IdeaMenuItem
+                    label="Set priority"
+                    hint={ideaPriority ? ideaPriority.label : "None"}
+                    onClick={() => setPriorityMenuId(priorityMenuId === idea.id ? null : idea.id)}
+                  />
+                  {priorityMenuId === idea.id && (
+                    <div className="border-t border-border py-1">
+                      {PRIORITY_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIdeaPriority(idea.id, opt.value);
+                            setPriorityMenuId(null);
+                            setOpenMenuId(null);
+                          }}
+                          className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="my-1 border-t border-border" />
                   <IdeaMenuItem
                     label="Archive idea"

@@ -18,6 +18,7 @@ import {
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
 import { buildIdeaBrief } from "@/lib/ai-context";
+import { PRIORITY_META } from "@/lib/priority";
 import { effectiveResourcesForIdea } from "@/stores/resources-selectors";
 import {
   moveTextareaSelection,
@@ -57,13 +58,6 @@ const STATUS_META: Record<ContentPiece["status"], { label: string; dotClass: str
   "in-progress": { label: "In progress", dotClass: "bg-blue" },
   ready: { label: "Ready", dotClass: "bg-gold" },
   published: { label: "Published", dotClass: "bg-green" },
-};
-
-const PRIORITY_META: Record<1 | 2 | 3 | 4, { label: string; className: string }> = {
-  1: { label: "Urgent", className: "text-red" },
-  2: { label: "High", className: "text-gold" },
-  3: { label: "Medium", className: "text-blue" },
-  4: { label: "Low", className: "text-text-muted" },
 };
 
 function platformChip(format: ContentFormat): string {

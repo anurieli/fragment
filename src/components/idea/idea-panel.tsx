@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
+  Flag,
   LayoutList,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  Pin,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -27,6 +29,7 @@ import {
 } from "@/components/common/context-menu";
 import { PieceMenuItems } from "@/components/shortform/piece-menu-items";
 import { markdownToPlainText } from "@/lib/publish";
+import { priorityMeta } from "@/lib/priority";
 import { formatDate, wordCount } from "@/lib/utils";
 import { findOriginComment } from "@/lib/persistence";
 import type { Comment } from "@/lib/types";
@@ -530,9 +533,16 @@ function DraftRow({
   );
 }
 
-/** One piece as a table-of-contents row: a status dot (grey inbox, blue in
- * progress, gold ready, green published), the plain-text label, and the unseen
- * pulse for anything an agent pushed that you haven't looked at yet.
+/** One piece as a table-of-contents row: a pin if it has one, a status dot
+ * (grey inbox, blue in progress, gold ready, green published), the plain-text
+ * label, a priority flag, and the unseen pulse for anything an agent pushed
+ * that you haven't looked at yet.
+ *
+ * Pin and priority are marks a writer sets and then needs to see from the
+ * list, not from inside the piece: a pin you can only confirm by opening the
+ * card is a pin you have to remember, which is the job it was meant to do for
+ * you. The pin goes hard left, ahead of the status dot, since it is the one
+ * thing that explains why this row is above the others.
  *
  * The row also mirrors the feed: whichever piece has roving focus over there
  * gets the gold rail here, and hovering a card lights up its row, so the panel
@@ -551,6 +561,7 @@ function PieceRow({
   const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
   const isFocused = focusedPieceId === piece.id;
   const isHovered = hoveredPieceId === piece.id;
+  const priority = priorityMeta(piece.priority);
   const { point, openAt, close } = useContextMenu();
 
   return (
@@ -562,18 +573,30 @@ function PieceRow({
       onContextMenu={openAt}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
-      title={`${pieceLabel(piece)} — ${STATUS_WORD[piece.status]}`}
+      title={[
+        pieceLabel(piece),
+        STATUS_WORD[piece.status],
+        priority ? `${priority.label} priority` : null,
+        piece.pinnedAt !== undefined ? "pinned" : null,
+      ]
+        .filter(Boolean)
+        .join(" — ")}
       className={`relative flex items-center gap-2 px-3 py-2 rounded-[var(--radius-default)] cursor-pointer transition-colors duration-150 ${
         isFocused ? "bg-surface-3" : isHovered ? "bg-surface-2" : "hover:bg-surface-2"
       }`}
     >
       {isFocused && <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gold" />}
+      {piece.pinnedAt !== undefined && (
+        <Pin size={9} fill="currentColor" className="shrink-0 text-gold" />
+      )}
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />
       <span
         className={`flex-1 min-w-0 truncate text-[12px] ${isFocused ? "text-text-primary" : "text-text-muted"}`}
       >
         {pieceLabel(piece)}
       </span>
+      {priority && <Flag size={9} fill="currentColor" className={`shrink-0 ${priority.className}`} />}
+
       {!piece.seen && piece.origin === "agent" && (
         <span
           className="w-1.5 h-1.5 rounded-full bg-gold shrink-0"

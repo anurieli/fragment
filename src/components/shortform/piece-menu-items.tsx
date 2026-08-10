@@ -2,18 +2,11 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import type { ContentPiece, Priority } from "@/lib/content-engine";
+import type { ContentPiece } from "@/lib/content-engine";
 import { useContentStore } from "@/stores/content-store";
+import { PRIORITY_OPTIONS } from "@/lib/priority";
 import { useToastStore } from "@/hooks/use-toast";
 import { ContextMenuDivider, ContextMenuItem } from "@/components/common/context-menu";
-
-const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
-  { value: 1, label: "Urgent" },
-  { value: 2, label: "High" },
-  { value: 3, label: "Medium" },
-  { value: 4, label: "Low" },
-  { value: 0, label: "No priority" },
-];
 
 interface PieceMenuItemsProps {
   piece: ContentPiece;
