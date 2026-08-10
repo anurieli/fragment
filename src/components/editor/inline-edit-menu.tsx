@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
-import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight, Lightbulb } from "lucide-react";
+import { Scissors, Minimize2, Maximize2, Pencil, Loader2, X, ArrowRight, LayoutList } from "lucide-react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
 type EditMode = "idle" | "loading" | "custom-input";
@@ -10,12 +10,12 @@ interface InlineEditMenuProps {
   editor: TiptapEditor;
   onSnip: () => void;
   onEdit: (instruction: string) => Promise<string | null>;
-  /** Turn the selection into an idea of its own. Receives the selected text;
-   * the draft it was cut from is left alone. */
-  onCaptureIdea?: (text: string) => void;
+  /** Turn the selection into a piece of its own, inside the same idea.
+   * Receives the selected text; the draft it was cut from is left alone. */
+  onCapturePiece?: (text: string) => void;
 }
 
-export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: InlineEditMenuProps) {
+export function InlineEditMenu({ editor, onSnip, onEdit, onCapturePiece }: InlineEditMenuProps) {
   const [mode, setMode] = useState<EditMode>("idle");
   /** True while the toolbar is down only because its selection scrolled out
    * of view, which is what tells the scroll handler to put it back. */
@@ -249,17 +249,17 @@ export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: Inline
     setMode("idle");
   }, [onSnip]);
 
-  const handleCaptureIdea = useCallback(() => {
-    if (!onCaptureIdea) return;
+  const handleCapturePiece = useCallback(() => {
+    if (!onCapturePiece) return;
     const { from, to } = editor.state.selection;
     // Block separator, so a multi-paragraph selection arrives as paragraphs
     // rather than one run-on line.
     const text = editor.state.doc.textBetween(from, to, "\n\n", " ").trim();
     if (!text) return;
-    onCaptureIdea(text);
+    onCapturePiece(text);
     setVisible(false);
     setMode("idle");
-  }, [editor, onCaptureIdea]);
+  }, [editor, onCapturePiece]);
 
   if (!visible || !position) return null;
 
@@ -322,14 +322,14 @@ export function InlineEditMenu({ editor, onSnip, onEdit, onCaptureIdea }: Inline
               <Scissors size={12} />
               <span>Snip</span>
             </button>
-            {onCaptureIdea && (
+            {onCapturePiece && (
               <button
-                onClick={handleCaptureIdea}
+                onClick={handleCapturePiece}
                 className="inline-edit-btn"
-                title="Start a new idea from this, without changing what you are writing"
+                title="Start a new piece in this idea from this, without changing what you are writing"
               >
-                <Lightbulb size={12} />
-                <span>Idea</span>
+                <LayoutList size={12} />
+                <span>Piece</span>
               </button>
             )}
             <div className="w-px h-4 bg-border mx-0.5" />

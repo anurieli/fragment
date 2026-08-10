@@ -3,8 +3,12 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { ContentPiece } from "@/lib/content-engine";
+import { isLongformFormat } from "@/lib/content-engine";
 import { useContentStore } from "@/stores/content-store";
+import { useAppStore } from "@/stores/app-store";
+import { moveToSection } from "@/lib/piece-section";
 import { PRIORITY_OPTIONS } from "@/lib/priority";
+import { titleFromText } from "@/lib/derive-title";
 import { useToastStore } from "@/hooks/use-toast";
 import { ContextMenuDivider, ContextMenuItem } from "@/components/common/context-menu";
 
@@ -107,6 +111,8 @@ export function PieceMenuItems({
         </div>
       )}
 
+      <PieceShapeItems piece={piece} onClose={onClose} />
+
       {onWriteWithFlow && (
         <ContextMenuItem
           label="Write with Flow..."
@@ -140,6 +146,116 @@ export function PieceMenuItems({
         label="Delete"
         destructive
         onClick={() => { onClose(); onDelete(); }}
+      />
+    </>
+  );
+}
+
+/**
+ * The two moves that change what a piece *is* rather than what it says: its
+ * shape (a draft or a card in the feed) and its home (an idea of its own).
+ *
+ * Both are a single write and both are reversible, which is why they sit in
+ * the ordinary menu next to pin and priority instead of behind a confirmation.
+ * Format is shape and nothing else — a piece holds its text the same way
+ * either way — so turning one into a draft moves it between surfaces without
+ * touching a byte of it.
+ *
+ * Exported on its own because the idea panel's draft rows have their own
+ * short menu rather than the full piece list, and the same two moves have to
+ * read identically there.
+ */
+export function PieceShapeItems({
+  piece,
+  onClose,
+}: {
+  piece: ContentPiece;
+  onClose: () => void;
+}) {
+  const updatePiece = useContentStore((s) => s.updatePiece);
+  const createIdea = useContentStore((s) => s.createIdea);
+  const deleteIdea = useContentStore((s) => s.deleteIdea);
+  const showToast = useToastStore((s) => s.showToast);
+
+  const isDraft = isLongformFormat(piece.format);
+
+  /** Put the writer in front of the piece in whichever surface now owns it. */
+  function show(shape: "draft" | "piece", pieceId: string, ideaId: string) {
+    const app = useAppStore.getState();
+    app.setActiveIdea(ideaId);
+    if (shape === "draft") {
+      app.setActivePiece(pieceId);
+      app.setIdeaSpace(ideaId, "write");
+      return;
+    }
+    app.setIdeaSpace(ideaId, "pieces");
+    app.revealPiece(pieceId);
+  }
+
+  function changeShape() {
+    // The rule itself lives in lib/piece-section.ts, because dragging a row
+    // between the idea panel's two lists is this same move made with the
+    // mouse. One of them silently triaging an inbox piece while the other
+    // didn't would be a difference nobody could see and everybody would hit.
+    const change = moveToSection(piece, isDraft ? "pieces" : "drafts");
+    if (!change) return;
+    const previous = { format: piece.format, status: piece.status };
+
+    updatePiece(piece.id, change);
+    show(isDraft ? "piece" : "draft", piece.id, piece.ideaId);
+    showToast(isDraft ? "Now a piece. It lives in the feed." : "Now a draft. It opens in the editor.", {
+      label: "Undo",
+      onClick: () => {
+        updatePiece(piece.id, previous);
+        show(isDraft ? "draft" : "piece", piece.id, piece.ideaId);
+      },
+    });
+  }
+
+  function promoteToIdea() {
+    const content = useContentStore.getState();
+    const home = content.ideas[piece.ideaId];
+    if (!home) return;
+
+    const title = titleFromText(piece.title?.trim() || piece.body) || "Untitled idea";
+    // Ideas nest one level deep, so a piece promoted out of a root idea
+    // becomes its child and one promoted out of a child becomes that child's
+    // sibling. Either way it stays in the family it came from, which is why
+    // the parent's rolled-up feed still shows it afterwards.
+    const parentId = home.parentId === null ? home.id : home.parentId;
+    const newIdeaId = createIdea({ title, parentId, origin: "user" });
+    if (!newIdeaId) return;
+
+    const previousIdeaId = piece.ideaId;
+    updatePiece(piece.id, { ideaId: newIdeaId });
+    // Go there: the piece has left the list you were looking at, and an
+    // editor left pointing at a piece that now lives elsewhere is the bug
+    // this avoids.
+    show(isDraft ? "draft" : "piece", piece.id, newIdeaId);
+
+    showToast(`Idea created: ${title}`, {
+      label: "Undo",
+      onClick: () => {
+        updatePiece(piece.id, { ideaId: previousIdeaId });
+        // The new idea is empty again once the piece is back, so this takes
+        // nothing with it.
+        deleteIdea(newIdeaId);
+        show(isDraft ? "draft" : "piece", piece.id, previousIdeaId);
+      },
+    });
+  }
+
+  return (
+    <>
+      <ContextMenuItem
+        label={isDraft ? "Turn into a piece" : "Turn into a draft"}
+        hint={isDraft ? "Moves it into the feed" : "Opens it in the long-form editor"}
+        onClick={() => { onClose(); changeShape(); }}
+      />
+      <ContextMenuItem
+        label="Turn into an idea"
+        hint="Gives it an idea of its own to live in"
+        onClick={() => { onClose(); promoteToIdea(); }}
       />
     </>
   );

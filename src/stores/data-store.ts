@@ -53,6 +53,10 @@ interface DataState {
     label: string | null,
     status: Snippet["labelStatus"],
   ) => void;
+  /** Rewrite a snip's words in place. The label is left alone here: it is the
+   * caller who knows whether the change deserves a fresh one (see
+   * snippet-card.tsx, which re-labels an edited snip). */
+  updateSnippetContent: (id: string, content: string) => void;
   removeSnippet: (id: string) => void;
   restoreSnippet: (snippet: Snippet) => void;
   reorderSnippets: (updates: { id: string; order: number }[]) => void;
@@ -223,6 +227,15 @@ export const useDataStore = create<DataState>((set, get) => ({
     const snippet = get().snippets[id];
     if (!snippet) return;
     const updated = { ...snippet, label, labelStatus: status };
+    set((s) => ({ snippets: { ...s.snippets, [id]: updated } }));
+    saveSnippet(updated);
+  },
+
+  updateSnippetContent: (id, content) => {
+    if (!get().hydrated) return;
+    const snippet = get().snippets[id];
+    if (!snippet) return;
+    const updated = { ...snippet, content };
     set((s) => ({ snippets: { ...s.snippets, [id]: updated } }));
     saveSnippet(updated);
   },

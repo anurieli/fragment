@@ -148,6 +148,26 @@ describe("data-store: snips", () => {
     expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
   });
 
+  it("updateSnippetContent rewrites the words and leaves everything else", () => {
+    const { pieceId } = seedFragment();
+    const id = useDataStore.getState().addSnippet(pieceId, "first thought");
+    useDataStore.getState().updateSnippetLabel(id, "A thought", "done");
+    const before = useDataStore.getState().snippets[id];
+
+    useDataStore.getState().updateSnippetContent(id, "a better thought");
+
+    const after = useDataStore.getState().snippets[id];
+    expect(after.content).toBe("a better thought");
+    // The label is the caller's problem, not the store's: re-labelling edited
+    // words is a decision the card makes (see snippet-card.tsx).
+    expect(after).toEqual({ ...before, content: "a better thought" });
+  });
+
+  it("updateSnippetContent on an unknown id changes nothing", () => {
+    useDataStore.getState().updateSnippetContent("fake", "text");
+    expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
+  });
+
   it("removeSnippet takes it off the bar; restoreSnippet puts it back as it was", () => {
     const { pieceId } = seedFragment();
     const id = useDataStore.getState().addSnippet(pieceId, "text");
