@@ -37,7 +37,20 @@ test.beforeEach(async ({ page }) => {
  * idea, and Escape leaves it unnamed rather than committing a title the test
  * does not care about.
  */
+/**
+ * Pin the sidebar open if it is sitting at its rail. Opening an idea drops it
+ * there, and the rail carries no buttons of its own — reaching for one is what
+ * grows the panel over it — so anything driving the sidebar has to put it back
+ * first. ⌘\ is the keyboard route to the same pin.
+ */
+async function ensureSidebarOpen(page: Page) {
+  if (await page.getByRole("button", { name: "Collapse sidebar" }).isVisible()) return;
+  await page.keyboard.press("Control+\\");
+  await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+}
+
 async function startBlankDraft(page: Page) {
+  await ensureSidebarOpen(page);
   await page.getByRole("button", { name: "New idea" }).click();
   await page.keyboard.press("Escape");
   await page.getByText("Blank draft").click();
@@ -141,7 +154,7 @@ test.describe("Idea lifecycle", () => {
     // Opening an idea drops the sidebar to its rail, so pin it back before
     // counting rows — and scope the locator to the sidebar, since the idea
     // panel beside it is a scroll container full of buttons too.
-    await page.getByLabel("Open sidebar", { exact: true }).click();
+    await ensureSidebarOpen(page);
     await page.waitForTimeout(400);
 
     const ideaRows = page.locator("[data-sidebar] .overflow-y-auto div[role='button']");
@@ -158,11 +171,14 @@ test.describe("Idea lifecycle", () => {
 });
 
 test.describe("Panel toggles", () => {
-  test("sidebar collapses to a rail, and the rail can reopen it", async ({ page }) => {
+  test("sidebar collapses to a rail, and hovering the rail grows it back", async ({ page }) => {
     // The sidebar never collapses to nothing: it becomes a ~44px rail, so
-    // there is always something on screen to click back. The old assertion
+    // there is always something on screen to reach for. The old assertion
     // here was width 0, and it located the sidebar by .bg-surface-2, which
     // actually matches the Snip Bar.
+    //
+    // The rail itself holds no buttons — hovering it covers them with the
+    // panel — so the way back is hover, then the panel's own pin button.
     const getWrapperWidth = () =>
       page.evaluate(() => {
         const sidebar = document.querySelector('[data-sidebar]');
@@ -179,9 +195,20 @@ test.describe("Panel toggles", () => {
     expect(railWidth).toBeGreaterThan(0);
     expect(railWidth).toBeLessThan(80);
 
-    await page.getByRole("button", { name: "Open sidebar" }).click();
+    // Hover peeks the panel open over the rail. Raw mouse.move, not .hover():
+    // the panel lands on top of the rail, so Playwright's re-check of "is the
+    // hover target still the topmost element" would fail on its own success.
+    const rail = await page.locator("[data-sidebar]").first().boundingBox();
+    await page.mouse.move(rail!.x + rail!.width / 2, rail!.y + rail!.height / 2);
+    const pin = page.getByRole("button", { name: "Keep sidebar open" });
+    await expect(pin).toBeVisible();
+
+    // ...and it only becomes a real column once pinned.
+    expect(await getWrapperWidth()).toBeLessThan(80);
+    await pin.click();
     await page.waitForTimeout(400);
     expect(await getWrapperWidth()).toBeGreaterThan(200);
+    await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
   });
 });
 

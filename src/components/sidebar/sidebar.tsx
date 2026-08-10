@@ -45,9 +45,12 @@ import {
 
 interface SidebarProps {
   onOpenSettings: () => void;
-  /** Render the collapsed strip instead of the full column. Same component so
-   * the rail's buttons run the same code paths the full sidebar does. */
+  /** Render the collapsed strip instead of the full column. */
   rail?: boolean;
+  /** True when this is the panel hovering open over the rail rather than the
+   * pinned column. The only difference is the header button: peeked, the
+   * useful move is to keep it open; pinned, it is to put it away. */
+  peeking?: boolean;
   onOpenAccount: () => void;
   onOpenAI: () => void;
   onOpenHelp: () => void;
@@ -181,7 +184,7 @@ function IdeaMenuItem({
   );
 }
 
-export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs, rail }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs, rail, peeking }: SidebarProps) {
   const { toggleSidebar } = useAppStore();
   const pinSidebar = useAppStore((s) => s.pinSidebar);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
@@ -611,26 +614,26 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     );
   }
 
+  // The collapsed strip. Deliberately inert: hovering it grows the panel over
+  // the top of it, so a button here would be covered before anyone could
+  // finish reaching for it. What the strip is for is showing that the library
+  // is still there and what it holds — ideas, new idea, search, settings — and
+  // holding the column's width so the editor never shifts when the panel
+  // peeks. Every one of these icons is a real control one hover away.
   if (rail) {
     return (
-      <div data-sidebar className="flex flex-col items-center h-full w-full py-5 gap-2 bg-surface rounded-[var(--radius-xl)]">
-        <RailButton label="Open sidebar" onClick={pinSidebar}>
-          <PanelLeftOpen size={16} />
-        </RailButton>
-        <div className="w-5 border-t border-border my-1" />
-        <RailButton label="New idea" onClick={handleNewIdea}>
-          <Lightbulb size={16} />
-        </RailButton>
-        <RailButton
-          label="Search ideas and pieces"
-          onClick={() => { pinSidebar(); openSearch(); }}
-        >
-          <Search size={16} />
-        </RailButton>
+      <div
+        data-sidebar
+        aria-hidden
+        title="Your ideas. Hover to open"
+        className="flex flex-col items-center h-full w-full py-5 gap-4 bg-surface rounded-[var(--radius-xl)] text-text-faint"
+      >
+        <PanelLeftOpen size={16} />
+        <div className="w-5 border-t border-border" />
+        <Lightbulb size={16} />
+        <Search size={16} />
         <div className="flex-1" />
-        <RailButton label="Settings" onClick={onOpenSettings}>
-          <Settings size={16} />
-        </RailButton>
+        <Settings size={16} />
       </div>
     );
   }
@@ -669,13 +672,15 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">AI</span>
                 {aiConnected ? <Check size={12} /> : <X size={12} />}
               </button>
+              {/* Peeked, this is the only control that can pin the panel: the
+                  rail underneath is covered the moment you hover it. */}
               <button
-                onClick={toggleSidebar}
-                title="Collapse sidebar"
-                aria-label="Collapse sidebar"
+                onClick={peeking ? pinSidebar : toggleSidebar}
+                title={peeking ? "Keep sidebar open" : "Collapse sidebar"}
+                aria-label={peeking ? "Keep sidebar open" : "Collapse sidebar"}
                 className="p-2 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
               >
-                <PanelLeftClose size={16} />
+                {peeking ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
               </button>
             </div>
           </div>
@@ -878,29 +883,5 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
         </>
       )}
     </div>
-  );
-}
-
-/** One icon in the collapsed rail. Titles do the labelling, since there is no
- * room for text and an unlabelled strip of icons is a puzzle. */
-function RailButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className="p-2 rounded-[var(--radius-default)] text-text-muted
-        hover:text-text-primary hover:bg-surface-2 transition-all duration-150"
-    >
-      {children}
-    </button>
   );
 }

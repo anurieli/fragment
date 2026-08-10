@@ -52,10 +52,9 @@ const SIDEBAR_WIDTH = 300;
 const SIDEBAR_RAIL_WIDTH = 44;
 const SETTINGS_NAV_WIDTH = 220;
 const RIGHT_PANEL_WIDTH = 340;
-// The shell's own p-3 padding and the flex row's gap-2, in pixels — the peeked
-// sidebar is absolutely positioned, so it has to be told where the rail ends.
+// The shell's own p-3 padding, in pixels — the peeked sidebar is absolutely
+// positioned, so it has to be told where the rail starts.
 const SHELL_PADDING = 12;
-const COLUMN_GAP = 8;
 
 export function AppShell() {
   const { migrationFailed, migrationRecord, retryMigration } = usePersistence();
@@ -569,22 +568,38 @@ export function AppShell() {
           </div>
         )}
 
-        {/* Peeked sidebar: shown while hovering the rail without having pinned
-            it. An overlay rather than a width change, because pushing the
-            editor sideways every time the pointer grazes the left edge would
-            reflow the text under the cursor.
+        {/* Peeked sidebar: the rail growing into the panel. It sits at the
+            rail's own left edge and animates its width up from the rail's, so
+            hovering reads as one strip expanding — not as a second panel
+            appearing beside a strip that lists the same four things.
 
-            It starts to the RIGHT of the rail rather than on top of it. Covering
-            the rail would put its own buttons under the panel the moment you
-            hovered them, so the pin button could never be clicked. */}
-        {!showSettings && sidebarOpen && !sidebarPinned && (
+            An overlay rather than a width change in the flex row, because
+            pushing the editor sideways every time the pointer grazes the left
+            edge would reflow the text under the cursor.
+
+            Mounted whether or not it is showing, so the retraction animates
+            too. While closed it is transparent and pointer-events-none, which
+            leaves the rail underneath free to receive the hover that opens
+            it; opening flips pointer-events back on, and the browser hands the
+            pointer over — the rail's mouseleave schedules a close and this
+            panel's mouseenter cancels it, in that order.
+
+            `inert` is what keeps a closed panel from being a second, invisible
+            copy of the library: transparent is not gone, and without it every
+            button in here would still take tab focus and still answer to the
+            accessibility tree while clipped to 44px of nothing. */}
+        {!showSettings && !sidebarPinned && (
           <div
-            className="absolute top-3 bottom-3 z-30 overflow-hidden rounded-[var(--radius-xl)] shadow-2xl"
-            style={{ left: SHELL_PADDING + SIDEBAR_RAIL_WIDTH + COLUMN_GAP, width: SIDEBAR_WIDTH }}
+            inert={!sidebarOpen}
+            aria-hidden={!sidebarOpen}
+            className={`absolute top-3 bottom-3 z-30 overflow-hidden rounded-[var(--radius-xl)] transition-all duration-300 ease-out ${
+              sidebarOpen ? "opacity-100 shadow-2xl" : "opacity-0 pointer-events-none"
+            }`}
+            style={{ left: SHELL_PADDING, width: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_RAIL_WIDTH }}
             onMouseEnter={sidebarPeek.onPanelEnter}
             onMouseLeave={sidebarPeek.onPanelLeave}
           >
-            <Sidebar {...sidebarHandlers} />
+            <Sidebar peeking {...sidebarHandlers} />
           </div>
         )}
 

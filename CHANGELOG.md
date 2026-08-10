@@ -29,10 +29,11 @@ Your existing library migrates on first open. The migration snapshots the databa
 
 ### Organising
 
-- **The sidebar collapses to a rail you can still use.** Search, create, and settings stay reachable while collapsed.
+- **The sidebar collapses to a rail that grows back on hover.** It never collapses to nothing: a narrow strip stays at the left edge previewing what the library holds, and reaching for it expands the strip into the panel in place, over the writing rather than pushing it sideways. Click the pin in the panel's header, or ⌘\, to keep it open.
 - **Search collapses into a button** and expands in place of the create buttons.
 - **Archive instead of delete.** Put work away and reach it again, from a right-click menu, rather than choosing between keeping clutter and destroying it.
 - **Pin and priority flags** show in the list.
+- **Rename a draft or a piece from its row** in the idea panel: double-click it, or right-click and choose Rename. The box opens with the name the row is showing, and clearing it hands the label back to the writing, so the row follows the first line again.
 - **The snip bar expands, marks what landed**, and holds the idea's other pieces alongside its snips, so the LinkedIn version or last week's paragraph is a panel switch away while you write. Pulling words out of a piece copies them; the piece stays where it is.
 - **The inbox holds only work that arrived from elsewhere**, not your own writing.
 - **Comments moved onto pieces.** Comments used to be anchored to notes, which no longer exist, so they now live on the piece or idea they were left against, including the "started from a comment" backlink on an idea.
