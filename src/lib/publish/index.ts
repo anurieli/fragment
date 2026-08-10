@@ -3,6 +3,8 @@ export type { PublishPlatform } from "./platform";
 
 export { markdownToCleanHtml, markdownToPlainText, markdownToPreviewHtml } from "./markdown";
 
+export { preserveEmptyParagraphs, preserveWhitespace } from "./whitespace";
+
 export { buildClipboardPayload, copyForPlatform } from "./clipboard";
 export type { ClipboardPayload } from "./clipboard";
 

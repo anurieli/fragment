@@ -40,7 +40,7 @@ function groupReviews(reviews: StoredReview[]): StoredReview[] {
 }
 
 interface ReviewPanelProps {
-  noteId: string;
+  pieceId: string;
   editor: Editor;
   onClose: () => void;
 }
@@ -50,7 +50,7 @@ interface ReviewPanelProps {
  * mapping each character index back to its ProseMirror position, so a
  * comment's `anchorText` (captured from the reviewer's copy of the document)
  * can be located in the *current* document and turned into a selection.
- * Best-effort: if the note has since changed, the anchor may no longer
+ * Best-effort: if the draft has since changed, the anchor may no longer
  * match and the caller degrades gracefully.
  */
 function buildTextIndex(doc: Editor["state"]["doc"]): { text: string; map: number[] } {
@@ -68,15 +68,15 @@ function buildTextIndex(doc: Editor["state"]["doc"]): { text: string; map: numbe
   return { text, map };
 }
 
-export function ReviewPanel({ noteId, editor, onClose }: ReviewPanelProps) {
-  const loadForNote = useReviewStore((s) => s.loadForNote);
-  const rawReviews = useReviewStore((s) => s.listForNote(noteId));
+export function ReviewPanel({ pieceId, editor, onClose }: ReviewPanelProps) {
+  const loadForPiece = useReviewStore((s) => s.loadForPiece);
+  const rawReviews = useReviewStore((s) => s.listForPiece(pieceId));
   const reviews = useMemo(() => groupReviews(rawReviews), [rawReviews]);
   const showToast = useToastStore((s) => s.showToast);
 
   useEffect(() => {
-    loadForNote(noteId);
-  }, [noteId, loadForNote]);
+    loadForPiece(pieceId);
+  }, [pieceId, loadForPiece]);
 
   const totalComments = useMemo(
     () => reviews.reduce((sum, r) => sum + r.comments.length, 0),

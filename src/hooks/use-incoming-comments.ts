@@ -6,29 +6,29 @@ import { listShares } from "@/lib/sharing/client";
 const SEEN_KEY_PREFIX = "fragment:comments-seen:";
 const POLL_INTERVAL_MS = 60_000;
 
-function seenKey(noteId: string): string {
-  return `${SEEN_KEY_PREFIX}${noteId}`;
+function seenKey(shareKey: string): string {
+  return `${SEEN_KEY_PREFIX}${shareKey}`;
 }
 
-function readSeenCount(noteId: string): number {
+function readSeenCount(shareKey: string): number {
   try {
-    const raw = localStorage.getItem(seenKey(noteId));
+    const raw = localStorage.getItem(seenKey(shareKey));
     return raw ? parseInt(raw, 10) || 0 : 0;
   } catch {
     return 0;
   }
 }
 
-function writeSeenCount(noteId: string, count: number): void {
+function writeSeenCount(shareKey: string, count: number): void {
   try {
-    localStorage.setItem(seenKey(noteId), String(count));
+    localStorage.setItem(seenKey(shareKey), String(count));
   } catch {
     // best effort — worst case the badge over-counts next load
   }
 }
 
 export interface IncomingComments {
-  /** Total comments across every hosted share of this note, right now. */
+  /** Total comments across every hosted share of this fragment, right now. */
   totalCount: number;
   /** totalCount minus what this browser has already been shown. */
   unreadCount: number;
@@ -37,35 +37,39 @@ export interface IncomingComments {
 }
 
 /**
- * Tracks whether reviewers have left new comments on a note's hosted share
+ * Tracks whether reviewers have left new comments on a fragment's hosted share
  * links, so the toolbar can read "3 new" instead of the writer having to open
  * a menu and click "Check for comments" on faith (ARI-245).
+ *
+ * Takes a share key, not a fragment id: a migrated fragment's links were
+ * minted against the note id it came from and still resolve under it, so
+ * callers pass shareKeyFor(piece) (see src/lib/sharing/share-key.ts).
  *
  * Read state is local to this browser and nowhere else: there is no server
  * concept of "seen", and none is needed — it is a display nicety, not
  * something another device or the owner's other sessions need to agree on.
  */
-export function useIncomingComments(noteId: string | null): IncomingComments {
+export function useIncomingComments(shareKey: string | null): IncomingComments {
   const [totalCount, setTotalCount] = useState(0);
   const [seenCount, setSeenCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    if (!noteId) return;
+    if (!shareKey) return;
     try {
-      const shares = await listShares(noteId);
+      const shares = await listShares(shareKey);
       setTotalCount(shares.reduce((sum, s) => sum + (s.commentCount ?? 0), 0));
     } catch {
       // Not signed in, offline, or self-hosted with no cloud — badge stays quiet.
     }
-  }, [noteId]);
+  }, [shareKey]);
 
   useEffect(() => {
-    if (!noteId) {
+    if (!shareKey) {
       setTotalCount(0);
       setSeenCount(0);
       return;
     }
-    setSeenCount(readSeenCount(noteId));
+    setSeenCount(readSeenCount(shareKey));
     void refresh();
 
     function onFocus() {
@@ -77,13 +81,13 @@ export function useIncomingComments(noteId: string | null): IncomingComments {
       window.removeEventListener("focus", onFocus);
       clearInterval(interval);
     };
-  }, [noteId, refresh]);
+  }, [shareKey, refresh]);
 
   const markSeen = useCallback(() => {
-    if (!noteId) return;
+    if (!shareKey) return;
     setSeenCount(totalCount);
-    writeSeenCount(noteId, totalCount);
-  }, [noteId, totalCount]);
+    writeSeenCount(shareKey, totalCount);
+  }, [shareKey, totalCount]);
 
   return { totalCount, unreadCount: Math.max(0, totalCount - seenCount), markSeen };
 }

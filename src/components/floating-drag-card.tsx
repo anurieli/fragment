@@ -59,6 +59,7 @@ export function FloatingDragCard() {
   if (!isVisible) return null;
 
   const preview = truncateLines(content, 3);
+  const showLabelRow = !(labelStatus === "idle" && !label);
 
   return (
     <div
@@ -71,7 +72,10 @@ export function FloatingDragCard() {
         className="w-52 rounded-[var(--radius-default)] bg-surface-3 border border-gold-strong shadow-2xl overflow-hidden"
         style={{ animation: "floatIn 0.12s ease-out" }}
       >
-        {/* Label area */}
+        {/* Label area. Skipped entirely while idle with nothing to say — a
+            passage being moved within the draft is never labelled, and an
+            empty row would leave dead space at the top of the card. */}
+        {showLabelRow && (
         <div className="flex items-start gap-2 px-3 pt-2.5 pb-1.5">
           {labelStatus === "loading" ? (
             <>
@@ -97,9 +101,10 @@ export function FloatingDragCard() {
             </span>
           ) : null}
         </div>
+        )}
 
         {/* Text preview */}
-        <div className="px-3 pb-2.5">
+        <div className={`px-3 pb-2.5 ${showLabelRow ? "" : "pt-2.5"}`}>
           <p className="text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words font-[family-name:var(--font-body)] line-clamp-3">
             {preview}
           </p>

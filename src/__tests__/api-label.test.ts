@@ -112,10 +112,14 @@ describe("POST /api/label", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("localhost:11434");
   });
 
-  it("returns an auth error when no API key for openrouter", async () => {
-    // No env key, no client key
-    delete process.env.OPENROUTER_API_KEY;
-
+  /**
+   * Labelling is a convenience, not something the writer asked for, so a
+   * provider that was never configured degrades quietly rather than throwing
+   * an error toast at someone who was busy snipping. The route always meant
+   * to do this; it tested the status code, and since a missing key answers
+   * 401 exactly like a rejected one does, the branch was unreachable.
+   */
+  it("degrades quietly when no API key is configured, rather than erroring", async () => {
     const req = makeReq({
       snippetContent: "text",
       essayContent: "",
@@ -125,9 +129,25 @@ describe("POST /api/label", () => {
       provider: "openrouter",
     });
 
-    const res = (await POST(req)) as { body: { error: string }; status: number };
-    expect(res.body.error).toBe("No API key configured");
+    const res = (await POST(req)) as { body: { label: string }; status: number };
+    expect(res.status).toBe(200);
+    expect(res.body.label).toBe("AI labeling unavailable");
+  });
+
+  /** A lapsed Codex sign-in is worth surfacing: it can be renewed. */
+  it("surfaces a lapsed Codex sign-in as an auth error", async () => {
+    const req = makeReq({
+      snippetContent: "text",
+      essayContent: "",
+      goal: "",
+      promptTemplate: "{snippetContent}",
+      model: "test/model",
+      provider: "codex",
+    });
+
+    const res = (await POST(req)) as { body: { label: string }; status: number };
     expect(res.status).toBe(401);
+    expect(res.body.label).toBe("Codex not authenticated");
   });
 
   it("routes Codex labeling to the ChatGPT Codex responses endpoint", async () => {

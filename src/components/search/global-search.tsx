@@ -2,9 +2,9 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Search, FileText, LayoutList } from "lucide-react";
-import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
+import { isLongformFormat } from "@/lib/content-engine";
 import { formatDate } from "@/lib/utils";
 import type { ContentPiece } from "@/lib/content-engine";
 
@@ -12,17 +12,18 @@ interface GlobalSearchProps {
   onClose: () => void;
 }
 
-interface PieceResult {
+interface FragmentResult {
   piece: ContentPiece;
   ideaTitle: string;
+  /** Drives both the icon and where selecting the row lands you. */
+  longform: boolean;
 }
 
 export function GlobalSearch({ onClose }: GlobalSearchProps) {
   const [query, setQuery] = useState("");
-  const notes = useDataStore((s) => s.notes);
   const ideas = useContentStore((s) => s.ideas);
   const pieces = useContentStore((s) => s.pieces);
-  const setActiveNote = useAppStore((s) => s.setActiveNote);
+  const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -31,22 +32,9 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
     inputRef.current?.focus();
   }, []);
 
-  const results = useMemo(() => {
-    if (!query.trim()) return [];
-    const q = query.toLowerCase();
-    return Object.values(notes)
-      .filter(
-        (n) =>
-          n.title.toLowerCase().includes(q) ||
-          n.content.toLowerCase().includes(q),
-      )
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 20);
-  }, [query, notes]);
-
-  // Short-form pieces are indexed by body/title too (ARI-154) — opening a
-  // result takes you straight to that idea's Pieces space.
-  const pieceResults = useMemo<PieceResult[]>(() => {
+  // One index over one entity: every fragment keeps its own text, so a search
+  // across the library is a search across pieces, drafts included.
+  const results = useMemo<FragmentResult[]>(() => {
     if (!query.trim()) return [];
     const q = query.toLowerCase();
     return Object.values(pieces)
@@ -54,11 +42,15 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
       .filter(
         (p) =>
           (p.title ?? "").toLowerCase().includes(q) ||
-          (p.body ?? "").toLowerCase().includes(q),
+          p.body.toLowerCase().includes(q),
       )
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 20)
-      .map((piece) => ({ piece, ideaTitle: ideas[piece.ideaId]?.title || "Untitled idea" }));
+      .map((piece) => ({
+        piece,
+        ideaTitle: ideas[piece.ideaId]?.title || "Untitled idea",
+        longform: isLongformFormat(piece.format),
+      }));
   }, [query, pieces, ideas]);
 
   function getSnippet(content: string, q: string): string {
@@ -73,15 +65,16 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
     return snippet;
   }
 
-  function handleSelect(noteId: string) {
-    setActiveIdea(null);
-    setActiveNote(noteId);
-    onClose();
-  }
-
-  function handleSelectPiece(piece: ContentPiece) {
+  /** A draft opens in the editor with that exact fragment loaded; a short-form
+   * piece opens its idea's feed, which is where a card is read and edited. */
+  function handleSelect({ piece, longform }: FragmentResult) {
     setActiveIdea(piece.ideaId);
-    setIdeaSpace(piece.ideaId, "pieces");
+    if (longform) {
+      setActivePiece(piece.id);
+      setIdeaSpace(piece.ideaId, "write");
+    } else {
+      setIdeaSpace(piece.ideaId, "pieces");
+    }
     onClose();
   }
 
@@ -112,7 +105,7 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search all notes & pieces..."
+            placeholder="Search all drafts and pieces..."
             className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-faint outline-none"
           />
           <kbd className="text-[10px] text-text-faint font-[family-name:var(--font-mono)] bg-surface-2 px-1.5 py-0.5 rounded-[3px] border border-border-strong">
@@ -120,43 +113,27 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
           </kbd>
         </div>
 
-        {/* Results — notes first, then short-form pieces */}
+        {/* Results, most recently edited first. Drafts carry the document
+            icon, short-form pieces the feed icon. */}
         <div className="flex-1 overflow-y-auto">
-          {query.trim() && results.length === 0 && pieceResults.length === 0 ? (
+          {query.trim() && results.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <p className="text-xs text-text-muted">Nothing matches &ldquo;{query}&rdquo;</p>
             </div>
           ) : (
-            <>
-              {results.map((note) => (
-                <button
-                  key={note.id}
-                  onClick={() => handleSelect(note.id)}
-                  className="flex items-start gap-3 w-full px-4 py-3 text-left hover:bg-surface-2 transition-colors duration-150 border-b border-border"
-                >
-                  <FileText size={14} className="text-text-faint mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[13px] font-medium text-text-primary truncate">
-                        {note.title || "Untitled"}
-                      </span>
-                      <span className="text-[10px] text-text-faint font-[family-name:var(--font-mono)] shrink-0">
-                        {formatDate(note.updatedAt)}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">
-                      {getSnippet(note.content, query)}
-                    </p>
-                  </div>
-                </button>
-              ))}
-              {pieceResults.map(({ piece, ideaTitle }) => (
+            results.map((result) => {
+              const { piece, ideaTitle, longform } = result;
+              return (
                 <button
                   key={piece.id}
-                  onClick={() => handleSelectPiece(piece)}
+                  onClick={() => handleSelect(result)}
                   className="flex items-start gap-3 w-full px-4 py-3 text-left hover:bg-surface-2 transition-colors duration-150 border-b border-border"
                 >
-                  <LayoutList size={14} className="text-text-faint mt-0.5 shrink-0" />
+                  {longform ? (
+                    <FileText size={14} className="text-text-faint mt-0.5 shrink-0" />
+                  ) : (
+                    <LayoutList size={14} className="text-text-faint mt-0.5 shrink-0" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[13px] font-medium text-text-primary truncate">
@@ -167,13 +144,15 @@ export function GlobalSearch({ onClose }: GlobalSearchProps) {
                       </span>
                     </div>
                     <p className="text-[11px] text-text-muted mt-0.5 line-clamp-2">
-                      {getSnippet(piece.body ?? "", query)}
+                      {getSnippet(piece.body, query)}
                     </p>
-                    <span className="text-[10px] text-text-faint">{ideaTitle} · piece</span>
+                    <span className="text-[10px] text-text-faint">
+                      {ideaTitle} · {longform ? "draft" : "piece"}
+                    </span>
                   </div>
                 </button>
-              ))}
-            </>
+              );
+            })
           )}
         </div>
       </div>

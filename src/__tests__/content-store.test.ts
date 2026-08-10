@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { useContentStore } from "@/stores/content-store";
-import { ContractError } from "@/lib/content-engine";
+import { useDataStore } from "@/stores/data-store";
+import { ContractError, isLongformFormat } from "@/lib/content-engine";
 
 // Mock the persistence layer — the store calls these on every mutation — but
 // keep the real guard functions (assertPublishGuard) and ContractError so
@@ -123,8 +124,8 @@ describe("content-store — ideas", () => {
     const store = useContentStore.getState();
     const rootId = store.createIdea({ title: "Root" });
     const childId = store.createIdea({ title: "Child", parentId: rootId });
-    const rootPiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", body: "a" });
-    const childPiece = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", body: "b" });
+    const rootPiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", status: "inbox", body: "a" });
+    const childPiece = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", status: "inbox", body: "b" });
 
     const cascade = useContentStore.getState().deleteIdeaCascade(rootId);
     const after = useContentStore.getState();
@@ -141,7 +142,7 @@ describe("content-store — ideas", () => {
     const store = useContentStore.getState();
     const doomedId = store.createIdea({ title: "Doomed" });
     const keptId = store.createIdea({ title: "Kept" });
-    const keptPiece = store.createPiece({ ideaId: keptId, format: "tweet", origin: "user", body: "keep" });
+    const keptPiece = store.createPiece({ ideaId: keptId, format: "tweet", origin: "user", status: "inbox", body: "keep" });
 
     useContentStore.getState().deleteIdeaCascade(doomedId);
 
@@ -153,9 +154,9 @@ describe("content-store — ideas", () => {
     const store = useContentStore.getState();
     const rootId = store.createIdea({ title: "Root" });
     const childId = store.createIdea({ title: "Child", parentId: rootId });
-    const pieceId = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", body: "b" });
+    const pieceId = store.createPiece({ ideaId: childId, format: "tweet", origin: "user", status: "inbox", body: "b" });
     // Already-deleted content must NOT come back with the undo.
-    const stalePiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", body: "old" });
+    const stalePiece = store.createPiece({ ideaId: rootId, format: "tweet", origin: "user", status: "inbox", body: "old" });
     useContentStore.getState().rejectPiece(stalePiece);
 
     const cascade = useContentStore.getState().deleteIdeaCascade(rootId);
@@ -185,144 +186,63 @@ describe("content-store — pieces", () => {
     return useContentStore.getState().createIdea({ title: "Parent idea" });
   }
 
-  it("createPiece with body (short-form) succeeds", () => {
+  it("createPiece stores the fragment's text on the fragment itself", () => {
     const ideaId = makeIdea();
     const id = useContentStore.getState().createPiece({
       ideaId,
       format: "tweet",
       origin: "user",
+      status: "inbox",
       body: "hot take",
     });
     const piece = useContentStore.getState().pieces[id];
     expect(piece.body).toBe("hot take");
-    expect(piece.noteId).toBeUndefined();
+    // Stored as given. createPiece has no status default, so this asserts
+    // pass-through rather than a fallback being exercised.
     expect(piece.status).toBe("inbox");
     expect(piece.seen).toBe(false);
     expect(piece.order).toBe(0);
   });
 
-  it("createPiece with noteId (long-form) succeeds", () => {
+  /**
+   * The rule the required field exists to enforce: "inbox" is where work
+   * arrives from somewhere other than the person at the keyboard. Nothing a
+   * writer does inside the app produces one. This pins the store half; the
+   * call sites are checked by the compiler, which is the whole reason
+   * `status` is required rather than defaulted.
+   */
+  it("createPiece never invents a status, so in-app writing cannot land in the inbox", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({
+      ideaId,
+      format: "other",
+      origin: "user",
+      status: "in-progress",
+      body: "mine",
+      seen: true,
+    });
+    const piece = useContentStore.getState().pieces[id];
+    expect(piece.status).toBe("in-progress");
+    expect(piece.seen).toBe(true);
+  });
+
+  it("createPiece gives a fragment created with no text an empty body", () => {
     const ideaId = makeIdea();
     const id = useContentStore.getState().createPiece({
       ideaId,
       format: "essay",
       origin: "user",
-      noteId: "note-1",
+      status: "inbox",
     });
-    expect(useContentStore.getState().pieces[id].noteId).toBe("note-1");
-  });
-
-  it("linkNoteToIdea creates the long-form piece that puts a note inside an idea", () => {
-    const ideaId = makeIdea();
-    const pieceId = useContentStore.getState().linkNoteToIdea(ideaId, "note-1", "My essay");
-    const piece = useContentStore.getState().pieces[pieceId];
-
-    expect(piece.ideaId).toBe(ideaId);
-    expect(piece.noteId).toBe("note-1");
-    expect(piece.body).toBeUndefined();
-    expect(piece.title).toBe("My essay");
-    expect(piece.status).toBe("in-progress");
-    // Hand-made, so it never shows up as an unseen arrival.
-    expect(piece.seen).toBe(true);
-  });
-
-  it("linkNoteToIdea is idempotent — a note is never linked twice", () => {
-    const ideaId = makeIdea();
-    const first = useContentStore.getState().linkNoteToIdea(ideaId, "note-1");
-    const second = useContentStore.getState().linkNoteToIdea(ideaId, "note-1");
-
-    expect(second).toBe(first);
-    expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(1);
-  });
-
-  it("linkNoteToIdea ignores an unknown idea", () => {
-    expect(useContentStore.getState().linkNoteToIdea("missing", "note-1")).toBe("");
-    expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(0);
-  });
-
-  it("convertPieceToDraft swaps the content home and pulls the piece out of the inbox", () => {
-    const ideaId = makeIdea();
-    const pieceId = useContentStore.getState().createPiece({
-      ideaId,
-      format: "substack",
-      origin: "agent",
-      body: "# An essay\n\nThat an agent dropped in.",
-      agentMeta: { agent: "penny", pushedAt: 1 },
-    });
-
-    const previousBody = useContentStore.getState().convertPieceToDraft(pieceId, "note-9");
-    const piece = useContentStore.getState().pieces[pieceId];
-
-    expect(previousBody).toBe("# An essay\n\nThat an agent dropped in.");
-    expect(piece.noteId).toBe("note-9");
-    expect(piece.body).toBeUndefined();
-    expect(piece.status).toBe("in-progress");
-    expect(piece.seen).toBe(true);
-    // Provenance survives the move — this is the same piece, rehoused.
-    expect(piece.agentMeta?.agent).toBe("penny");
-    expect(piece.id).toBe(pieceId);
-  });
-
-  it("convertPieceToDraft leaves a piece that's already further along at its stage", () => {
-    const ideaId = makeIdea();
-    const pieceId = useContentStore.getState().createPiece({
-      ideaId, format: "essay", origin: "user", body: "text", status: "ready",
-    });
-
-    useContentStore.getState().convertPieceToDraft(pieceId, "note-1");
-    expect(useContentStore.getState().pieces[pieceId].status).toBe("ready");
-  });
-
-  it("convertPieceToDraft refuses a piece that already lives in a note", () => {
-    const ideaId = makeIdea();
-    const pieceId = useContentStore.getState().linkNoteToIdea(ideaId, "note-1");
-
-    expect(useContentStore.getState().convertPieceToDraft(pieceId, "note-2")).toBeNull();
-    expect(useContentStore.getState().pieces[pieceId].noteId).toBe("note-1");
-  });
-
-  it("revertPieceToShortform puts the body back, exactly, and clears the note link", () => {
-    const ideaId = makeIdea();
-    const body = "Line one.   \n\n\nLine two.  ";
-    const pieceId = useContentStore.getState().createPiece({
-      ideaId, format: "substack", origin: "agent", body,
-    });
-
-    const previousBody = useContentStore.getState().convertPieceToDraft(pieceId, "note-9");
-    useContentStore.getState().revertPieceToShortform(pieceId, previousBody as string, "inbox");
-    const piece = useContentStore.getState().pieces[pieceId];
-
-    expect(piece.body).toBe(body);
-    expect(piece.noteId).toBeUndefined();
-    expect(piece.status).toBe("inbox");
-  });
-
-  it("createPiece rejects neither noteId nor body", () => {
-    const ideaId = makeIdea();
-    expect(() =>
-      useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user" }),
-    ).toThrow(ContractError);
-  });
-
-  it("createPiece rejects both noteId and body", () => {
-    const ideaId = makeIdea();
-    expect(() =>
-      useContentStore.getState().createPiece({
-        ideaId,
-        format: "tweet",
-        origin: "user",
-        noteId: "note-1",
-        body: "text",
-      }),
-    ).toThrow(ContractError);
+    expect(useContentStore.getState().pieces[id].body).toBe("");
   });
 
   it("createPiece scopes default order per idea", () => {
     const ideaA = makeIdea();
     const ideaB = makeIdea();
-    const a1 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", body: "a1" });
-    const a2 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", body: "a2" });
-    const b1 = useContentStore.getState().createPiece({ ideaId: ideaB, format: "tweet", origin: "user", body: "b1" });
+    const a1 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", status: "inbox", body: "a1" });
+    const a2 = useContentStore.getState().createPiece({ ideaId: ideaA, format: "tweet", origin: "user", status: "inbox", body: "a2" });
+    const b1 = useContentStore.getState().createPiece({ ideaId: ideaB, format: "tweet", origin: "user", status: "inbox", body: "b1" });
 
     expect(useContentStore.getState().pieces[a1].order).toBe(0);
     expect(useContentStore.getState().pieces[a2].order).toBe(1);
@@ -331,8 +251,8 @@ describe("content-store — pieces", () => {
 
   it("reorderPieces applies order updates in bulk", () => {
     const ideaId = makeIdea();
-    const a = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "a" });
-    const b = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "b" });
+    const a = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "a" });
+    const b = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "b" });
 
     useContentStore.getState().reorderPieces([
       { id: a, order: 5 },
@@ -345,7 +265,7 @@ describe("content-store — pieces", () => {
 
   it("setPieceStatus rejects moving to published without a publish record", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     expect(() => useContentStore.getState().setPieceStatus(id, "published")).toThrow(
       ContractError,
@@ -354,7 +274,7 @@ describe("content-store — pieces", () => {
 
   it("setPieceStatus accepts moving to published with a publish record", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     useContentStore.getState().setPieceStatus(id, "published", {
       platform: "tweet",
@@ -370,7 +290,7 @@ describe("content-store — pieces", () => {
 
   it("setPieceStatus clears the publish record when moving away from published", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     useContentStore.getState().setPieceStatus(id, "published", {
       platform: "tweet",
       method: "manual",
@@ -387,7 +307,7 @@ describe("content-store — pieces", () => {
 
   it("markPieceSeen flips seen to true once", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     expect(useContentStore.getState().pieces[id].seen).toBe(false);
 
     useContentStore.getState().markPieceSeen(id);
@@ -396,14 +316,14 @@ describe("content-store — pieces", () => {
 
   it("setPiecePriority sets an explicit priority", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     useContentStore.getState().setPiecePriority(id, 1);
     expect(useContentStore.getState().pieces[id].priority).toBe(1);
   });
 
   it("cyclePiecePriority cycles 0 -> 1 -> 2 -> 3 -> 4 -> 0", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     const expected = [1, 2, 3, 4, 0];
     for (const priority of expected) {
       useContentStore.getState().cyclePiecePriority(id);
@@ -413,7 +333,7 @@ describe("content-store — pieces", () => {
 
   it("rejectPiece tombstones; undeletePiece restores (undo)", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     useContentStore.getState().rejectPiece(id);
     expect(useContentStore.getState().pieces[id].deletedAt).toBeDefined();
@@ -422,34 +342,271 @@ describe("content-store — pieces", () => {
     expect(useContentStore.getState().pieces[id].deletedAt).toBeUndefined();
   });
 
-  it("detachPieceNote tombstones every live piece linking that note, in memory", () => {
-    const ideaId = makeIdea();
-    const linked = useContentStore.getState().createPiece({
-      ideaId,
-      format: "essay",
-      origin: "user",
-      noteId: "note-1",
-    });
-    const unrelated = useContentStore.getState().createPiece({
-      ideaId,
-      format: "essay",
-      origin: "user",
-      noteId: "note-2",
-    });
-
-    useContentStore.getState().detachPieceNote("note-1");
-
-    expect(useContentStore.getState().pieces[linked].deletedAt).toBeDefined();
-    expect(useContentStore.getState().pieces[unrelated].deletedAt).toBeUndefined();
+  it("updatePiece on an unknown id changes nothing", () => {
+    useContentStore.getState().updatePiece("missing", { body: "x" });
+    expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(0);
   });
 
-  it("updatePiece re-validates the content-home guard on edit", () => {
+  it("setPieces hydrates the library from an array", () => {
+    useContentStore.getState().setPieces([
+      {
+        id: "p1",
+        ideaId: "i1",
+        format: "essay",
+        status: "in-progress",
+        origin: "user",
+        body: "the words",
+        seen: true,
+        priority: 0,
+        order: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    expect(useContentStore.getState().pieces["p1"].body).toBe("the words");
+  });
+
+  it("updatePiece re-validates the publish guard on edit", () => {
     const ideaId = makeIdea();
-    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+    const id = useContentStore.getState().createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
 
     expect(() =>
-      useContentStore.getState().updatePiece(id, { noteId: "note-1" }),
+      useContentStore.getState().updatePiece(id, {
+        publish: { platform: "tweet", method: "manual", publishedAt: Date.now(), verified: true },
+      }),
     ).toThrow(ContractError);
+  });
+
+  it("updatePiece is where a fragment's text and brief are edited", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+
+    useContentStore.getState().updatePiece(id, {
+      body: "The opening paragraph.",
+      title: "A title",
+      goal: "Convince the reader",
+      voiceId: null,
+    });
+
+    const piece = useContentStore.getState().pieces[id];
+    expect(piece.body).toBe("The opening paragraph.");
+    expect(piece.title).toBe("A title");
+    expect(piece.goal).toBe("Convince the reader");
+    // null is "explicitly no voice", which is not the same as inheriting the
+    // default, so it has to survive the round trip as null.
+    expect(piece.voiceId).toBeNull();
+  });
+});
+
+describe("content-store: creating and deleting a fragment", () => {
+  beforeEach(resetStore);
+
+  it("createIdeaWithFragment returns both ids and puts the fragment in the new idea", () => {
+    const { ideaId, pieceId } = useContentStore.getState().createIdeaWithFragment({ title: "Agentic writing" });
+
+    const idea = useContentStore.getState().ideas[ideaId];
+    const piece = useContentStore.getState().pieces[pieceId];
+
+    expect(idea.title).toBe("Agentic writing");
+    expect(piece.ideaId).toBe(ideaId);
+    expect(piece.title).toBe("Agentic writing");
+  });
+
+  it("createIdeaWithFragment opens a long-form fragment, ready to write in", () => {
+    const { pieceId } = useContentStore.getState().createIdeaWithFragment();
+    const piece = useContentStore.getState().pieces[pieceId];
+
+    expect(isLongformFormat(piece.format)).toBe(true);
+    expect(piece.body).toBe("");
+    // Made by hand, so it is neither an unseen arrival nor an inbox item.
+    expect(piece.seen).toBe(true);
+    expect(piece.status).toBe("in-progress");
+  });
+
+  it("createIdeaWithFragment takes a starting format and body", () => {
+    const { pieceId } = useContentStore.getState().createIdeaWithFragment({
+      format: "tweet",
+      body: "a hot take",
+    });
+    const piece = useContentStore.getState().pieces[pieceId];
+
+    expect(piece.format).toBe("tweet");
+    expect(piece.body).toBe("a hot take");
+  });
+
+  it("createIdeaWithFragment writes nothing before hydration", () => {
+    useContentStore.setState({ hydrated: false });
+    const { ideaId, pieceId } = useContentStore.getState().createIdeaWithFragment({ title: "Too early" });
+
+    expect(ideaId).toBe("");
+    expect(pieceId).toBe("");
+    expect(Object.keys(useContentStore.getState().ideas)).toHaveLength(0);
+    expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(0);
+  });
+
+  it("deletePieceCascade tombstones the fragment and keeps its snips for the undo", () => {
+    useDataStore.setState({ snippets: {}, hydrated: true });
+    const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+    const pieceId = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    const mine = useDataStore.getState().addSnippet(pieceId, "cut from the draft");
+    const theirs = useDataStore.getState().addSnippet(null, "cut from the idea", undefined, ideaId);
+
+    useContentStore.getState().deletePieceCascade(pieceId);
+
+    // A tombstone is reversible, so nothing reachable only through the
+    // fragment may be destroyed alongside it. The snips are already hidden by
+    // the fragment being hidden.
+    expect(useContentStore.getState().pieces[pieceId].deletedAt).toBeDefined();
+    expect(useDataStore.getState().snippets[mine]).toBeDefined();
+    expect(useDataStore.getState().snippets[theirs]).toBeDefined();
+  });
+
+  it("deletePieceCascade hands back the next fragment in the same idea", () => {
+    const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+    const first = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    const second = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    const elsewhere = useContentStore.getState().createIdea({ title: "Elsewhere" });
+    useContentStore.getState().createPiece({ ideaId: elsewhere, format: "essay", origin: "user", status: "inbox", });
+
+    expect(useContentStore.getState().deletePieceCascade(first)).toBe(second);
+  });
+
+  it("deletePieceCascade returns null when that was the idea's last fragment", () => {
+    const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+    const only = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+
+    expect(useContentStore.getState().deletePieceCascade(only)).toBeNull();
+  });
+
+  it("deletePieceCascade skips fragments already in the bin when picking a successor", () => {
+    const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+    const doomed = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    const alreadyGone = useContentStore.getState().createPiece({ ideaId, format: "essay", origin: "user", status: "inbox", });
+    useContentStore.getState().rejectPiece(alreadyGone);
+
+    expect(useContentStore.getState().deletePieceCascade(doomed)).toBeNull();
+  });
+
+  it("restorePieceCascade puts the fragment back with its text", () => {
+    const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+    const pieceId = useContentStore.getState().createPiece({
+      ideaId, format: "essay", origin: "user", status: "inbox", body: "the words",
+    });
+
+    useContentStore.getState().deletePieceCascade(pieceId);
+    useContentStore.getState().restorePieceCascade(pieceId);
+
+    const piece = useContentStore.getState().pieces[pieceId];
+    expect(piece.deletedAt).toBeUndefined();
+    expect(piece.body).toBe("the words");
+  });
+
+  it("restorePieceCascade brings back the fragment and the snips cut from it", () => {
+    useDataStore.setState({ snippets: {}, hydrated: true });
+    const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+    const pieceId = useContentStore.getState().createPiece({
+      ideaId, format: "essay", origin: "user", status: "inbox", body: "the words",
+    });
+    const snipId = useDataStore.getState().addSnippet(pieceId, "the words");
+
+    useContentStore.getState().deletePieceCascade(pieceId);
+    useContentStore.getState().restorePieceCascade(pieceId);
+
+    expect(useContentStore.getState().pieces[pieceId].deletedAt).toBeUndefined();
+    expect(useDataStore.getState().snippets[snipId]).toBeDefined();
+  });
+});
+
+describe("content-store — archive", () => {
+  beforeEach(resetStore);
+
+  function makePiece(ideaId: string, body = "words"): string {
+    return useContentStore.getState().createPiece({
+      ideaId, format: "tweet", origin: "user", status: "in-progress", body,
+    });
+  }
+
+  it("archiving an idea takes its sub-ideas and every piece under it", () => {
+    const store = useContentStore.getState();
+    const rootId = store.createIdea({ title: "Root" });
+    const childId = store.createIdea({ title: "Child", parentId: rootId });
+    const rootPiece = makePiece(rootId);
+    const childPiece = makePiece(childId);
+
+    const archive = useContentStore.getState().archiveIdeaCascade(rootId);
+
+    const state = useContentStore.getState();
+    expect(state.ideas[rootId].archivedAt).toBeDefined();
+    expect(state.ideas[childId].archivedAt).toBeDefined();
+    expect(state.pieces[rootPiece].archivedAt).toBeDefined();
+    expect(state.pieces[childPiece].archivedAt).toBeDefined();
+    expect(archive.ideaIds.sort()).toEqual([rootId, childId].sort());
+    expect(archive.pieceIds.sort()).toEqual([rootPiece, childPiece].sort());
+  });
+
+  it("archiving keeps every word, unlike deleting", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const pieceId = makePiece(ideaId, "the sentence I want back");
+
+    useContentStore.getState().archiveIdeaCascade(ideaId);
+
+    const piece = useContentStore.getState().pieces[pieceId];
+    expect(piece.body).toBe("the sentence I want back");
+    expect(piece.deletedAt).toBeUndefined();
+  });
+
+  it("restoring an archive lifts exactly what that archive stamped", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const together = makePiece(ideaId, "went with the idea");
+    const separately = makePiece(ideaId, "put away on its own");
+
+    // Archived by hand first, so it is not part of the idea's cascade and
+    // must still be archived after the idea comes back.
+    useContentStore.getState().archivePiece(separately);
+    const archive = useContentStore.getState().archiveIdeaCascade(ideaId);
+    expect(archive.pieceIds).toEqual([together]);
+
+    useContentStore.getState().restoreIdeaArchive(archive);
+
+    const state = useContentStore.getState();
+    expect(state.ideas[ideaId].archivedAt).toBeUndefined();
+    expect(state.pieces[together].archivedAt).toBeUndefined();
+    expect(state.pieces[separately].archivedAt).toBeDefined();
+  });
+
+  it("archivePiece and unarchivePiece round-trip one piece", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const pieceId = makePiece(ideaId);
+
+    useContentStore.getState().archivePiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].archivedAt).toBeDefined();
+
+    useContentStore.getState().unarchivePiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].archivedAt).toBeUndefined();
+  });
+
+  it("pinPiece and unpinPiece round-trip one piece", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const pieceId = makePiece(ideaId);
+
+    useContentStore.getState().pinPiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].pinnedAt).toBeDefined();
+
+    useContentStore.getState().unpinPiece(pieceId);
+    expect(useContentStore.getState().pieces[pieceId].pinnedAt).toBeUndefined();
+  });
+
+  it("a deleted idea cannot be archived", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    useContentStore.getState().deleteIdeaCascade(ideaId);
+
+    const archive = useContentStore.getState().archiveIdeaCascade(ideaId);
+    expect(archive).toEqual({ ideaIds: [], pieceIds: [] });
   });
 });
 
@@ -478,7 +635,7 @@ describe("content-store — resources", () => {
     const ideaId = makeIdea();
     const pieceId = useContentStore
       .getState()
-      .createPiece({ ideaId, format: "tweet", origin: "user", body: "x" });
+      .createPiece({ ideaId, format: "tweet", origin: "user", status: "inbox", body: "x" });
     const id = useContentStore.getState().addResource("piece", pieceId, { kind: "note", title: "Context" });
 
     const resource = useContentStore.getState().resources[id];

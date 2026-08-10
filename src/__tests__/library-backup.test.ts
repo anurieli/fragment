@@ -47,6 +47,23 @@ const library: Record<SyncedCollection, BackupRow[]> = {
       updatedAt: UPDATED_AT + 2,
     },
   ],
+  pieceVersions: [
+    {
+      id: "version-piece-1",
+      pieceId: "piece-published",
+      legacyNoteId: "note-draft",
+      title: "A linked draft",
+      content: "The first fragment version.",
+      goal: "",
+      audience: "",
+      tone: "",
+      remember: "",
+      name: "First fragment version",
+      trigger: "manual",
+      wordCount: 4,
+      createdAt: CREATED_AT + 3,
+    },
+  ],
   ideas: [
     {
       id: "idea-root",
@@ -72,7 +89,8 @@ const library: Record<SyncedCollection, BackupRow[]> = {
     {
       id: "piece-published",
       ideaId: "idea-root",
-      noteId: "note-draft",
+      legacyNoteId: "note-draft",
+      body: "The long-form half of the library.",
       format: "substack",
       status: "published",
       origin: "user",
@@ -133,6 +151,7 @@ const library: Record<SyncedCollection, BackupRow[]> = {
     {
       id: "review-draft",
       noteId: "note-draft",
+      pieceId: "piece-published",
       receivedAt: UPDATED_AT + 9,
       reviewer: "editor@example.com",
       comments: [],
@@ -141,10 +160,10 @@ const library: Record<SyncedCollection, BackupRow[]> = {
   ],
   comments: [
     {
-      id: "comment-draft",
-      noteId: "note-draft",
+      id: "comment-piece",
+      pieceId: "piece-published",
       ideaId: null,
-      body: "A note comment promoted into an idea.",
+      body: "A piece comment promoted into an idea.",
       promotedIdeaId: "idea-child",
       createdAt: CREATED_AT + 10,
       updatedAt: UPDATED_AT + 10,
@@ -240,9 +259,15 @@ describe("library backup round trip", () => {
       ownerId: "piece-published",
       createdAt: CREATED_AT + 8,
     });
-    expect(await db.comments.get("comment-draft")).toMatchObject({
-      id: "comment-draft",
-      noteId: "note-draft",
+    expect(await db.pieceVersions.get("version-piece-1")).toMatchObject({
+      id: "version-piece-1",
+      pieceId: "piece-published",
+      legacyNoteId: "note-draft",
+      createdAt: CREATED_AT + 3,
+    });
+    expect(await db.comments.get("comment-piece")).toMatchObject({
+      id: "comment-piece",
+      pieceId: "piece-published",
       ideaId: null,
       promotedIdeaId: "idea-child",
       createdAt: CREATED_AT + 10,

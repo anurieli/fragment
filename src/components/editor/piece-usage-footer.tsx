@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react";
 import {
-  getApiUsageStatsForNote,
+  getApiUsageStatsForPiece,
   onLogAdded,
-  type NoteUsageStats,
+  type PieceUsageStats,
 } from "@/lib/api-logger";
 
 // ---------------------------------------------------------------------------
@@ -41,18 +41,18 @@ const ROUTE_LABELS: Record<string, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-interface NoteUsageFooterProps {
-  noteId: string;
+interface PieceUsageFooterProps {
+  pieceId: string;
 }
 
-export function NoteUsageFooter({ noteId }: NoteUsageFooterProps) {
-  const [stats, setStats] = useState<NoteUsageStats | null>(null);
+export function PieceUsageFooter({ pieceId }: PieceUsageFooterProps) {
+  const [stats, setStats] = useState<PieceUsageStats | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     function refresh() {
-      getApiUsageStatsForNote(noteId).then((s) => {
+      getApiUsageStatsForPiece(pieceId).then((s) => {
         if (!cancelled) setStats(s);
       });
     }
@@ -65,7 +65,7 @@ export function NoteUsageFooter({ noteId }: NoteUsageFooterProps) {
       cancelled = true;
       unsubscribe();
     };
-  }, [noteId]);
+  }, [pieceId]);
 
   if (!stats || stats.totalCalls === 0) return null;
 

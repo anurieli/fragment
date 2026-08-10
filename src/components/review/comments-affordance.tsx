@@ -3,37 +3,45 @@
 import { useState } from "react";
 import { MessageSquare } from "lucide-react";
 import type { Editor } from "@tiptap/react";
+import { useContentStore } from "@/stores/content-store";
 import { useReviewStore } from "@/stores/review-store";
 import { useIncomingComments } from "@/hooks/use-incoming-comments";
 import { pullHostedReviews } from "@/lib/sharing/pull-reviews";
+import { shareKeyFor } from "@/lib/sharing/share-key";
 import { ReviewPanel } from "./review-panel";
 import { isHosted } from "@/lib/edition";
 
 interface CommentsAffordanceProps {
-  noteId: string;
+  pieceId: string;
   editor: Editor;
 }
 
 /**
  * The persistent "View comments" affordance from ARI-245: a place at the top
- * of the note, visible once it has ever collected a hosted-share comment,
+ * of the draft, visible once it has ever collected a hosted-share comment,
  * badging what arrived since this browser last looked. Opens the same
  * ReviewPanel the export menu's "View reviews" does — this only decides
  * when to surface it and pulls fresh comments first.
  */
-export function CommentsAffordance({ noteId, editor }: CommentsAffordanceProps) {
+export function CommentsAffordance({ pieceId, editor }: CommentsAffordanceProps) {
   const [panelOpen, setPanelOpen] = useState(false);
+  const piece = useContentStore((s) => s.pieces[pieceId]);
   const saveHostedReview = useReviewStore((s) => s.saveHostedReview);
   const hosted = isHosted();
-  const { totalCount, unreadCount, markSeen } = useIncomingComments(hosted ? noteId : null);
+  // The share key, not the fragment id: it is what the links were minted
+  // under, and it is also what the seen-count is remembered against, so a
+  // migrated fragment keeps the badge state it had before the switchover.
+  const { totalCount, unreadCount, markSeen } = useIncomingComments(
+    hosted && piece ? shareKeyFor(piece) : null,
+  );
 
-  if (!hosted || totalCount === 0) return null;
+  if (!hosted || !piece || totalCount === 0) return null;
 
   async function open() {
     setPanelOpen(true);
     markSeen();
     try {
-      await pullHostedReviews(noteId, saveHostedReview);
+      await pullHostedReviews(piece, saveHostedReview);
     } catch {
       // Panel still opens with whatever was already imported locally.
     }
@@ -56,7 +64,7 @@ export function CommentsAffordance({ noteId, editor }: CommentsAffordanceProps) 
       </button>
 
       {panelOpen && (
-        <ReviewPanel noteId={noteId} editor={editor} onClose={() => setPanelOpen(false)} />
+        <ReviewPanel pieceId={pieceId} editor={editor} onClose={() => setPanelOpen(false)} />
       )}
     </>
   );

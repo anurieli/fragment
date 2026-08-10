@@ -1,3 +1,4 @@
+import { isLongformFormat } from "@/lib/content-engine";
 import type { ContentPiece, Idea, PieceStatus, Priority } from "@/lib/content-engine";
 
 // Pure selectors over the content-engine store's arrays. No Zustand, no
@@ -20,7 +21,12 @@ function priorityRank(priority: Priority): number {
  */
 export function publishQueue(pieces: readonly ContentPiece[]): ContentPiece[] {
   return pieces
-    .filter((piece) => piece.status === "ready" && piece.deletedAt === undefined)
+    .filter(
+      (piece) =>
+        piece.status === "ready" &&
+        piece.deletedAt === undefined &&
+        piece.archivedAt === undefined,
+    )
     .slice()
     .sort((a, b) => {
       const rankDiff = priorityRank(a.priority) - priorityRank(b.priority);
@@ -50,7 +56,12 @@ export function workingOn(
   windowMs: number,
 ): ContentPiece[] {
   return pieces
-    .filter((piece) => piece.deletedAt === undefined && now - piece.updatedAt <= windowMs)
+    .filter(
+      (piece) =>
+        piece.deletedAt === undefined &&
+        piece.archivedAt === undefined &&
+        now - piece.updatedAt <= windowMs,
+    )
     .slice()
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -61,7 +72,7 @@ export function workingOn(
  */
 export function pinnedFirst(ideas: readonly Idea[]): Idea[] {
   return ideas
-    .filter((idea) => idea.deletedAt === undefined)
+    .filter((idea) => idea.deletedAt === undefined && idea.archivedAt === undefined)
     .slice()
     .sort((a, b) => {
       const aPinned = a.pinnedAt !== undefined;
@@ -77,9 +88,39 @@ export function pinnedFirst(ideas: readonly Idea[]): Idea[] {
 }
 
 /**
+ * Everything the writer put away. Kept as its own selector rather than a flag
+ * on the live ones, so no surface can show archived work by forgetting to
+ * pass something.
+ */
+export function archivedOnly(pieces: readonly ContentPiece[]): ContentPiece[] {
+  return pieces.filter(
+    (piece) => piece.deletedAt === undefined && piece.archivedAt !== undefined,
+  );
+}
+
+/** The complement: what is still in play. */
+export function unarchived(pieces: readonly ContentPiece[]): ContentPiece[] {
+  return pieces.filter(
+    (piece) => piece.deletedAt === undefined && piece.archivedAt === undefined,
+  );
+}
+
+/** Ideas the writer put away, most-recently-archived first. */
+export function archivedIdeas(ideas: readonly Idea[]): Idea[] {
+  return ideas
+    .filter((idea) => idea.deletedAt === undefined && idea.archivedAt !== undefined)
+    .slice()
+    .sort((a, b) => (b.archivedAt as number) - (a.archivedAt as number));
+}
+
+/**
  * An idea's pieces, including the pieces of its direct child ideas (nesting
  * is capped at depth 2 by the contract, so one level of children is the
  * entire hierarchy below `ideaId`).
+ *
+ * Archived pieces are still in this list. The feed is the one surface that
+ * shows them (under its own filter), and it needs them from somewhere;
+ * everywhere else wraps this in `unarchived`.
  */
 export function hierarchyRollup(
   ideaId: string,
@@ -98,18 +139,20 @@ export function hierarchyRollup(
 }
 
 /**
- * Short-form pieces only — the ones whose text lives inline (body). A piece
- * that links a Note instead (noteId) is a long-form draft: it belongs to the
- * idea's Write space, not its pieces feed, and its text is edited in the
- * editor rather than in a card textarea.
+ * Short-form fragments only, which is now a question about shape rather than
+ * storage: every fragment keeps its text in `body`, so what separates a card
+ * in the feed from a draft in the editor is its format. A long-form fragment
+ * belongs to the idea's Write space and is edited in the editor, not in a card
+ * textarea, which is why the feed asks for this list rather than for all of an
+ * idea's fragments.
  */
 export function shortformOnly(pieces: readonly ContentPiece[]): ContentPiece[] {
-  return pieces.filter((piece) => piece.body !== undefined);
+  return pieces.filter((piece) => !isLongformFormat(piece.format));
 }
 
 /**
- * An idea's long-form drafts (the pieces linking a Note), oldest first so the
- * first draft created stays the idea's primary one across sessions.
+ * An idea's long-form drafts, oldest first so the first draft created stays
+ * the idea's primary one across sessions.
  */
 export function draftsForIdea(
   ideaId: string,
@@ -119,8 +162,9 @@ export function draftsForIdea(
     .filter(
       (piece) =>
         piece.deletedAt === undefined &&
+        piece.archivedAt === undefined &&
         piece.ideaId === ideaId &&
-        piece.noteId !== undefined,
+        isLongformFormat(piece.format),
     )
     .slice()
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -138,7 +182,8 @@ export function pieceCountsForIdea(
     published: 0,
   };
   for (const piece of pieces) {
-    if (piece.deletedAt !== undefined || piece.ideaId !== ideaId) continue;
+    if (piece.deletedAt !== undefined || piece.archivedAt !== undefined) continue;
+    if (piece.ideaId !== ideaId) continue;
     counts[piece.status] += 1;
   }
   return counts;

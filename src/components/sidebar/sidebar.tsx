@@ -1,44 +1,41 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Plus,
   PanelLeftClose,
-  FileText,
-  Trash2,
+  PanelLeftOpen,
   Settings,
   Search,
   HelpCircle,
   ScrollText,
-  Wifi,
-  WifiOff,
+  Cloud,
+  CloudOff,
+  Check,
+  X,
   Lightbulb,
   ChevronRight,
   ChevronDown,
   Pin,
+  Flag,
   MoreHorizontal,
-  Sparkles,
   Monitor,
   Download,
   MessageSquare,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
-import { useDataStore } from "@/stores/data-store";
 import { useContentStore } from "@/stores/content-store";
-import { draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
+import { archivedIdeas, draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { useOnlineStatus } from "@/hooks/use-online-status";
+import { PRIORITY_OPTIONS, priorityMeta } from "@/lib/priority";
 import { useToastStore } from "@/hooks/use-toast";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncStore } from "@/stores/sync-store";
 import { hasAnyWorkingProvider } from "@/lib/ai/connection-status";
 import { isTauri } from "@/lib/ai-client";
-import { formatDate } from "@/lib/utils";
 import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
 import type { Idea, Priority } from "@/lib/content-engine";
-import { downloadAsMarkdown, latestNoteContentForExport } from "@/lib/export";
 import {
   ContextMenu,
   ContextMenuItem,
@@ -48,6 +45,12 @@ import {
 
 interface SidebarProps {
   onOpenSettings: () => void;
+  /** Render the collapsed strip instead of the full column. */
+  rail?: boolean;
+  /** True when this is the panel hovering open over the rail rather than the
+   * pinned column. The only difference is the header button: peeked, the
+   * useful move is to keep it open; pinned, it is to put it away. */
+  peeking?: boolean;
   onOpenAccount: () => void;
   onOpenAI: () => void;
   onOpenHelp: () => void;
@@ -88,9 +91,20 @@ function sortIdeas(ideas: Idea[], mode: IdeaSortMode): Idea[] {
   return [...pinned, ...sortedRest];
 }
 
-function ideaMatches(idea: Idea, query: string): boolean {
+/**
+ * Does this idea answer the search? Its own words first, then the words of the
+ * fragments inside it: the sidebar is the only list left, so a search that read
+ * titles alone would have no way of finding the sentence you remember writing.
+ * `fragmentText` is the pre-lowercased body of everything the idea holds, built
+ * once per keystroke rather than per row (see fragmentTextByIdea).
+ */
+function ideaMatches(idea: Idea, query: string, fragmentText: string): boolean {
   const q = query.toLowerCase();
-  return idea.title.toLowerCase().includes(q) || (idea.summary ?? "").toLowerCase().includes(q);
+  return (
+    idea.title.toLowerCase().includes(q) ||
+    (idea.summary ?? "").toLowerCase().includes(q) ||
+    fragmentText.includes(q)
+  );
 }
 
 /**
@@ -170,40 +184,50 @@ function IdeaMenuItem({
   );
 }
 
-export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs }: SidebarProps) {
-  const { activeNoteId, setActiveNote, toggleSidebar } = useAppStore();
+export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs, rail, peeking }: SidebarProps) {
+  const { toggleSidebar } = useAppStore();
+  const pinSidebar = useAppStore((s) => s.pinSidebar);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
+  const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
   const isFeedbackOpen = useAppStore((s) => s.isFeedbackOpen);
   const openFeedback = useAppStore((s) => s.openFeedback);
   const toggleCommentsPanel = useAppStore((s) => s.toggleCommentsPanel);
-  const { notes, createNote, deleteNote } = useDataStore();
   const ideas = useContentStore((s) => s.ideas);
   const pieces = useContentStore((s) => s.pieces);
   const createIdea = useContentStore((s) => s.createIdea);
+  const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
+  const createPiece = useContentStore((s) => s.createPiece);
   const updateIdea = useContentStore((s) => s.updateIdea);
+  const setIdeaPriority = useContentStore((s) => s.setIdeaPriority);
   const pinIdea = useContentStore((s) => s.pinIdea);
   const unpinIdea = useContentStore((s) => s.unpinIdea);
-  const linkNoteToIdea = useContentStore((s) => s.linkNoteToIdea);
   const deleteIdeaCascade = useContentStore((s) => s.deleteIdeaCascade);
   const restoreIdeaCascade = useContentStore((s) => s.restoreIdeaCascade);
+  const archiveIdeaCascade = useContentStore((s) => s.archiveIdeaCascade);
+  const restoreIdeaArchive = useContentStore((s) => s.restoreIdeaArchive);
   const showToast = useToastStore((s) => s.showToast);
-  const isOnline = useOnlineStatus();
   const settings = useSettingsStore((s) => s.settings);
   const badProviders = useAppStore((s) => s.badProviders);
   const syncStatus = useSyncStore((s) => s.snapshot.status);
+  // "syncing" counts as synced: edits trigger a debounced sync pass every few
+  // seconds while writing, and rendering that as "Not synced" makes the badge
+  // flicker. Only a real problem (signed out, offline, error) breaks the state.
+  const isSynced = syncStatus === "idle" || syncStatus === "syncing";
   const aiConnected = hasAnyWorkingProvider(settings, badProviders);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [ideaSort, setIdeaSort] = useState<IdeaSortMode>("pinned");
   // Sub-ideas start collapsed. The sidebar is a list of ideas to move
   // between; what's *inside* one is the idea workspace panel's job, so the
   // default here is the shortest list that still shows every idea you have.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [noteContextMenu, setNoteContextMenu] = useState<{
-    noteId: string;
-    position: Point;
-  } | null>(null);
+  // Which row has its priority list expanded, if any. Keyed by id rather
+  // than a boolean so closing one menu and opening another never inherits
+  // the first one's open submenu.
+  const [priorityMenuId, setPriorityMenuId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -220,7 +244,22 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // Counts on an idea row mean short-form pieces. Its long-form drafts are
   // listed by name underneath instead, so counting them here would double up.
   const shortPieces = useMemo(() => shortformOnly(allPieces), [allPieces]);
-  const allIdeas = useMemo(() => Object.values(ideas).filter((i) => !i.deletedAt), [ideas]);
+  // The live library. Archived ideas are still in the store and still hold
+  // every word they held, they just stop competing for attention in the list
+  // you navigate by.
+  const allIdeas = useMemo(
+    () => Object.values(ideas).filter((i) => !i.deletedAt && i.archivedAt === undefined),
+    [ideas],
+  );
+  // Only the top of each archived tree gets a row: a sub-idea archived along
+  // with its parent is already accounted for by the parent's line, and listing
+  // both would make one gesture look like two.
+  const archived = useMemo(() => {
+    const all = archivedIdeas(Object.values(ideas));
+    const archivedIds = new Set(all.map((i) => i.id));
+    return all.filter((i) => !i.parentId || !archivedIds.has(i.parentId));
+  }, [ideas]);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string, Idea[]>();
@@ -235,125 +274,96 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
 
   const rootIdeas = useMemo(() => allIdeas.filter((i) => !i.parentId), [allIdeas]);
 
+  /** Every idea's fragments as one lowercased haystack, so searching the text
+   * of what you wrote costs one pass over the library instead of one per row. */
+  const fragmentTextByIdea = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const piece of allPieces) {
+      if (piece.deletedAt !== undefined) continue;
+      const text = `${piece.title ?? ""}\n${piece.body}`.toLowerCase();
+      const existing = map.get(piece.ideaId);
+      map.set(piece.ideaId, existing ? `${existing}\n${text}` : text);
+    }
+    return map;
+  }, [allPieces]);
+
+  const matches = useCallback(
+    (idea: Idea, query: string) => ideaMatches(idea, query, fragmentTextByIdea.get(idea.id) ?? ""),
+    [fragmentTextByIdea],
+  );
+
   const visibleRoots = useMemo(() => {
     const q = searchQuery.trim();
     let roots = rootIdeas;
     if (q) {
       roots = roots.filter(
-        (r) => ideaMatches(r, q) || (childrenByParent.get(r.id) ?? []).some((c) => ideaMatches(c, q)),
+        (r) => matches(r, q) || (childrenByParent.get(r.id) ?? []).some((c) => matches(c, q)),
       );
     }
     return sortIdeas(roots, ideaSort);
-  }, [rootIdeas, childrenByParent, searchQuery, ideaSort]);
+  }, [rootIdeas, childrenByParent, searchQuery, ideaSort, matches]);
 
   function childrenFor(idea: Idea): Idea[] {
     const kids = childrenByParent.get(idea.id) ?? [];
     const q = searchQuery.trim();
-    const filtered = q && !ideaMatches(idea, q) ? kids.filter((c) => ideaMatches(c, q)) : kids;
+    const filtered = q && !matches(idea, q) ? kids.filter((c) => matches(c, q)) : kids;
     return sortIdeas(filtered, ideaSort);
   }
 
-  // A note is "idea-less" (standalone) unless some content piece links it as
-  // its long-form home (piece.noteId). Notes tied to an idea are reached by
-  // selecting that idea, not listed separately here.
-  const notesWithIdea = useMemo(() => {
-    const set = new Set<string>();
-    for (const piece of allPieces) {
-      if (piece.noteId && piece.deletedAt === undefined) set.add(piece.noteId);
-    }
-    return set;
-  }, [allPieces]);
-
-  const sortedNotes = useMemo(() => {
-    let list = Object.values(notes)
-      .filter((n) => !notesWithIdea.has(n.id))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (n) =>
-          n.title.toLowerCase().includes(q) ||
-          n.content.toLowerCase().includes(q),
-      );
-    }
-    return list;
-  }, [notes, notesWithIdea, searchQuery]);
-
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
 
-  function handleNewNote() {
-    const id = createNote();
-    setActiveNote(id);
-    setActiveIdea(null);
-    setShowCreationFlow(true);
+  function openSearch() {
+    setSearchOpen(true);
+    // Focus once the expand has begun; the input exists from the first frame.
+    requestAnimationFrame(() => searchInputRef.current?.focus());
   }
 
+  /** Closing also clears the query: a hidden filter on the list would look
+   * like data loss ("where did my ideas go?"), not like a remembered search. */
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }
+
+  /** New idea, with the first fragment to write in already inside it. Every
+   * fragment belongs to an idea, so "start something new" is one action, not a
+   * container you then have to remember to fill. */
   function handleNewIdea() {
-    const id = createIdea({ title: "Untitled idea" });
-    if (!id) return;
-    setActiveIdea(id);
-    setActiveNote(null);
-    // Straight into rename — an idea called "Untitled idea" is worthless as a
-    // container, and naming it is the whole point of creating one.
-    startRename(id, "Untitled idea");
-  }
-
-  function deleteStandaloneNote(noteId: string) {
-    const nextId = deleteNote(noteId);
-    if (activeNoteId === noteId) {
-      setActiveNote(nextId);
-    }
-  }
-
-  function handleDelete(e: React.MouseEvent, noteId: string) {
-    e.stopPropagation();
-    deleteStandaloneNote(noteId);
-  }
-
-  function handleOpenNoteFromMenu(noteId: string) {
-    setNoteContextMenu(null);
-    setActiveIdea(null);
-    setActiveNote(noteId);
-  }
-
-  function handleExportNote(noteId: string) {
-    const note = notes[noteId];
-    setNoteContextMenu(null);
-    if (!note) return;
-    const app = useAppStore.getState();
-    const content = latestNoteContentForExport(
-      noteId,
-      note.content,
-      app.liveEditorNoteId,
-      app.liveEditorContent,
-    );
-    downloadAsMarkdown(content, note.title || "Untitled");
-  }
-
-  function handleDeleteNoteFromMenu(noteId: string) {
-    setNoteContextMenu(null);
-    deleteStandaloneNote(noteId);
+    const { ideaId, pieceId } = createIdeaWithFragment();
+    if (!ideaId) return;
+    setActiveIdea(ideaId);
+    setActivePiece(pieceId || null);
+    setShowCreationFlow(true);
+    // Straight into rename: an untitled idea is worthless as a container, and
+    // naming it is the whole point of creating one. The box opens empty rather
+    // than pre-filled, so the first keystroke is the name.
+    startRename(ideaId, "");
   }
 
   /** Select an idea, and with it a draft to write in: the one asked for, else
    * the idea's first draft, else nothing (the editor then offers to start one). */
-  function handleSelectIdea(ideaId: string, noteId?: string) {
+  function handleSelectIdea(ideaId: string, pieceId?: string) {
     setActiveIdea(ideaId);
-    if (noteId) {
-      setActiveNote(noteId);
+    if (pieceId) {
+      setActivePiece(pieceId);
       return;
     }
     const drafts = draftsForIdea(ideaId, allPieces);
-    setActiveNote(drafts[0]?.noteId ?? null);
+    setActivePiece(drafts[0]?.id ?? null);
   }
 
-  /** Start a fresh long-form draft inside an idea, linked to it from birth. */
+  /** Start a fresh long-form fragment inside an idea. */
   function handleNewDraft(ideaId: string) {
-    const noteId = createNote();
-    if (!noteId) return;
-    linkNoteToIdea(ideaId, noteId);
+    const pieceId = createPiece({
+      ideaId,
+      format: "essay",
+      origin: "user",
+      status: "in-progress",
+      seen: true,
+    });
+    if (!pieceId) return;
     setActiveIdea(ideaId);
-    setActiveNote(noteId);
+    setActivePiece(pieceId);
     setShowCreationFlow(true);
     setExpanded((prev) => new Set(prev).add(ideaId));
   }
@@ -363,12 +373,51 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     if (!cascade.ideaIds.length) return;
     if (cascade.ideaIds.includes(activeIdeaId ?? "")) {
       setActiveIdea(null);
-      setActiveNote(null);
+      setActivePiece(null);
     }
     showToast(`Deleted "${idea.title || "Untitled idea"}"`, {
       label: "Undo",
       onClick: () => restoreIdeaCascade(cascade),
     });
+  }
+
+  function handleArchiveIdea(idea: Idea) {
+    const archive = archiveIdeaCascade(idea.id);
+    if (!archive.ideaIds.length && !archive.pieceIds.length) return;
+    // Same courtesy the delete path shows: an idea you are standing inside
+    // should not vanish underneath you without the app letting go of it first.
+    if (archive.ideaIds.includes(activeIdeaId ?? "")) {
+      setActiveIdea(null);
+      setActivePiece(null);
+    }
+    showToast(`Archived "${idea.title || "Untitled idea"}"`, {
+      label: "Undo",
+      onClick: () => restoreIdeaArchive(archive),
+    });
+  }
+
+  /**
+   * Undo an archive long after the toast is gone. Rebuilt from the stamp
+   * rather than remembered: everything one cascade put away shares a single
+   * archivedAt, so matching on it restores exactly that gesture and leaves
+   * alone any child or piece the writer archived separately, whose stamp is
+   * its own.
+   */
+  function handleRestoreIdea(idea: Idea) {
+    const ideaIds = [
+      idea.id,
+      ...Object.values(ideas)
+        .filter((i) => i.parentId === idea.id && i.archivedAt === idea.archivedAt)
+        .map((i) => i.id),
+    ];
+    const owned = new Set(ideaIds);
+    restoreIdeaArchive({
+      ideaIds,
+      pieceIds: Object.values(pieces)
+        .filter((p) => owned.has(p.ideaId) && p.archivedAt === idea.archivedAt)
+        .map((p) => p.id),
+    });
+    showToast(`"${idea.title || "Untitled idea"}" is back`);
   }
 
   function startRename(ideaId: string, currentTitle: string) {
@@ -396,6 +445,9 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   function renderIdeaRow(idea: Idea, depth: 0 | 1) {
     const isActive = idea.id === activeIdeaId;
     const isPinned = idea.pinnedAt !== undefined;
+    // The sidebar has always *sorted* by priority and never shown it, so a
+    // list ordered by something invisible looked arbitrary.
+    const ideaPriority = priorityMeta(idea.priority);
     const kids = depth === 0 ? childrenFor(idea) : [];
     const drafts = draftsForIdea(idea.id, allPieces);
     const hasChildren = kids.length > 0;
@@ -439,6 +491,11 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {isPinned && <Pin size={10} className="shrink-0 text-gold" fill="currentColor" />}
+            {ideaPriority && (
+              <span title={`${ideaPriority.label} priority`} className={`shrink-0 ${ideaPriority.className}`}>
+                <Flag size={9} fill="currentColor" />
+              </span>
+            )}
             {isRenaming ? (
               <input
                 autoFocus
@@ -475,14 +532,14 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             )}
             <IdeaRowMenu
               open={menuOpen}
-              onToggle={() => setOpenMenuId(menuOpen ? null : idea.id)}
+              onToggle={() => { setPriorityMenuId(null); setOpenMenuId(menuOpen ? null : idea.id); }}
               onOpen={() => setOpenMenuId(idea.id)}
-              onClose={() => setOpenMenuId(null)}
+              onClose={() => { setPriorityMenuId(null); setOpenMenuId(null); }}
             >
                   <IdeaMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
                   <IdeaMenuItem
                     label="New draft"
-                    hint="A long-form note in this idea"
+                    hint="A long-form piece in this idea"
                     onClick={() => { setOpenMenuId(null); handleNewDraft(idea.id); }}
                   />
                   {depth === 0 && (
@@ -503,10 +560,38 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                     label={isPinned ? "Unpin" : "Pin"}
                     onClick={() => { isPinned ? unpinIdea(idea.id) : pinIdea(idea.id); setOpenMenuId(null); }}
                   />
+                  <IdeaMenuItem
+                    label="Set priority"
+                    hint={ideaPriority ? ideaPriority.label : "None"}
+                    onClick={() => setPriorityMenuId(priorityMenuId === idea.id ? null : idea.id)}
+                  />
+                  {priorityMenuId === idea.id && (
+                    <div className="border-t border-border py-1">
+                      {PRIORITY_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIdeaPriority(idea.id, opt.value);
+                            setPriorityMenuId(null);
+                            setOpenMenuId(null);
+                          }}
+                          className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="my-1 border-t border-border" />
                   <IdeaMenuItem
+                    label="Archive idea"
+                    hint="Hides it and its pieces. Nothing is deleted"
+                    onClick={() => { setOpenMenuId(null); handleArchiveIdea(idea); }}
+                  />
+                  <IdeaMenuItem
                     label="Delete idea"
-                    hint="Drafts return to Notes"
+                    hint="Takes its drafts and pieces with it"
                     destructive
                     onClick={() => { setOpenMenuId(null); handleDeleteIdea(idea); }}
                   />
@@ -529,8 +614,32 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     );
   }
 
+  // The collapsed strip. Deliberately inert: hovering it grows the panel over
+  // the top of it, so a button here would be covered before anyone could
+  // finish reaching for it. What the strip is for is showing that the library
+  // is still there and what it holds — ideas, new idea, search, settings — and
+  // holding the column's width so the editor never shifts when the panel
+  // peeks. Every one of these icons is a real control one hover away.
+  if (rail) {
+    return (
+      <div
+        data-sidebar
+        aria-hidden
+        title="Your ideas. Hover to open"
+        className="flex flex-col items-center h-full w-full py-5 gap-4 bg-surface rounded-[var(--radius-xl)] text-text-faint"
+      >
+        <PanelLeftOpen size={16} />
+        <div className="w-5 border-t border-border" />
+        <Lightbulb size={16} />
+        <Search size={16} />
+        <div className="flex-1" />
+        <Settings size={16} />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-full w-[300px] bg-surface rounded-[var(--radius-xl)] overflow-hidden">
+    <div data-sidebar className="flex flex-col h-full w-[300px] bg-surface rounded-[var(--radius-xl)] overflow-hidden">
       {showFullFeedback ? (
         <FeedbackPanel />
       ) : (
@@ -541,76 +650,105 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               Fragment
             </span>
             <div className="flex items-center gap-3">
-              <div
+              <button
+                onClick={onOpenAccount}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
-                  isOnline
-                    ? "text-green"
-                    : "text-red bg-red-muted"
+                  isSynced ? "text-green" : "text-text-faint"
                 }`}
-                title={isOnline ? "Connected" : "Offline — your work is saved locally"}
+                title={isSynced ? "Synced with cloud" : "Not synced with cloud"}
               >
-                {isOnline ? <Wifi size={12} /> : <WifiOff size={12} />}
+                {isSynced ? <Cloud size={12} /> : <CloudOff size={12} />}
                 <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">
-                  {isOnline ? "Online" : "Offline"}
+                  {isSynced ? "Synced" : "Not synced"}
                 </span>
-              </div>
+              </button>
               <button
                 onClick={onOpenAI}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
-                  aiConnected ? "text-green" : "text-gold bg-gold/5"
+                className={`flex items-center gap-1 px-2 py-1 rounded-[var(--radius-default)] transition-all duration-300 ${
+                  aiConnected ? "text-green" : "text-red"
                 }`}
                 title={aiConnected ? "AI provider configured" : "No AI provider connected"}
               >
-                <Sparkles size={12} />
-                <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">
-                  {aiConnected ? "AI connected" : "AI not connected"}
-                </span>
+                <span className="text-[10px] font-[family-name:var(--font-mono)] font-medium">AI</span>
+                {aiConnected ? <Check size={12} /> : <X size={12} />}
               </button>
+              {/* Peeked, this is the only control that can pin the panel: the
+                  rail underneath is covered the moment you hover it. */}
               <button
-                onClick={toggleSidebar}
+                onClick={peeking ? pinSidebar : toggleSidebar}
+                title={peeking ? "Keep sidebar open" : "Collapse sidebar"}
+                aria-label={peeking ? "Keep sidebar open" : "Collapse sidebar"}
                 className="p-2 rounded-[var(--radius-default)] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
               >
-                <PanelLeftClose size={16} />
+                {peeking ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
               </button>
             </div>
           </div>
 
-          {/* New note/idea + search */}
-          <div className="px-5 pb-3 space-y-2.5">
+          {/* New idea + search, one row. The search is a square button until
+              clicked; open, it grows to fill the row and the create button
+              collapses to zero width under it. Every state change is
+              width/flex/margin only, so the whole swap is one smooth slide.
+              One create button, not two: an idea and the fragment you write in
+              are made together now, so there is nothing else to start. */}
+          <div className="px-5 pb-3">
             <div className="flex items-center gap-2">
               <button
-                onClick={handleNewNote}
-                className="flex-1 flex items-center gap-3 px-4 py-3 rounded-[var(--radius-lg)] text-[13px] font-medium
-                  bg-surface-2 text-text-secondary border border-border-strong
-                  hover:bg-surface-3 hover:text-text-primary hover:border-gold/20 transition-all duration-150"
-              >
-                <Plus size={15} strokeWidth={2} />
-                New note
-              </button>
-              <button
                 onClick={handleNewIdea}
-                title="New idea — a home for an idea's long-form draft and its short-form pieces"
-                className="shrink-0 flex items-center justify-center w-11 h-11 rounded-[var(--radius-lg)]
-                  bg-surface-2 text-text-secondary border border-border-strong
-                  hover:bg-surface-3 hover:text-gold hover:border-gold/20 transition-all duration-150"
+                tabIndex={searchOpen ? -1 : 0}
+                title="New idea: a home for its drafts and its short-form pieces"
+                className={`flex items-center gap-3 py-3 rounded-[var(--radius-lg)] text-[13px] font-medium
+                  bg-surface-2 text-text-secondary border
+                  hover:bg-surface-3 hover:text-text-primary hover:border-gold/20
+                  transition-all duration-300 overflow-hidden whitespace-nowrap min-w-0
+                  ${searchOpen
+                    ? "flex-[0_1_0%] px-0 opacity-0 border-transparent pointer-events-none"
+                    : "flex-[1_1_0%] px-4 border-border-strong"}`}
               >
-                <Lightbulb size={15} strokeWidth={2} />
+                <Lightbulb size={15} strokeWidth={2} className="shrink-0" />
+                New idea
               </button>
-            </div>
-
-            <div className="flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-lg)] bg-surface-2 border border-border text-text-faint focus-within:text-text-muted focus-within:border-border-strong transition-colors duration-150">
-              <Search size={14} className="shrink-0" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search notes & ideas..."
-                className="flex-1 bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
-              />
+              <div
+                role={searchOpen ? undefined : "button"}
+                tabIndex={searchOpen ? undefined : 0}
+                onClick={searchOpen ? undefined : openSearch}
+                onKeyDown={searchOpen ? undefined : (e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSearch(); }
+                }}
+                title={searchOpen ? undefined : "Search ideas and pieces"}
+                className={`flex items-center h-11 rounded-[var(--radius-lg)] bg-surface-2 border overflow-hidden
+                  transition-all duration-300
+                  ${searchOpen
+                    ? "flex-[1_1_0%] -ml-2 gap-3 px-4 border-border-strong text-text-muted"
+                    : "w-11 shrink-0 justify-center border-border-strong text-text-secondary hover:bg-surface-3 hover:text-text-primary hover:border-gold/20 cursor-pointer"}`}
+              >
+                <Search size={14} className="shrink-0" />
+                {searchOpen && (
+                  <>
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
+                      placeholder="Search ideas and pieces..."
+                      className="flex-1 min-w-0 bg-transparent text-[13px] text-text-secondary placeholder:text-text-faint outline-none"
+                    />
+                    <button
+                      onClick={closeSearch}
+                      title="Close search"
+                      className="shrink-0 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary transition-colors duration-150"
+                    >
+                      <X size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Idea + note list */}
+          {/* Idea list. Every fragment lives inside one, so this is the whole
+              library: there is no second list of homeless documents. */}
           <div className="flex-1 overflow-y-auto px-5 py-2">
             {/* Ideas section */}
             <div className="flex items-center justify-between px-1 mb-1.5">
@@ -635,12 +773,12 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               <p className="px-1 pb-3 text-[12px] text-text-faint leading-relaxed">
                 {searchQuery.trim()
                   ? "No matching ideas"
-                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit the bulb above to make one."}
+                  : "No ideas yet. An idea is a folder for one thing you're writing about: it holds your long-form drafts and a feed of short-form pieces. Hit New idea above to make one."}
               </p>
             ) : (
               <>
                 <p className="px-1 pb-2 text-[11px] text-text-faint leading-relaxed">
-                  Open an idea to work inside it — its drafts and pieces appear in the panel
+                  Open an idea to work inside it: its drafts and pieces appear in the panel
                   beside this one. Right-click or use ⋯ to rename, add, or delete.
                 </p>
                 <div className="space-y-1 mb-4">
@@ -649,109 +787,45 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               </>
             )}
 
-            {/* Standalone notes section */}
-            <div className="px-1 mb-1.5 mt-2">
-              <span className="text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)]">
-                Notes
-              </span>
-              <p className="text-[11px] text-text-faint leading-relaxed mt-0.5">
-                Notes that don&apos;t belong to any idea.
-              </p>
-            </div>
-            {sortedNotes.length === 0 ? (
-              <div className="px-4 py-10 text-center">
-                <FileText size={22} className="mx-auto mb-3 text-text-faint opacity-40" />
-                <p className="text-[13px] text-text-muted">
-                  {searchQuery.trim() ? "No matches" : "No standalone notes"}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {sortedNotes.map((note) => {
-                  const isActive = note.id === activeNoteId && !activeIdeaId;
-                  const title = note.title || "Untitled";
-                  const preview = note.content
-                    ? note.content.replace(/[#*_`>\-\[\]]/g, "").slice(0, 60)
-                    : "Empty note";
-
-                  return (
-                    <div
-                      key={note.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => { setActiveIdea(null); setActiveNote(note.id); }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setNoteContextMenu({
-                          noteId: note.id,
-                          position: { x: event.clientX, y: event.clientY },
-                        });
-                      }}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setActiveIdea(null); setActiveNote(note.id); } }}
-                      className={`group relative flex flex-col w-full text-left px-4 py-3.5 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
-                        ${
-                          isActive
-                            ? "bg-surface-3 border border-border-strong"
-                            : "hover:bg-surface-2"
-                        }`}
-                    >
-                      {isActive && (
-                        <div className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-gold" />
-                      )}
-                      <div className="flex items-center justify-between gap-3">
-                        <span
-                          className={`text-[13px] font-medium truncate ${isActive ? "text-text-primary" : "text-text-secondary"}`}
-                        >
-                          {title}
+            {/* The archive. Collapsed by default and absent entirely when
+                empty: the whole point of putting something away is that it
+                stops taking up room, and a permanent "Archived 0" header
+                would give the tidying back with one hand. */}
+            {archived.length > 0 && (
+              <div className="mt-2 border-t border-border pt-2">
+                <button
+                  onClick={() => setArchiveOpen((v) => !v)}
+                  title="Ideas you put away. Everything they hold is still here"
+                  className="flex items-center gap-1.5 w-full px-1 py-1 text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)] hover:text-text-secondary transition-colors duration-150"
+                >
+                  {archiveOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  Archived {archived.length}
+                </button>
+                {archiveOpen && (
+                  <div className="space-y-0.5 mt-1">
+                    {archived.map((idea) => (
+                      <div
+                        key={idea.id}
+                        className="group flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-default)] hover:bg-surface-2 transition-colors duration-150"
+                      >
+                        <span className="flex-1 min-w-0 truncate text-[12px] text-text-muted">
+                          {idea.title || "Untitled idea"}
                         </span>
                         <button
-                          onClick={(e) => handleDelete(e, note.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-all duration-150"
+                          onClick={() => handleRestoreIdea(idea)}
+                          title="Put this idea back in the list"
+                          className="shrink-0 opacity-0 group-hover:opacity-100 text-[10px] text-text-faint hover:text-gold transition-all duration-150"
                         >
-                          <Trash2 size={12} />
+                          Restore
                         </button>
                       </div>
-                      <div className="flex items-center gap-3 mt-1.5">
-                        <span className="text-[11px] text-text-muted truncate">
-                          {preview}
-                        </span>
-                        <span className="text-[10px] text-text-faint shrink-0 font-[family-name:var(--font-mono)]">
-                          {formatDate(note.updatedAt)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {noteContextMenu && notes[noteContextMenu.noteId] && (
-            <ContextMenu
-              position={noteContextMenu.position}
-              onClose={() => setNoteContextMenu(null)}
-              ariaLabel="Note actions"
-            >
-              <ContextMenuItem
-                label="Open"
-                icon={<FileText size={13} />}
-                onSelect={() => handleOpenNoteFromMenu(noteContextMenu.noteId)}
-              />
-              <ContextMenuItem
-                label="Export as Markdown..."
-                icon={<Download size={13} />}
-                onSelect={() => handleExportNote(noteContextMenu.noteId)}
-              />
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                label="Delete Note"
-                icon={<Trash2 size={13} />}
-                destructive
-                onSelect={() => handleDeleteNoteFromMenu(noteContextMenu.noteId)}
-              />
-            </ContextMenu>
-          )}
 
           {/* Compact recording bar */}
           {showCompactBar && (

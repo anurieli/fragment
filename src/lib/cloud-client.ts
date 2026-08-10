@@ -29,7 +29,7 @@ export interface FeedbackPayload {
   appVersion?: string;
   screenResolution?: string;
   userAgent?: string;
-  activeNoteId?: string;
+  activePieceId?: string;
 }
 
 export interface SyncableLog {

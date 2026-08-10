@@ -15,7 +15,7 @@ function autoGrow(el: HTMLTextAreaElement | null) {
  * Title and subtitle always look the same — they live outside the
  * markdown document, so no editor formatting can touch them.
  */
-export function NoteHeader({
+export function PieceHeader({
   title,
   subtitle,
   disabled,
@@ -70,7 +70,7 @@ export function NoteHeader({
             type="button"
             onClick={onGenerateTitle}
             disabled={disabled || generatingTitle}
-            title="Generate a title from this note"
+            title="Generate a title from this draft"
             aria-label="Generate title"
             className={`mt-2.5 shrink-0 flex items-center justify-center w-8 h-8 rounded-[var(--radius-sm)] text-text-faint hover:text-gold hover:bg-gold/10 transition-all duration-150 disabled:hover:bg-transparent disabled:hover:text-text-faint ${
               generatingTitle ? "opacity-100 text-gold" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"

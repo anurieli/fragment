@@ -6,7 +6,7 @@ import { pieceAge, staleness } from "@/stores/content-selectors";
 // unit-testable without mocking time. Mirrors the convention already set by
 // src/stores/content-selectors.ts.
 
-export const PIECE_FILTERS = ["all", "inbox", "in-progress", "ready"] as const;
+export const PIECE_FILTERS = ["all", "inbox", "in-progress", "ready", "archived"] as const;
 export type PieceFilter = (typeof PIECE_FILTERS)[number];
 
 export const PIECE_SORT_MODES = ["newest", "oldest", "priority", "last-edited", "schedule", "manual"] as const;
@@ -17,11 +17,24 @@ function priorityRank(priority: Priority): number {
   return priority === 0 ? 5 : priority;
 }
 
-/** Live (non-deleted) pieces, optionally narrowed to one status. "all" keeps every status, including published — this is a working view, not a status filter that hides finished work. */
+/**
+ * Live (non-deleted) pieces, optionally narrowed to one status. "all" keeps
+ * every status, including published — this is a working view, not a status
+ * filter that hides finished work.
+ *
+ * Archived pieces are the exception to "all": they answer only to their own
+ * filter. Archive is how a writer says "stop showing me this", so a view
+ * called All that still showed them would make the gesture pointless. That
+ * also makes "archived" the one filter here that reads a field rather than a
+ * status, which is right — a piece keeps whatever status it had when it was
+ * put away, and gets it back on the way out.
+ */
 export function filterPieces(pieces: readonly ContentPiece[], filter: PieceFilter): ContentPiece[] {
   const live = pieces.filter((p) => p.deletedAt === undefined);
-  if (filter === "all") return live;
-  return live.filter((p) => p.status === filter);
+  if (filter === "archived") return live.filter((p) => p.archivedAt !== undefined);
+  const current = live.filter((p) => p.archivedAt === undefined);
+  if (filter === "all") return current;
+  return current.filter((p) => p.status === filter);
 }
 
 export interface PieceFilterCounts {
@@ -29,13 +42,25 @@ export interface PieceFilterCounts {
   inbox: number;
   "in-progress": number;
   ready: number;
+  archived: number;
 }
 
 /** Counts for the filter chips, computed once over the full live set. */
 export function filterCounts(pieces: readonly ContentPiece[]): PieceFilterCounts {
   const live = pieces.filter((p) => p.deletedAt === undefined);
-  const counts: PieceFilterCounts = { all: live.length, inbox: 0, "in-progress": 0, ready: 0 };
+  const counts: PieceFilterCounts = {
+    all: 0,
+    inbox: 0,
+    "in-progress": 0,
+    ready: 0,
+    archived: 0,
+  };
   for (const piece of live) {
+    if (piece.archivedAt !== undefined) {
+      counts.archived += 1;
+      continue;
+    }
+    counts.all += 1;
     if (piece.status === "inbox") counts.inbox += 1;
     else if (piece.status === "in-progress") counts["in-progress"] += 1;
     else if (piece.status === "ready") counts.ready += 1;
@@ -48,8 +73,21 @@ export function filterCounts(pieces: readonly ContentPiece[]): PieceFilterCounts
  * createdAt first (matches content-selectors' publishQueue — the "ready"
  * filter's default sort is this mode). "manual" uses the stored `order`
  * field, the same one drag-reorder writes.
+ *
+ * Pinned pieces float above the rest in every mode except "manual", where the
+ * writer has already said where each piece goes by dragging it and a float
+ * would silently overrule them. Among themselves, pinned pieces keep the
+ * mode's own ordering, so pinning is a promotion rather than a second sort.
  */
 export function sortPieces(pieces: readonly ContentPiece[], mode: PieceSortMode): ContentPiece[] {
+  const ordered = sortWithinGroup(pieces, mode);
+  if (mode === "manual") return ordered;
+  const pinned = ordered.filter((p) => p.pinnedAt !== undefined);
+  if (pinned.length === 0) return ordered;
+  return [...pinned, ...ordered.filter((p) => p.pinnedAt === undefined)];
+}
+
+function sortWithinGroup(pieces: readonly ContentPiece[], mode: PieceSortMode): ContentPiece[] {
   const list = pieces.slice();
   switch (mode) {
     case "newest":
@@ -161,6 +199,7 @@ export const EMPTY_STATE_COPY: Record<PieceFilter, string> = {
   inbox: "Nothing waiting. Agents drop drafts here — or snip one out yourself.",
   "in-progress": "Nothing in motion. Pull a piece from the inbox to start shaping it.",
   ready: "Nothing queued. Mark a piece ready when it's good to publish.",
+  archived: "Nothing put away. Archiving a piece hides it here without deleting a word.",
 };
 
 /**

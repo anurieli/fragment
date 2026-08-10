@@ -68,9 +68,47 @@ Rewrite the selected text according to the instruction. Your result must:
 
 Return ONLY the edited text — no explanations, no markdown code fences, no quotes, just the replacement text.`;
 
-export const DEFAULT_NOTE_CREATION_PROMPT = `You are a writing assistant. The user wants to create a new document from scratch.
+/** Document shape for note generation. Deliberately document-shaped only:
+ * short-form platform content (LinkedIn posts, tweets) belongs to pieces,
+ * not notes, so it is not offered here. */
+export type GenerateFormat = "freeform" | "essay" | "blog" | "newsletter" | "script";
+export type GenerateLength = "auto" | "short" | "medium" | "long";
 
-Essay goal: "{goal}"
+const FORMAT_INSTRUCTIONS: Record<GenerateFormat, string> = {
+  freeform: "Use whatever structure fits the content best",
+  essay: "Shape it as an essay: one clear through-line from opening to conclusion, built from paragraphs rather than bullet points, with headings only if the piece is long enough to need them",
+  blog: "Shape it as a blog post: a hook up top, scannable sections with headings, short paragraphs",
+  newsletter: "Shape it as a newsletter issue: address the reader directly, open strong, and separate the segments clearly",
+  script: "Shape it as a spoken script: conversational sentences meant to be read aloud, clear beats, minimal formatting",
+};
+
+const LENGTH_INSTRUCTIONS: Record<GenerateLength, string> = {
+  auto: "Choose a length that fits the subject and format",
+  short: "Keep it short: roughly 150-300 words",
+  medium: "Aim for roughly 500-800 words",
+  long: "Write a full-length piece: roughly 1,200-2,000 words",
+};
+
+/** Compose the note-creation prompt template for the chosen format and length.
+ * Format/length are baked into the template client-side (they come from fixed
+ * enums, never user text); {goal}, {audience}, {tone}, {remember} and
+ * {userInstruction} stay as placeholders for /api/generate to substitute. */
+export function buildNoteCreationPrompt(
+  format: GenerateFormat = "freeform",
+  length: GenerateLength = "auto",
+): string {
+  return `You are a writing assistant. The user wants to create a new document from scratch.
+
+The document belongs to an idea the user is developing. Here is what is
+already in that idea, including anything they have written on it and the
+sources they attached:
+---
+{contextAbove}
+---
+Use this to stay on their specific argument rather than writing a generic
+treatment of the topic, and do not restate what they have already written.
+
+Document goal: "{goal}"
 Target audience: "{audience}"
 Tone: "{tone}"
 Additional context to remember: "{remember}"
@@ -80,11 +118,17 @@ The user described what they want to write:
 
 Write a first draft based on their description. The draft should:
 1. Start with a clear, compelling title as an H1 heading
-2. Be well-structured with appropriate headings and paragraphs
-3. Serve as a solid starting point that the user can refine
-4. Be written in a natural, engaging tone
+2. ${FORMAT_INSTRUCTIONS[format]}
+3. ${LENGTH_INSTRUCTIONS[length]}
+4. Serve as a solid starting point that the user can refine
+5. Be written in a natural, engaging tone
 
-Return ONLY the draft content in markdown — no explanations, no code fences, just the document.`;
+If the user's own description asks for a specific format or length, follow their description over the guidance above.
+
+Return ONLY the draft content in markdown: no explanations, no code fences, just the document.`;
+}
+
+export const DEFAULT_NOTE_CREATION_PROMPT = buildNoteCreationPrompt();
 
 // Sent through the same /api/generate substitution as Flow, so it may only use
 // the placeholders that route knows: {goal}, {audience}, {tone}, {remember},

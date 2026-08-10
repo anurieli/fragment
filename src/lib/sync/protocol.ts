@@ -24,6 +24,11 @@ export const SYNCED_COLLECTIONS = [
   "notes",
   "snippets",
   "noteVersions",
+  // Version history keyed to fragments rather than notes. Runs alongside
+  // noteVersions while the one-entity migration rolls out: a device that has
+  // not migrated yet still writes noteVersions, and both have to reach every
+  // device or a version saved on one machine would be missing on another.
+  "pieceVersions",
   "ideas",
   "contentPieces",
   "resources",

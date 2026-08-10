@@ -9,6 +9,7 @@ const FILTER_LABELS: Record<PieceFilter, string> = {
   inbox: "Inbox",
   "in-progress": "In progress",
   ready: "Ready",
+  archived: "Archived",
 };
 
 const SORT_OPTIONS: { value: PieceSortMode; label: string }[] = [
@@ -31,8 +32,14 @@ interface PieceFilterBarProps {
 
 /**
  * Instant client-side filter chips over one list of pieces, plus a sort
- * control and "+ New piece". Numbers 1-4 (see shortform-view.tsx's keydown
+ * control and "+ New piece". Numbers 1-5 (see shortform-view.tsx's keydown
  * handler) jump straight to a filter, in this same left-to-right order.
+ *
+ * Archived is the one chip that comes and goes: an idea nobody has archived
+ * anything in should not carry a permanent "Archived 0", and the writer who
+ * does use it gets the chip the moment there is something behind it. It also
+ * stays put while it is the active filter, so pressing 5 into an empty
+ * archive does not hide the chip you just selected.
  */
 export function PieceFilterBar({
   filter,
@@ -45,7 +52,9 @@ export function PieceFilterBar({
   return (
     <div className="flex items-center gap-2 px-8 pt-2 pb-3 shrink-0">
       <div className="flex items-center gap-1">
-        {PIECE_FILTERS.map((f) => (
+        {PIECE_FILTERS.filter(
+          (f) => f !== "archived" || counts.archived > 0 || filter === "archived",
+        ).map((f) => (
           <button
             key={f}
             onClick={() => onFilterChange(f)}

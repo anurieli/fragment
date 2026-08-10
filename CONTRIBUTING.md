@@ -14,28 +14,52 @@ contributions that keep it simple and focused are very welcome.
 
 ## Getting set up
 
+This is `fragment-cloud`, the private hosted edition. Unlike the public client, it
+has a backend: Postgres, Google sign-in, and sync.
+
 ```bash
-git clone https://github.com/anurieli/fragment.git
-cd fragment
+git clone https://github.com/anurieli/fragment-cloud.git
+cd fragment-cloud
 npm install
+cp .env.example .env.local   # then fill it in, see CLOUD.md
 npm run dev
 ```
 
-Open http://localhost:3100. That's it: Fragment runs entirely in your browser
-(IndexedDB) with no backend and no configuration. To use AI, open **Settings > AI**
-and either paste an API key (OpenRouter, OpenAI, Anthropic, Perplexity), point it at
-a local **Ollama** instance, or click **Sign in with ChatGPT** for Codex.
+Open http://localhost:3100. Writing works offline against IndexedDB with no
+configuration, but accounts, sync, and share links need the environment variables
+and database described in [`CLOUD.md`](./CLOUD.md). To use AI, open
+**Settings > AI** and either paste an API key (OpenRouter, OpenAI, Anthropic,
+Perplexity), point it at a local **Ollama** instance, or click **Sign in with
+ChatGPT** for Codex.
 
 ## Project layout
 
-The architecture, data model, UI specs, and interaction flows are documented in
-[`PRD.md`](./PRD.md). Read it before making structural changes. In short:
+[`PRD.md`](./PRD.md) is the product spec: what Fragment is and how it should
+behave. For structure, read the code, starting with `src/lib/db.ts` (the Dexie
+schema) and `src/lib/content-engine/` (ideas and the pieces inside them). In
+short:
 
 - `src/app/` — Next.js App Router pages and API route handlers
 - `src/components/` — UI (editor, sidebar, Snip Bar, settings, etc.)
-- `src/stores/` — Zustand state (`app-store`, `data-store`, `settings-store`)
-- `src/lib/` — types, persistence (Dexie), AI provider runtime, utilities
+- `src/stores/` — Zustand state (`app-store`, `data-store`, `content-store`, `settings-store`)
+- `src/lib/` — types, persistence (Dexie), sync, AI provider runtime, utilities
 - `src/hooks/` — feature hooks (Snip labeling, Flow generation, Refine editing)
+- `packages/fragment-mcp/` — the MCP server agents use to file ideas
+
+## Docs change with the code
+
+A pull request that changes how something behaves updates the doc that
+describes it in the same change:
+
+| You changed | Update |
+|---|---|
+| A feature's behaviour | `docs/FEATURES.md` |
+| The first-run walkthrough | `docs/ONBOARDING.md` |
+| The agent handoff format or an MCP tool | `docs/AGENT-API.md` |
+
+Docs that lag the code are worse than no docs, because the reader cannot tell
+which parts still hold. Keeping them in the same commit is the only version of
+this rule that survives contact with a busy week.
 
 ## Development workflow
 

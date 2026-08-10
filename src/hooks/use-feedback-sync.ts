@@ -30,7 +30,7 @@ export function useFeedbackSync(): void {
                 appVersion: item.metadata.appVersion,
                 screenResolution: item.metadata.screenResolution,
                 userAgent: item.metadata.userAgent,
-                activeNoteId: item.metadata.activeNoteId,
+                activePieceId: item.metadata.activePieceId,
               },
               {
                 screenshot: item.screenshot,

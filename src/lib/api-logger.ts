@@ -39,11 +39,15 @@ export async function logApiCall(
   provider: string,
   model: string,
   meta: ApiResponseMeta,
-  noteId?: string,
+  pieceId?: string,
 ): Promise<void> {
   const log: ApiLog = {
     id: generateId(),
-    noteId,
+    // The fragment id goes into the column still called `noteId`. This table
+    // is local-only and never synced, so the index name is invisible to
+    // everyone including other devices, and renaming it would cost a Dexie
+    // schema version for nothing a user could see.
+    noteId: pieceId,
     timestamp: Date.now(),
     route,
     caller,
@@ -113,20 +117,21 @@ export interface ApiUsageStats {
 }
 
 // ---------------------------------------------------------------------------
-// Per-note usage stats
+// Per-fragment usage stats
 // ---------------------------------------------------------------------------
 
-export interface NoteUsageStats {
+export interface PieceUsageStats {
   totalCost: number;
   totalTokens: number;
   totalCalls: number;
   callsByRoute: { label: number; generate: number; edit: number };
 }
 
-export async function getApiUsageStatsForNote(noteId: string): Promise<NoteUsageStats> {
-  const logs = await db.apiLogs.where("noteId").equals(noteId).toArray();
+export async function getApiUsageStatsForPiece(pieceId: string): Promise<PieceUsageStats> {
+  // `noteId` is the existing index name on a local-only table; see logApiCall.
+  const logs = await db.apiLogs.where("noteId").equals(pieceId).toArray();
 
-  const stats: NoteUsageStats = {
+  const stats: PieceUsageStats = {
     totalCost: 0,
     totalTokens: 0,
     totalCalls: logs.length,

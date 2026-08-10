@@ -13,14 +13,13 @@ import {
   getSyncSnapshot,
 } from "@/lib/sync/engine";
 import {
-  loadAllNotes,
   loadAllIdeas,
   loadAllContentPieces,
   loadAllResources,
   loadAllVoices,
   loadSnippetsForIdea,
-  loadSnippetsForNote,
-  loadVersionsForNote,
+  loadSnippetsForPiece,
+  loadVersionsForPiece,
 } from "@/lib/persistence";
 
 /**
@@ -54,26 +53,24 @@ export function useCloudSync(): void {
 
     async function refresh() {
       try {
-        const activeNoteId = useAppStore.getState().activeNoteId;
+        const activePieceId = useAppStore.getState().activePieceId;
         const activeIdeaId = useAppStore.getState().activeIdeaId;
-        const [notes, ideas, pieces, resources, voices, noteSnippets, ideaSnippets, versions] = await Promise.all([
-          loadAllNotes(),
+        const [ideas, pieces, resources, voices, pieceSnippets, ideaSnippets, versions] = await Promise.all([
           loadAllIdeas(),
           loadAllContentPieces(),
           loadAllResources(),
           loadAllVoices(),
-          activeNoteId ? loadSnippetsForNote(activeNoteId) : Promise.resolve([]),
+          activePieceId ? loadSnippetsForPiece(activePieceId) : Promise.resolve([]),
           activeIdeaId ? loadSnippetsForIdea(activeIdeaId) : Promise.resolve([]),
-          activeNoteId ? loadVersionsForNote(activeNoteId) : Promise.resolve([]),
+          activePieceId ? loadVersionsForPiece(activePieceId) : Promise.resolve([]),
         ]);
         await refreshSettingsFromDatabase();
         if (cancelled) return;
 
-        useDataStore.getState().setNotes(notes);
         useContentStore.getState().setIdeas(ideas);
         useContentStore.getState().setPieces(pieces);
         useContentStore.getState().setResources(resources);
-        const snippets = [...noteSnippets, ...ideaSnippets].filter(
+        const snippets = [...pieceSnippets, ...ideaSnippets].filter(
           (snippet, index, all) => all.findIndex((candidate) => candidate.id === snippet.id) === index,
         );
         useDataStore.getState().setSnippets(snippets);

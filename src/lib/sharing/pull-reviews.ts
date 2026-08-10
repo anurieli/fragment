@@ -1,24 +1,30 @@
+import type { ContentPiece } from "@/lib/content-engine";
 import type { ReviewReturn } from "@/lib/types";
 import { listShares, listReviews } from "./client";
+import { shareKeyFor } from "./share-key";
 
 /**
- * Pull whatever reviewers have left on a note's hosted share links into
+ * Pull whatever reviewers have left on a fragment's hosted share links into
  * local storage. Shared between the export menu's manual "Check for
  * comments" and the toolbar's "View comments" affordance (ARI-245), so both
  * ways in land the same reviews the same way rather than drifting apart.
+ *
+ * Takes the fragment rather than an id because the two sides of the trip are
+ * keyed differently: links are listed under the share key, and what comes
+ * back is stored against the fragment itself.
  */
 export async function pullHostedReviews(
-  noteId: string,
-  saveHostedReview: (noteId: string, guestId: string, review: ReviewReturn) => Promise<unknown>,
+  piece: Pick<ContentPiece, "id" | "legacyNoteId">,
+  saveHostedReview: (pieceId: string, guestId: string, review: ReviewReturn) => Promise<unknown>,
 ): Promise<{ imported: number; hasShares: boolean }> {
-  const shares = await listShares(noteId);
+  const shares = await listShares(shareKeyFor(piece));
   const perShare = await Promise.all(shares.map((s) => listReviews(s.id).catch(() => [])));
 
   let imported = 0;
   for (const reviews of perShare) {
     for (const review of reviews) {
       if (review.comments.length === 0 && !review.editedFullText) continue;
-      await saveHostedReview(noteId, review.guestId, {
+      await saveHostedReview(piece.id, review.guestId, {
         docId: review.guestId,
         reviewerName: review.name?.trim() || review.email,
         reviewerEmail: review.email,

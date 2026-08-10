@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2 } from "lucide-react";
+import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -13,6 +14,7 @@ import {
   createKitBroadcast,
   deriveKitSubject,
   markdownToCleanHtml,
+  preserveEmptyParagraphs,
 } from "@/lib/publish";
 import {
   copyAsMarkdown,
@@ -29,7 +31,7 @@ import { isHosted } from "@/lib/edition";
 import type { Editor } from "@tiptap/react";
 
 interface ExportMenuProps {
-  noteId: string;
+  pieceId: string;
   editor: Editor;
 }
 
@@ -45,7 +47,7 @@ function triggerHtmlDownload(html: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ExportMenu({ noteId, editor }: ExportMenuProps) {
+export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -56,8 +58,8 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   // This menu hangs off a toolbar that can sit low in the window, and it's
   // long enough (publish, copy, download, review) to run off the bottom.
   const placement = useMenuPlacement(open, menuRef, dropdownRef);
-  const { notes, createVersion } = useDataStore();
-  const markNotePublishPending = useDataStore((s) => s.markNotePublishPending);
+  const createVersion = useDataStore((s) => s.createVersion);
+  const markPiecePublishPending = useDataStore((s) => s.markPiecePublishPending);
   const userProfile = useSettingsStore((s) => s.settings.userProfile);
   const showToast = useToastStore((s) => s.showToast);
   const substackPublicationUrl = userProfile.substackPublicationUrl;
@@ -65,7 +67,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const kitApiKey = userProfile.kitApiKey;
   const hasKitKey = Boolean(kitApiKey?.trim());
   const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
-  const note = notes[noteId];
+  const piece = useContentStore((s) => s.pieces[pieceId]);
   // Link sharing needs a server to point the link at. The self-hosted and
   // desktop builds keep the emailed-file route, which needs nothing.
   const canShareLink = isHosted();
@@ -82,8 +84,10 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   }, [open]);
 
   const getMarkdown = useCallback((): string => {
+    // Same NBSP-sentinel pass the editor applies at save time: without it,
+    // empty paragraphs collapse to nothing in every copy/share/download.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (editor.storage as any).markdown.getMarkdown() as string;
+    return preserveEmptyParagraphs((editor.storage as any).markdown.getMarkdown() as string);
   }, [editor]);
 
   const getHtml = useCallback((): string => {
@@ -94,17 +98,21 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     return editor.getJSON();
   }, [editor]);
 
-  if (!note) return null;
+  if (!piece) return null;
+
+  // A fragment's title is optional; the download, review-file and share
+  // helpers all already turn an empty one into "Untitled".
+  const title = piece.title ?? "";
 
   async function handleCopyMarkdown() {
-    createVersion(noteId, "Copied as Markdown", "export-md");
+    createVersion(pieceId, "Copied as Markdown", "export-md");
     await copyAsMarkdown(getMarkdown());
     showToast("Copied as Markdown");
     setOpen(false);
   }
 
   async function handleCopyHtml() {
-    createVersion(noteId, "Copied as HTML", "export-html");
+    createVersion(pieceId, "Copied as HTML", "export-html");
     await copyAsHtml(getHtml());
     showToast("Copied as HTML");
     setOpen(false);
@@ -115,7 +123,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   // Tiptap editor markup — which is what pastes cleanly into Substack's
   // rich-text composer. Distinct from "Copy as HTML" above (editor.getHTML()).
   async function handleCopyCleanHtml() {
-    createVersion(noteId, "Copied as clean HTML", "export-html");
+    createVersion(pieceId, "Copied as clean HTML", "export-html");
     await copyForPlatform(getMarkdown(), "html");
     showToast("Copied as clean HTML");
     setOpen(false);
@@ -128,17 +136,18 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     // user-gesture timing for why the ordering matters here.
     openComposer("substack", { publicationUrl: substackPublicationUrl });
     void copyForPlatform(getMarkdown(), "substack");
-    markNotePublishPending(noteId);
+    markPiecePublishPending(pieceId);
     showToast("Copied. Opening Substack — Fragment will confirm once it's live.");
     setOpen(false);
   }
 
-  // ARI-164: a Kit draft is not "published" — notes have no status field to
-  // begin with, so unlike the piece-share-menu's "Schedule on Kit" (which
-  // does flip a piece to "published"), this action is toast-only. Nothing
-  // is stamped: `markNotePublishPending` is reserved for the Substack RSS
-  // verified-publish loop (use-publish-verification.ts polls the Substack
-  // feed specifically), which a Kit draft has no bearing on.
+  // ARI-164: a Kit draft is not "published", it is a draft sitting in someone
+  // else's editor, so unlike the piece-share-menu's "Schedule on Kit" (which
+  // does flip a fragment to "published") this action is toast-only and leaves
+  // the fragment's status alone. Nothing is stamped either:
+  // `markPiecePublishPending` is reserved for the Substack RSS verified-publish
+  // loop (use-publish-verification.ts polls the Substack feed specifically),
+  // which a Kit draft has no bearing on.
   async function handleSendToKitDraft() {
     if (!hasKitKey || kitDraftBusy) return;
     setKitDraftBusy(true);
@@ -146,7 +155,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
       const markdown = getMarkdown();
       const result = await createKitBroadcast({
         apiKey: kitApiKey,
-        subject: deriveKitSubject(note.title, markdown),
+        subject: deriveKitSubject(title, markdown),
         contentHtml: markdownToCleanHtml(markdown),
       });
       showToast(`Draft created in Kit — finish it there: ${result.url}`);
@@ -159,40 +168,40 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   }
 
   function handleDownloadMd() {
-    createVersion(noteId, "Downloaded as .md", "download-md");
-    const filename = downloadAsMarkdown(getMarkdown(), note.title);
+    createVersion(pieceId, "Downloaded as .md", "download-md");
+    const filename = downloadAsMarkdown(getMarkdown(), title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   function handleDownloadHtml() {
-    createVersion(noteId, "Downloaded as .html", "download-html");
-    const filename = downloadAsHtml(getHtml(), note.title);
+    createVersion(pieceId, "Downloaded as .html", "download-html");
+    const filename = downloadAsHtml(getHtml(), title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   async function handleDownloadPdf() {
-    createVersion(noteId, "Downloaded as PDF", "download-pdf");
-    const filename = await downloadAsPdf(getHtml(), note.title);
+    createVersion(pieceId, "Downloaded as PDF", "download-pdf");
+    const filename = await downloadAsPdf(getHtml(), title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   async function handleDownloadDocx() {
-    createVersion(noteId, "Downloaded as .docx", "download-docx");
+    createVersion(pieceId, "Downloaded as .docx", "download-docx");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filename = await downloadAsDocx(getJson() as any, note.title);
+    const filename = await downloadAsDocx(getJson() as any, title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   function handleSendForReview() {
     const html = buildReviewFile(
-      { title: note.title, markdown: getMarkdown() },
+      { title, markdown: getMarkdown() },
       { authorName: userProfile.displayName, authorEmail: userProfile.email }
     );
-    triggerHtmlDownload(html, reviewFileName(note.title));
+    triggerHtmlDownload(html, reviewFileName(title));
     showToast("Review file downloaded — email it to your reviewer");
     setOpen(false);
   }
@@ -210,7 +219,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     try {
       const text = await file.text();
       const review = parseReviewReturn(text);
-      await saveReviewReturn(noteId, review);
+      await saveReviewReturn(pieceId, review);
       showToast(
         `Imported ${review.comments.length} comment${review.comments.length === 1 ? "" : "s"} from ${review.reviewerName || "reviewer"}`
       );
@@ -376,13 +385,13 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
       )}
 
       {reviewPanelOpen && (
-        <ReviewPanel noteId={noteId} editor={editor} onClose={() => setReviewPanelOpen(false)} />
+        <ReviewPanel pieceId={pieceId} editor={editor} onClose={() => setReviewPanelOpen(false)} />
       )}
 
       {shareDialogOpen && (
         <ShareDialog
-          noteId={noteId}
-          title={note.title}
+          piece={piece}
+          title={title}
           // Read at click time, not render time, so the frozen copy reviewers
           // see is what was on screen when the link was made.
           getMarkdown={getMarkdown}

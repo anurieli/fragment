@@ -249,6 +249,7 @@ const STYLES = `
   .review-doc h2 { font-size: 1.4rem; }
   .review-doc h3 { font-size: 1.15rem; }
   .review-doc p { margin: 0 0 1em; }
+  .review-doc hr { border: none; border-top: 1px solid var(--color-border); margin: 2rem 0; }
   .review-doc a { color: var(--color-gold); }
   .review-doc blockquote { border-left: 3px solid var(--color-gold); padding-left: 1rem; margin: 1em 0; color: var(--color-text-secondary); }
   .review-doc code { font-family: var(--font-mono); background: var(--color-surface-2); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }

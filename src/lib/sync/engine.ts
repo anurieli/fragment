@@ -24,7 +24,7 @@ import {
   isCloudReachable,
   postSync,
 } from "./api";
-import { removeNoteBackupArtifacts } from "@/lib/persistence";
+import { removePieceFromFs } from "@/lib/fs-backup";
 
 /**
  * The client half of sync: drain the outbox, apply what comes back, repeat.
@@ -205,9 +205,26 @@ async function buildChanges(entries: OutboxEntry[]): Promise<SyncChange[]> {
 async function applyRemote(changes: SyncChange[]): Promise<number> {
   if (changes.length === 0) return 0;
 
-  const tables = SYNCED_COLLECTIONS.map((c) => tableFor(c));
+  // Guard against a collection this build has no table for. The account is
+  // shared with whatever other versions of Fragment the writer is running, and
+  // the wire carries no version field, so a newer device can push a collection
+  // an older one has never heard of. Reaching for db[unknown] throws, and
+  // because that happens inside the apply transaction it takes down the whole
+  // sync loop, stranding a client that is otherwise working fine.
+  //
+  // Skipping degrades instead of breaking, but it is not free: the cursor
+  // still advances past the skipped rev, so this client will not see those
+  // records again until something touches them. That is the right trade for
+  // the case it exists for, a stale tab on older code, which stops mattering
+  // the moment the tab reloads. It would be the wrong trade for a collection
+  // that a supported build is expected to be missing, and there is no such
+  // collection today.
+  const tables = SYNCED_COLLECTIONS.map((c) => tableFor(c)).filter(Boolean);
   let applied = 0;
-  const deletedNoteIds: string[] = [];
+  // Fragments deleted elsewhere still have a file copy on this device when it
+  // is the desktop build. Dexie's delete does not reach the filesystem, so the
+  // stale file would be read back as a live fragment on the next cold start.
+  const deletedPieceIds: string[] = [];
 
   await db.transaction("rw", [...tables, db.outbox], async () => {
     markTransactionAsRemoteApply(Dexie.currentTransaction);
@@ -215,6 +232,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
     for (const change of changes) {
       const collection = change.collection;
       const table = tableFor(collection);
+      if (!table) continue;
 
       // A local edit still waiting to be pushed and newer than what arrived
       // wins: it is about to be sent, and overwriting it here would destroy a
@@ -224,7 +242,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
 
       if (change.deleted) {
         await table.delete(change.id);
-        if (collection === "notes") deletedNoteIds.push(change.id);
+        if (collection === "contentPieces") deletedPieceIds.push(change.id);
         applied++;
         continue;
       }
@@ -240,7 +258,7 @@ async function applyRemote(changes: SyncChange[]): Promise<number> {
     }
   });
 
-  await Promise.all(deletedNoteIds.map((id) => removeNoteBackupArtifacts(id)));
+  await Promise.all(deletedPieceIds.map((id) => removePieceFromFs(id)));
 
   return applied;
 }

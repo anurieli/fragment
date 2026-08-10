@@ -184,23 +184,28 @@ describe("hierarchyRollup", () => {
 });
 
 describe("shortformOnly", () => {
-  it("drops long-form pieces, which live in the Write space", () => {
+  it("drops long-form fragments, which live in the Write space", () => {
     const pieces = [
-      makePiece({ id: "short", body: "inline" }),
-      makePiece({ id: "long", body: undefined, noteId: "note-1" }),
+      makePiece({ id: "short", format: "tweet" }),
+      makePiece({ id: "long", format: "essay" }),
     ];
     expect(shortformOnly(pieces).map((p) => p.id)).toEqual(["short"]);
+  });
+
+  it("keeps a fragment whose text is still empty", () => {
+    const pieces = [makePiece({ id: "blank", format: "tweet", body: "" })];
+    expect(shortformOnly(pieces).map((p) => p.id)).toEqual(["blank"]);
   });
 });
 
 describe("draftsForIdea", () => {
-  it("returns only this idea's live note-backed pieces, oldest first", () => {
+  it("returns only this idea's live long-form fragments, oldest first", () => {
     const pieces = [
-      makePiece({ id: "b", ideaId: "root", body: undefined, noteId: "n2", createdAt: 2000 }),
-      makePiece({ id: "a", ideaId: "root", body: undefined, noteId: "n1", createdAt: 1000 }),
-      makePiece({ id: "short", ideaId: "root", body: "inline" }),
-      makePiece({ id: "other", ideaId: "elsewhere", body: undefined, noteId: "n3" }),
-      makePiece({ id: "gone", ideaId: "root", body: undefined, noteId: "n4", deletedAt: 5 }),
+      makePiece({ id: "b", ideaId: "root", format: "essay", createdAt: 2000 }),
+      makePiece({ id: "a", ideaId: "root", format: "substack", createdAt: 1000 }),
+      makePiece({ id: "short", ideaId: "root", format: "tweet" }),
+      makePiece({ id: "other", ideaId: "elsewhere", format: "essay" }),
+      makePiece({ id: "gone", ideaId: "root", format: "essay", deletedAt: 5 }),
     ];
     expect(draftsForIdea("root", pieces).map((p) => p.id)).toEqual(["a", "b"]);
   });
