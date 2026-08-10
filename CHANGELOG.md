@@ -2,6 +2,49 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-10 - The one-entity model, plus everything the hosted edition had gained since 3 August
+
+**Summary**: The open-source client had drifted eight days behind the hosted edition. This closes the gap in one pass and changes how Fragment stores what you write.
+
+### Everything you write is a piece, inside an idea
+
+A piece now holds its own text. Before, a long-form draft was two objects, a note holding the words and a piece pointing at it, and short-form cards were a third kind of thing. That distinction is gone: a draft and a card are the same object at different sizes, so nothing has to be converted into anything else to move between them.
+
+Your existing library migrates on first open. The migration snapshots the database, does a dry run, and verifies the result before it commits; if any of that fails, Fragment opens a repair screen rather than a half-moved library. Schema version 20 is untouched, and the new shape lands as version 21, so an existing library upgrades in place.
+
+### Writing
+
+- **Author spacing is preserved.** Blank lines and runs of spaces survive saving, reopening, sharing, publishing, and export. Empty lines render at full height in the read view instead of collapsing.
+- **Drag a passage to a new place in the draft.** Select text and move it, in the long-form editor and in short-form cards.
+- **The selection toolbar stays with the selection**, including when the text scrolls out of view and back, and it appears immediately over a selection that is already standing.
+- **Capture an idea from a highlighted passage** without losing your place in what you were writing.
+- **Right-click menus** in the editor and the sidebar.
+
+### AI
+
+- **Generate with AI is one panel everywhere.** Format chips (freeform, essay, blog post, newsletter, script), length chips (auto, short, medium, long), the full context fields with a voice picker, and a model picker inline in the panel. A request typed into your own description beats the chips.
+- **Dictation.** Talk your prompt instead of typing it, using the browser's own speech recognition, with no round trip to a provider. Hidden where the browser does not support it.
+- **Flow asks before it writes**, and knows which idea it is standing in, so generated text arrives with the idea's context behind it. `/` works inside a short-form piece too.
+- **Audience and tone are inherited from the voice** you picked, so they stop being retyped per piece. Goal stays the piece's own.
+
+### Organising
+
+- **The sidebar collapses to a rail you can still use.** Search, create, and settings stay reachable while collapsed.
+- **Search collapses into a button** and expands in place of the create buttons.
+- **Archive instead of delete.** Put work away and reach it again, from a right-click menu, rather than choosing between keeping clutter and destroying it.
+- **Pin and priority flags** show in the list.
+- **The snip bar expands, marks what landed**, and holds the idea's other pieces alongside its snips, so the LinkedIn version or last week's paragraph is a panel switch away while you write. Pulling words out of a piece copies them; the piece stays where it is.
+- **The inbox holds only work that arrived from elsewhere**, not your own writing.
+- **Comments moved onto pieces.** Comments used to be anchored to notes, which no longer exist, so they now live on the piece or idea they were left against, including the "started from a comment" backlink on an idea.
+
+### Also
+
+Vocabulary is consistent across the interface: idea, draft, piece, snip. The word "note" is retired from anything you read, enforced by a test. The Substack and sharing paths keep the spacing you wrote.
+
+**Not included**: accounts, sync, sharing, and the server code behind them, which belong to the hosted edition and are not part of this repo.
+
+**Verification**: 803 tests passing across 58 files, typecheck and production build clean.
+
 ## 2026-08-06 12:11 - Add comments: note/idea commentary that can be turned into ideas (2908316)
 
 **Commit**: `2908316`
