@@ -2,7 +2,7 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
-## 2026-08-13 - A published piece says where it went, and a draft can say it shipped
+## 2026-08-13 - Publishing closes a piece, and says where it went
 
 Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.
 
@@ -15,6 +15,18 @@ Publishing worked and then went quiet. You could copy a piece for a platform, op
 **Ideas show what came of them.** An idea in the sidebar gave no sign of having produced anything. Ideas with published work now carry a green marker and the date they last shipped, and the row's summary counts them. This counts long-form drafts as well as short-form pieces, which matters because a published Substack draft was exactly the thing the old counts could not see.
 
 Pieces that are archived stay out of an idea's published count, so the marker always points at work you can still open.
+
+**Published text is closed.** Once a piece is published, the editor and the feed card go read-only and say so: "This is published. Its words are closed." What shipped is a fact, and quietly rewriting it turns the publish record into a claim about text that no longer exists.
+
+There are two ways forward, because they answer different questions. **Duplicate** is for when the next version is a new piece: it copies the words and the brief into a fresh in-progress piece in the same idea, and inherits none of the publish history. **Edit anyway** is for a typo, where making a whole second piece would split one piece's history over a comma.
+
+Taking that second route is recorded rather than hidden. The first change stamps the piece, and the notice starts reading "Published, edited since <date>. What is here no longer matches what went out." The unlock lasts only as long as you are looking at that piece: reopen it later and it is closed again, because publishing is why it was closed.
+
+**Finishing a publish now asks for the link.** Publishing somewhere without an API, a Substack post or note, an X intent, happens in another tab, so Fragment cannot see it land. It used to guess by watching your Substack feed for a matching title, which works for posts and never fires for notes, since notes are not in the feed. The pending badge now opens a field for the published link, which works for anywhere you publish and gives you the real URL immediately. The feed check still runs and still resolves the badge on its own when it can.
+
+An idea's rows show this too: a published draft's line reads "this is published" with the date instead of a word count and a last-edited time, and a published short-form row gets a padlock beside its status dot.
+
+The receipt names a place rather than a format. A long-form draft published to Substack used to read "Published to Essay", which names nowhere you can go; it reads the URL now, so it says Substack, LinkedIn, X, or the site's own domain.
 
 ## 2026-08-13 03:41 - fragment-mcp can connect to a hosted Fragment account
 The MCP server previously only wrote to the local inbox directory, which meant the agent and the Fragment app had to share a machine. Setting FRAGMENT_API_URL and FRAGMENT_API_TOKEN now switches fragment-mcp to a hosted transport: the same six tools, spoken over HTTPS to a Fragment server that supports agent tokens, scoped to that one account. Pushes are durable on response and reach every signed-in device through sync, no local app required. `fragment-mcp doctor` in hosted mode reports which account and scopes the token resolves to; setting exactly one of the two variables errors loudly instead of silently falling back to local files. The deliverability preflight moved onto the Transport interface because only the file transport needs one, and the HTTP transport gained unit tests for its error mapping.
