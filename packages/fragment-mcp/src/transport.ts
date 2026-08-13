@@ -74,6 +74,10 @@ export interface IdeaListEntry {
 }
 
 export interface Transport {
+  /** Optional preflight: throw when a write would land somewhere nothing
+   * will ever read (the file transport's ingress-blocked state). Transports
+   * whose writes fail loudly on their own (HTTP) simply don't implement it. */
+  assertDeliverable?(): Promise<void>;
   createIdea(input: CreateIdeaInput): Promise<Idea>;
   /** Takes an already-validated PieceHandoff (validate with the contract's
    * zod schemas before calling). Always creates a new piece file — agents

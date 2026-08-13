@@ -6,7 +6,7 @@ import type { Transport } from "./transport.js";
 export { CONTRACT_VERSION } from "../../../src/lib/content-engine/index.js";
 
 export { FileTransport, resolveInboxDir } from "./file-transport.js";
-export { HttpTransport, type HttpTransportConfig } from "./http-transport.js";
+export { HttpTransport, resolveHttpConfig, type HttpTransportConfig } from "./http-transport.js";
 export {
   TransportError,
   type AddResourceInput,
