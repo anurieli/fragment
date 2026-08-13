@@ -2,6 +2,20 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 - A published piece says where it went, and a draft can say it shipped
+
+Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.
+
+**A draft published to Substack is now recorded.** It never was. Publishing a draft from the editor put it in a pending state that the Substack feed check could see, and when the check found your post it said so in a toast and then dropped it. The piece stayed at "ready" forever, and reloading lost even the pending state. A draft published from the editor and a piece published from the feed now travel the same path, so a confirmed post becomes published, with the live URL taken off your feed.
+
+**Any piece can be marked published by hand, including a draft.** "Mark as published", with an optional URL, was only on feed cards. Drafts open in the editor, which had no such action, so the piece most likely to be published manually on Substack was the one piece you could not mark.
+
+**A published piece shows where it went and when.** Fragment was already recording the URL and the date and showing neither. Published pieces now carry a green badge naming the platform and the date, linking straight to the post when a URL is on file. It appears on the card and at the top of the editor's publish menu. Pieces marked published without a URL say so plainly rather than looking broken.
+
+**Ideas show what came of them.** An idea in the sidebar gave no sign of having produced anything. Ideas with published work now carry a green marker and the date they last shipped, and the row's summary counts them. This counts long-form drafts as well as short-form pieces, which matters because a published Substack draft was exactly the thing the old counts could not see.
+
+Pieces that are archived stay out of an idea's published count, so the marker always points at work you can still open.
+
 ## 2026-08-13 03:41 - fragment-mcp can connect to a hosted Fragment account
 The MCP server previously only wrote to the local inbox directory, which meant the agent and the Fragment app had to share a machine. Setting FRAGMENT_API_URL and FRAGMENT_API_TOKEN now switches fragment-mcp to a hosted transport: the same six tools, spoken over HTTPS to a Fragment server that supports agent tokens, scoped to that one account. Pushes are durable on response and reach every signed-in device through sync, no local app required. `fragment-mcp doctor` in hosted mode reports which account and scopes the token resolves to; setting exactly one of the two variables errors loudly instead of silently falling back to local files. The deliverability preflight moved onto the Transport interface because only the file transport needs one, and the HTTP transport gained unit tests for its error mapping.
 Files: packages/fragment-mcp/src/http-transport.ts, packages/fragment-mcp/src/file-transport.ts, packages/fragment-mcp/src/transport.ts, packages/fragment-mcp/src/tools.ts, packages/fragment-mcp/src/bin.ts, packages/fragment-mcp/src/index.ts, packages/fragment-mcp/src/__tests__/http-transport.test.ts, packages/fragment-mcp/README.md, docs/AGENT-API.md.
