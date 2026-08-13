@@ -50,6 +50,14 @@ Vocabulary is consistent across the interface: idea, draft, piece, snip. The wor
 
 **Verification**: 803 tests passing across 58 files, typecheck and production build clean.
 
+## 2026-08-07 - Prove a full library survives export, profile wipe, and restore (ARI-186)
+
+**Summary**: Added the missing end-to-end data-safety test for Fragment's full-library JSON backup. The test seeds every synced Dexie collection with linked legacy notes, snippets, note and piece versions, parent and child ideas, long-form and short-form pieces, idea-owned and piece-owned resources, reviews, comments, voices, samples, and settings. It exports through the production backup code, serializes and parses the file, deletes and recreates the real fake-IndexedDB database, imports through the production restore code, and compares the complete restored collection state with the export. Explicit assertions pin IDs, parent and owner relationships, piece statuses, tombstones, and created, updated, deleted, received, published, and pushed timestamps.
+
+**Files**: `src/__tests__/library-backup.test.ts` (new)
+
+**Verification**: 804 of 804 tests pass, `npx tsc --noEmit` is clean, and `npm run lint` exits 0 with 38 existing warnings and none in the backup test.
+
 ## 2026-08-06 12:11 - Add comments: note/idea commentary that can be turned into ideas (2908316)
 
 **Commit**: `2908316`
