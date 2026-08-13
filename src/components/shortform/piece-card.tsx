@@ -37,16 +37,9 @@ import { PieceRefineMenu } from "./piece-refine-menu";
 import { PieceTriageBar } from "./piece-triage";
 import { PieceMenuItems } from "./piece-menu-items";
 import { ContextMenu, useContextMenu } from "@/components/common/context-menu";
+import { PublishReceipt } from "@/components/publish/publish-receipt";
+import { FORMAT_LABELS } from "@/lib/format-labels";
 import { LiveMarkdownTextarea } from "./live-markdown-textarea";
-
-const FORMAT_LABELS: Record<ContentFormat, string> = {
-  tweet: "X",
-  linkedin: "LinkedIn",
-  substack: "Substack",
-  essay: "Essay",
-  script: "Script",
-  other: "Other",
-};
 
 const STATUS_LABELS: Record<ContentPiece["status"], string> = {
   inbox: "in inbox",
@@ -672,6 +665,10 @@ export function PieceCard({
           <span className={`w-1.5 h-1.5 rounded-full ${STATUS_META[piece.status].dotClass}`} />
           {STATUS_META[piece.status].label}
         </span>
+
+        {/* Where it went and when, linked when a URL is on file. "Published" on
+            its own never answered either question. */}
+        {piece.publish && <PublishReceipt publish={piece.publish} />}
 
         {/* Substack verified-publish loop: "awaiting confirmation" / "did
             this go live?" badge — see publishPendingState. */}

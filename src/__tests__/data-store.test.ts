@@ -34,7 +34,6 @@ function resetStores() {
   useDataStore.setState({
     snippets: {},
     versions: {},
-    pendingSubstackPublish: {},
     hydrated: true,
   });
   useContentStore.setState({
@@ -381,32 +380,9 @@ describe("data-store: versions", () => {
   });
 });
 
-describe("data-store: awaiting Substack confirmation", () => {
-  beforeEach(resetStores);
-
-  it("markPiecePublishPending stamps the fragment with when the attempt fired", () => {
-    useDataStore.getState().markPiecePublishPending("piece-1");
-    expect(useDataStore.getState().pendingSubstackPublish["piece-1"]).toBeGreaterThan(0);
-  });
-
-  it("clearPiecePublishPending resolves the attempt", () => {
-    useDataStore.getState().markPiecePublishPending("piece-1");
-    useDataStore.getState().clearPiecePublishPending("piece-1");
-    expect(useDataStore.getState().pendingSubstackPublish["piece-1"]).toBeUndefined();
-  });
-
-  it("one fragment's pending attempt is not another's", () => {
-    useDataStore.getState().markPiecePublishPending("piece-1");
-    useDataStore.getState().markPiecePublishPending("piece-2");
-
-    useDataStore.getState().clearPiecePublishPending("piece-1");
-
-    expect(Object.keys(useDataStore.getState().pendingSubstackPublish)).toEqual(["piece-2"]);
-  });
-
-  it("clearing a fragment that was never pending leaves the map alone", () => {
-    const before = useDataStore.getState().pendingSubstackPublish;
-    useDataStore.getState().clearPiecePublishPending("never-pending");
-    expect(useDataStore.getState().pendingSubstackPublish).toBe(before);
-  });
-});
+// The editor's "Publish to Substack" used to stamp an in-memory
+// pendingSubstackPublish map here. It now stamps the persisted
+// ContentPiece.publishAttemptedAt, the same field the feed's Share menu uses,
+// so that both surfaces reach the one verification branch that actually writes
+// a publish record. Coverage for the awaiting-confirmation state lives with
+// that field: publishPendingState in publish-verify.test.ts.

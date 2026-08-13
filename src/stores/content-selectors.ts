@@ -170,6 +170,45 @@ export function draftsForIdea(
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
+export interface IdeaPublishRollup {
+  /** How many of the idea's pieces are published. */
+  count: number;
+  /** The most recent publishedAt across them, or null when none is published. */
+  latestAt: number | null;
+}
+
+/**
+ * Whether anything came of an idea, and when it last did.
+ *
+ * Deliberately takes every format rather than reusing `pieceCountsForIdea`,
+ * which the sidebar calls with short-form only: a published long-form draft is
+ * precisely the case this answers, so it has to see drafts too.
+ *
+ * Archived pieces are excluded, matching `pieceCountsForIdea` and the rows the
+ * sidebar can actually show. Archiving something that shipped does not unship
+ * it, so the other choice is arguable, but an indicator pointing at a row the
+ * user cannot see is worse than a slightly conservative count.
+ *
+ * `latestAt` reads the publish record rather than `updatedAt`: when a piece went
+ * live and when it was last touched are different facts.
+ */
+export function publishRollupForIdea(
+  ideaId: string,
+  pieces: readonly ContentPiece[],
+): IdeaPublishRollup {
+  let count = 0;
+  let latestAt: number | null = null;
+  for (const piece of pieces) {
+    if (piece.deletedAt !== undefined || piece.archivedAt !== undefined) continue;
+    if (piece.ideaId !== ideaId) continue;
+    if (piece.status !== "published") continue;
+    count += 1;
+    const at = piece.publish?.publishedAt;
+    if (at !== undefined && (latestAt === null || at > latestAt)) latestAt = at;
+  }
+  return { count, latestAt };
+}
+
 /** Count of an idea's own (non-rolled-up) pieces per status, e.g. inbox count. */
 export function pieceCountsForIdea(
   ideaId: string,

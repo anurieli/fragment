@@ -14,6 +14,7 @@ import {
   markdownToCleanHtml,
 } from "@/lib/publish";
 import { canPublishToLinkedIn, publishLinkedInPost, ComposioApiError } from "@/lib/composio/linkedin";
+import { MarkPublishedForm } from "@/components/publish/mark-published-form";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -88,7 +89,6 @@ interface PieceShareMenuProps {
 export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   const [open, setOpen] = useState(false);
   const [manualFormOpen, setManualFormOpen] = useState(false);
-  const [manualUrl, setManualUrl] = useState("");
   const [scheduleFormOpen, setScheduleFormOpen] = useState(false);
   const [scheduleValue, setScheduleValue] = useState("");
   const [kitBusy, setKitBusy] = useState<"draft" | "schedule" | null>(null);
@@ -175,20 +175,6 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
     void copyForPlatform(body, "substack");
     updatePiece(piece.id, { publishAttemptedAt: Date.now() });
     showToast("Copied. Opening Substack — Fragment will confirm once it's live.");
-    closeAll();
-  }
-
-  function handleConfirmManualPublish() {
-    const url = manualUrl.trim();
-    setPieceStatus(piece.id, "published", {
-      platform: piece.format,
-      method: "manual",
-      publishedAt: Date.now(),
-      url: url || undefined,
-      verified: Boolean(url),
-    });
-    showToast(url ? "Marked published." : "Marked published — no URL on file.");
-    setManualUrl("");
     closeAll();
   }
 
@@ -407,26 +393,7 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
           >
             <span className="flex-1">Mark as published…</span>
           </MenuButton>
-          {manualFormOpen && (
-            <div className="px-3 pb-2 pt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-              <input
-                type="text"
-                value={manualUrl}
-                onChange={(e) => setManualUrl(e.target.value)}
-                placeholder="Published URL (optional)"
-                className="w-full bg-surface-2 border border-border-strong rounded-[var(--radius-sm)] px-2 py-1 text-[11px] text-text-primary placeholder:text-text-faint outline-none focus:border-border-active"
-              />
-              <p className="text-[10px] text-text-faint leading-snug">
-                Marks this piece published now, without waiting for verification.
-              </p>
-              <button
-                onClick={handleConfirmManualPublish}
-                className="w-full px-2 py-1 rounded-[var(--radius-sm)] text-[11px] text-text-primary bg-surface-2 hover:bg-surface-hover transition-colors duration-150"
-              >
-                Confirm
-              </button>
-            </div>
-          )}
+          {manualFormOpen && <MarkPublishedForm piece={piece} onDone={closeAll} />}
 
           <MenuButton
             onClick={() => {

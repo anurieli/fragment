@@ -24,7 +24,14 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { archivedIdeas, draftsForIdea, pieceCountsForIdea, shortformOnly } from "@/stores/content-selectors";
+import {
+  archivedIdeas,
+  draftsForIdea,
+  pieceCountsForIdea,
+  publishRollupForIdea,
+  shortformOnly,
+} from "@/stores/content-selectors";
+import { formatDate } from "@/lib/utils";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { PRIORITY_OPTIONS, priorityMeta } from "@/lib/priority";
 import { useToastStore } from "@/hooks/use-toast";
@@ -459,7 +466,11 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
       kids.some((k) => k.id === activeIdeaId);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
-    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}`;
+    // Across every format, unlike `counts` above: a shipped long-form draft is
+    // the main thing "did anything come of this idea?" is asking about.
+    const shipped = publishRollupForIdea(idea.id, allPieces);
+    const shippedSummary = shipped.count > 0 ? ` · ${shipped.count} published` : "";
+    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}${shippedSummary}`;
     const hasUnseenAgent = shortPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
@@ -522,6 +533,22 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 className="shrink-0 px-1.5 rounded-full text-[10px] font-[family-name:var(--font-mono)] text-gold bg-gold/10 border border-gold/20"
               >
                 {counts.inbox}
+              </span>
+            )}
+            {/* This idea shipped something. The count was already being
+                computed here and thrown away, so an idea gave no sign of having
+                produced published work. */}
+            {shipped.count > 0 && (
+              <span
+                title={
+                  shipped.latestAt !== null
+                    ? `${shipped.count} published · last on ${new Date(shipped.latestAt).toLocaleDateString()}`
+                    : `${shipped.count} published`
+                }
+                className="shrink-0 flex items-center gap-1 text-[10px] font-[family-name:var(--font-mono)] text-green"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green" />
+                {shipped.latestAt !== null && formatDate(shipped.latestAt)}
               </span>
             )}
             {hasUnseenAgent && (

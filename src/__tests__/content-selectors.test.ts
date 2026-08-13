@@ -7,6 +7,7 @@ import {
   pieceCountsForIdea,
   pinnedFirst,
   publishQueue,
+  publishRollupForIdea,
   shortformOnly,
   staleness,
   workingOn,
@@ -226,5 +227,62 @@ describe("pieceCountsForIdea", () => {
       ready: 1,
       published: 0,
     });
+  });
+});
+
+describe("publishRollupForIdea", () => {
+  function published(overrides: Partial<ContentPiece> = {}, publishedAt = 5000): ContentPiece {
+    return makePiece({
+      status: "published",
+      publish: { platform: "substack", method: "manual", publishedAt, verified: true },
+      ...overrides,
+    });
+  }
+
+  it("reports nothing shipped when nothing is published", () => {
+    const pieces = [makePiece({ id: "a", status: "ready" }), makePiece({ id: "b", status: "inbox" })];
+    expect(publishRollupForIdea("idea-1", pieces)).toEqual({ count: 0, latestAt: null });
+  });
+
+  it("counts published pieces for the given idea only", () => {
+    const pieces = [
+      published({ id: "a", ideaId: "root" }),
+      published({ id: "b", ideaId: "root" }),
+      published({ id: "c", ideaId: "other" }),
+      makePiece({ id: "d", ideaId: "root", status: "ready" }),
+    ];
+    expect(publishRollupForIdea("root", pieces).count).toBe(2);
+  });
+
+  // The whole point of the rollup: a long-form draft published to Substack is
+  // the case the sidebar's short-form-only counts could never see.
+  it("counts published long-form drafts, not just short-form pieces", () => {
+    const pieces = [published({ id: "draft", ideaId: "root", format: "substack" })];
+    expect(publishRollupForIdea("root", pieces).count).toBe(1);
+  });
+
+  it("takes the most recent publishedAt as latestAt", () => {
+    const pieces = [
+      published({ id: "old", ideaId: "root" }, 1000),
+      published({ id: "new", ideaId: "root" }, 9000),
+      published({ id: "mid", ideaId: "root" }, 4000),
+    ];
+    expect(publishRollupForIdea("root", pieces).latestAt).toBe(9000);
+  });
+
+  it("excludes deleted and archived pieces", () => {
+    const pieces = [
+      published({ id: "gone", ideaId: "root", deletedAt: 1 }),
+      published({ id: "put-away", ideaId: "root", archivedAt: 1 }),
+    ];
+    expect(publishRollupForIdea("root", pieces)).toEqual({ count: 0, latestAt: null });
+  });
+
+  // status "published" with no publish record cannot reach the store
+  // (assertPublishGuard rejects it), but the rollup should not invent a date if
+  // it ever sees one.
+  it("counts a published piece with no record but leaves latestAt null", () => {
+    const pieces = [makePiece({ id: "a", ideaId: "root", status: "published" })];
+    expect(publishRollupForIdea("root", pieces)).toEqual({ count: 1, latestAt: null });
   });
 });
