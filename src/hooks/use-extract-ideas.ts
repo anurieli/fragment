@@ -16,15 +16,22 @@ import {
   hasEnoughToExtract,
   parseExtracted,
   type ExtractedPiece,
+  type ExtractScope,
 } from "@/lib/agents/extract";
 
 export interface ExtractOutcome {
   created: number;
   truncated: boolean;
+  /** What was read, in the user's words. */
+  label: string;
 }
 
 /**
- * Run the idea extractor over one idea.
+ * Run the idea extractor over whatever it was pointed at.
+ *
+ * The scope is always explicit. "The whole idea" and "this one draft" produce
+ * different pieces from the same library, and an agent that will not say which
+ * it read is one you cannot use with four drafts open.
  *
  * Everything it creates lands in that idea's inbox, unpublished and untriaged,
  * which is where agent-pushed work already arrives. That is deliberate: this
@@ -36,20 +43,27 @@ export interface ExtractOutcome {
 export function useExtractIdeas() {
   const [isExtracting, setIsExtracting] = useState(false);
 
-  const extract = useCallback(async (ideaId: string): Promise<ExtractOutcome | null> => {
+  const extract = useCallback(async (scope: ExtractScope): Promise<ExtractOutcome | null> => {
     const content = useContentStore.getState();
-    const idea = content.ideas[ideaId];
-    if (!idea) return null;
+    const ideaId =
+      scope.kind === "idea" ? scope.ideaId : content.pieces[scope.pieceId]?.ideaId;
+    const idea = ideaId ? content.ideas[ideaId] : undefined;
+    if (!idea || !ideaId) return null;
 
     const source = buildExtractSource(
       idea,
       Object.values(content.pieces),
       Object.values(content.resources),
+      scope,
     );
     if (!hasEnoughToExtract(source)) {
       useToastStore
         .getState()
-        .showToast("Write more in this idea first. There is not enough here to pull pieces out of.");
+        .showToast(
+          scope.kind === "piece"
+            ? "There is not enough written in this draft to pull pieces out of."
+            : "Write more in this idea first. There is not enough here to pull pieces out of.",
+        );
       return null;
     }
 
@@ -117,17 +131,17 @@ export function useExtractIdeas() {
       if (extracted.length === 0) {
         useToastStore
           .getState()
-          .showToast("Nothing in this idea stands on its own yet.");
-        return { created: 0, truncated: source.truncated };
+          .showToast(`Nothing in ${source.label} stands on its own yet.`);
+        return { created: 0, truncated: source.truncated, label: source.label };
       }
 
       createFromExtracted(ideaId, extracted);
       useToastStore
         .getState()
         .showToast(
-          `${extracted.length} ${extracted.length === 1 ? "piece" : "pieces"} in the inbox.`,
+          `${extracted.length} ${extracted.length === 1 ? "piece" : "pieces"} from ${source.label}, in the inbox.`,
         );
-      return { created: extracted.length, truncated: source.truncated };
+      return { created: extracted.length, truncated: source.truncated, label: source.label };
     } catch {
       useToastStore.getState().showToast("Could not reach your AI provider.");
       return null;

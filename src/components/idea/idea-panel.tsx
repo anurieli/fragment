@@ -812,6 +812,29 @@ export function IdeaPanelToggle() {
  * short enough to read at a glance.
  */
 /**
+ * Extract from one draft, from that draft's own menu.
+ *
+ * The panel button reads the whole idea, which is the right default and the
+ * wrong answer when four drafts are open: pieces come back and you cannot tell
+ * which draft each one came out of. Pointing at a row removes the question.
+ */
+function ExtractMenuItem({ piece, onClose }: { piece: ContentPiece; onClose: () => void }) {
+  const { extract, isExtracting } = useExtractIdeas();
+
+  return (
+    <ContextMenuItem
+      label="Extract pieces from this draft"
+      hint="Reads this draft only. What comes back waits in the inbox"
+      disabled={isExtracting}
+      onClick={() => {
+        onClose();
+        void extract({ kind: "piece", pieceId: piece.id });
+      }}
+    />
+  );
+}
+
+/**
  * Runs the idea extractor over everything in this idea.
  *
  * Sits above the pieces list rather than in a menu because it is the one
@@ -828,16 +851,16 @@ function ExtractButton({ ideaId }: { ideaId: string }) {
   return (
     <div className="flex items-center gap-1.5 mb-2">
       <button
-        onClick={() => { void extract(ideaId); }}
+        onClick={() => { void extract({ kind: "idea", ideaId }); }}
         disabled={isExtracting}
-        title="Read everything in this idea and pull out the parts that stand on their own"
+        title="Read the brief, every draft and every source in this idea, and pull out the parts that stand on their own. To read one draft on its own, right-click that draft"
         className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)]
           border border-border bg-surface-2 text-[10px] text-text-muted
           hover:text-text-secondary hover:border-border-strong
           disabled:opacity-50 disabled:pointer-events-none transition-all duration-150"
       >
         <Sparkles size={10} />
-        {isExtracting ? "Reading the whole idea…" : "Extract pieces"}
+        {isExtracting ? "Reading the whole idea…" : "Extract from the whole idea"}
       </button>
     </div>
   );
@@ -933,6 +956,8 @@ function DraftRow({
             hint="The title the editor shows. Double-clicking the row does this too"
             onClick={() => { close(); setRenaming(true); }}
           />
+          <ContextMenuDivider />
+          <ExtractMenuItem piece={piece} onClose={close} />
           <ContextMenuDivider />
           <MarkPublishedMenuSection
             piece={piece}

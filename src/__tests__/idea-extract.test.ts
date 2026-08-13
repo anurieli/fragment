@@ -125,11 +125,83 @@ describe("extractor — what the agent reads", () => {
     expect(source.text.length).toBe(MAX_SOURCE_CHARS);
   });
 
+  it("names what it read, so the toast can say so", () => {
+    expect(buildExtractSource(idea(), [], []).label).toBe("this idea");
+    expect(
+      buildExtractSource(idea(), [piece({ id: "d1", title: "Draft one" })], [], {
+        kind: "piece",
+        pieceId: "d1",
+      }).label,
+    ).toBe("Draft one");
+    expect(
+      buildExtractSource(idea(), [piece({ id: "d1", title: "" })], [], {
+        kind: "piece",
+        pieceId: "d1",
+      }).label,
+    ).toBe("this draft");
+  });
+
   it("refuses to ask when there is almost nothing written", () => {
     expect(hasEnoughToExtract(buildExtractSource(idea(), [], []))).toBe(false);
     expect(
       hasEnoughToExtract(buildExtractSource(idea(), [piece({ body: "a".repeat(500) })], [])),
     ).toBe(true);
+  });
+});
+
+describe("extractor — pointed at one draft", () => {
+  const two = [
+    piece({ id: "d1", title: "Draft one", body: "the first argument" }),
+    piece({ id: "d2", title: "Draft two", body: "the second argument" }),
+  ];
+
+  // The whole reason for right-clicking a row: pieces you cannot trace back
+  // to anything are worse than no pieces.
+  it("reads only the draft it was pointed at", () => {
+    const source = buildExtractSource(idea(), two, [], { kind: "piece", pieceId: "d2" });
+    expect(source.text).toContain("the second argument");
+    expect(source.text).not.toContain("the first argument");
+    expect(source.draftCount).toBe(1);
+  });
+
+  it("still carries the idea and its brief, which is context not content", () => {
+    const source = buildExtractSource(
+      idea({ goal: "make the case" }),
+      two,
+      [],
+      { kind: "piece", pieceId: "d1" },
+    );
+    expect(source.text).toContain("The long way home");
+    expect(source.text).toContain("Goal: make the case");
+  });
+
+  // The idea's reference material belongs to the idea. Folding it into one
+  // draft's extraction puts context in the pieces that was never in the draft.
+  it("takes the draft's own sources, not the idea's", () => {
+    const source = buildExtractSource(
+      idea(),
+      two,
+      [
+        resource({ id: "onIdea", ownerType: "idea", ownerId: "i1", note: "idea-level source" }),
+        resource({ id: "onDraft", ownerType: "piece", ownerId: "d1", note: "draft-level source" }),
+      ],
+      { kind: "piece", pieceId: "d1" },
+    );
+    expect(source.text).toContain("draft-level source");
+    expect(source.text).not.toContain("idea-level source");
+    expect(source.resourceCount).toBe(1);
+  });
+
+  it("falls back to reading nothing when the draft is gone", () => {
+    const source = buildExtractSource(idea(), two, [], { kind: "piece", pieceId: "deleted" });
+    expect(source.draftCount).toBe(0);
+    expect(hasEnoughToExtract(source)).toBe(false);
+  });
+
+  it("defaults to the whole idea when no scope is given", () => {
+    const source = buildExtractSource(idea(), two, []);
+    expect(source.text).toContain("the first argument");
+    expect(source.text).toContain("the second argument");
   });
 });
 

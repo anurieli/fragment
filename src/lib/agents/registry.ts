@@ -219,9 +219,9 @@ export const AGENTS: readonly AgentDefinition[] = [
     id: "idea-extractor",
     name: "Idea extractor",
     does: "Reads a whole idea and pulls out each part that stands on its own.",
-    runsAt: "Extract pieces, at the top of an idea's panel.",
+    runsAt: "Extract from the whole idea, in an idea's panel, or right-click one draft.",
     howItWorks:
-      "The extractor is the only agent that reads everything in an idea at once: the brief, every draft, every piece already in it, and the sources attached to it. It looks for the sections and concepts that are already complete thoughts, and writes each one out as its own piece. Each piece holds exactly one idea, carries whatever context that idea needs to be understood alone, and holds nothing else. Everything it writes lands in the idea's inbox for you to triage, because several pieces written at once from material you did not re-read is exactly the work that should not skip a review.",
+      "The extractor is the only agent that reads a whole idea at once: the brief, every draft, every piece already in it, and the sources attached to it. Right-clicking a single draft points it at that draft alone, which is the version to use when several drafts are open and you need to know which one a piece came out of. It looks for the sections and concepts that are already complete thoughts, and writes each one out as its own piece. Each piece holds exactly one idea, carries whatever context that idea needs to be understood alone, and holds nothing else. Everything it writes lands in the idea's inbox for you to triage, because several pieces written at once from material you did not re-read is exactly the work that should not skip a review.",
     variables: [
       { token: "{source}", describes: "everything in the idea: brief, drafts, pieces and sources" },
       { token: "{goal}", describes: "the goal set on the idea" },
