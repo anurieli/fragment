@@ -93,6 +93,37 @@ the inbox exactly like `add_piece` would. Prints:
 queued 1 piece(s); open Fragment to import.
 ```
 
+## Rescuing pieces written in local mode: `fragment-mcp drain`
+
+The local transport writes to a folder and trusts a running Fragment app to import it. When there is no
+such app, which is the normal case once someone uses hosted Fragment, those files are not lost, they are
+invisible: real drafts on a disk nobody reads. Both the CLI and the MCP tools now say so after a write
+whose folder has never been imported from, because an agent that is told is an agent that can tell the
+user, and the alternative is a folder filling quietly for weeks.
+
+`drain` is the way back. With hosted mode configured, it moves everything stranded locally into the
+account:
+
+```bash
+FRAGMENT_API_URL=https://your-fragment-domain.example \
+FRAGMENT_API_TOKEN=frg_agent_... \
+  fragment-mcp drain --dry-run   # preview; nothing is sent or moved
+```
+
+Drop `--dry-run` to do it. What it does, and why:
+
+- **Ideas are matched by normalized title**, not by id: local ids were minted offline and mean nothing to
+  the account. Matching is what stops a drain from cloning an idea you already have; minting the ones it
+  cannot find is what stops it from dropping one.
+- **Pieces travel with the resolved idea id**, and are pushed **oldest first**, so a re-draft carrying
+  `supersedes` still retires the piece it replaced. Newest-first would deliver the revision, find nothing
+  to supersede, then deliver the draft it was meant to retire, leaving two near-identical pieces and no
+  way to tell which is live.
+- A `supersedes` pointing at something outside this drain is dropped rather than sent dangling.
+- **Drained files move to `.imported/`**, the same acknowledgement the running app performs, so running it
+  twice is a no-op rather than a duplicate.
+- An unparseable file is reported and **left in place**, so a corrected file can be re-run.
+
 ## Hosted transport (connect to a Fragment account)
 
 `src/http-transport.ts` implements the same `Transport` interface against a Fragment server's
