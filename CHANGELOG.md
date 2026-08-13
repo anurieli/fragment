@@ -2,6 +2,18 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 - The extractor points at one draft, and says what it read
+
+Extract pieces sat above the pieces list and read everything in the idea. With one draft open that is obviously right. With four, it is a button that will not tell you what it just did: pieces come back and there is no way to trace any of them to the draft they came out of.
+
+The scope is explicit now, at both ends. Right-clicking a draft offers Extract pieces from this draft, which reads that draft alone. The panel button says Extract from the whole idea, because that is what it does. Every toast names what was read: "3 pieces from Draft one, in the inbox."
+
+Scoped to one draft, the other drafts are gone from the source entirely, and so is the idea's reference material. That second part matters as much as the first: sources attached to the idea belong to the idea, and folding them into one draft's extraction puts context into the pieces that never appeared in the draft being read. A draft's own attached sources still go.
+
+A test caught the failure that would have made the whole thing worthless: a scope naming a draft that is no longer there fell through to reading the whole idea. Silently widening a scope is the exact thing pointing at a row exists to prevent, so it now reads nothing and says there is not enough here.
+
+Files: src/lib/agents/extract.ts, src/hooks/use-extract-ideas.ts, src/components/idea/idea-panel.tsx, src/lib/agents/registry.ts, src/__tests__/idea-extract.test.ts.
+
 ## 2026-08-13 - The idea extractor
 
 Fragment could write from a brief and rewrite what you selected. It had no way to answer the question you actually have about a full idea: which parts of this are already finished thoughts.
