@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -32,7 +32,12 @@ import {
   shortformOnly,
 } from "@/stores/content-selectors";
 import { formatDate } from "@/lib/utils";
-import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import {
+  ContextMenu,
+  ContextMenuDivider,
+  ContextMenuItem,
+  useContextMenu,
+} from "@/components/common/context-menu";
 import { PRIORITY_OPTIONS, priorityMeta } from "@/lib/priority";
 import { useToastStore } from "@/hooks/use-toast";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -43,12 +48,6 @@ import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { FeedbackPanel, FeedbackRecordingBar } from "@/components/feedback/feedback-panel";
 import { useMediaCapture } from "@/components/feedback/use-media-capture";
 import type { Idea, Priority } from "@/lib/content-engine";
-import {
-  ContextMenu,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  type Point,
-} from "@/components/ui/context-menu";
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -114,83 +113,6 @@ function ideaMatches(idea: Idea, query: string, fragmentText: string): boolean {
   );
 }
 
-/**
- * The ⋯ button on an idea row plus the menu it opens. A real component rather
- * than inline JSX so each row can own the refs useMenuPlacement measures: an
- * idea near the bottom of a long sidebar would otherwise open its menu
- * straight into the window's edge, with Delete unreachable.
- */
-function IdeaRowMenu({
-  open,
-  onToggle,
-  onOpen,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onOpen: () => void;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const placement = useMenuPlacement(open, anchorRef, menuRef);
-
-  return (
-    <div ref={anchorRef} className="relative shrink-0">
-      <button
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onOpen(); }}
-        title="Rename, add a draft, delete…"
-        // Always visible, unlike the hover-revealed actions elsewhere in this
-        // sidebar: this menu is the only route to renaming and deleting an
-        // idea, so hiding it hides the feature.
-        className="p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
-      >
-        <MoreHorizontal size={12} />
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          onClick={(e) => e.stopPropagation()}
-          onMouseLeave={onClose}
-          className={`absolute right-0 ${placement.className} z-30 w-44 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
-          style={{ maxHeight: placement.maxHeight || undefined }}
-        >
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function IdeaMenuItem({
-  label,
-  hint,
-  destructive,
-  onClick,
-}: {
-  label: string;
-  hint?: string;
-  destructive?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`block w-full text-left px-3 py-1.5 transition-colors duration-150 ${
-        destructive
-          ? "text-red hover:bg-red-muted"
-          : "text-text-secondary hover:bg-surface-hover"
-      }`}
-    >
-      <span className="block text-[12px]">{label}</span>
-      {hint && <span className="block text-[10px] text-text-faint">{hint}</span>}
-    </button>
-  );
-}
-
 export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs, rail, peeking }: SidebarProps) {
   const { toggleSidebar } = useAppStore();
   const pinSidebar = useAppStore((s) => s.pinSidebar);
@@ -206,6 +128,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const createIdeaWithFragment = useContentStore((s) => s.createIdeaWithFragment);
   const createPiece = useContentStore((s) => s.createPiece);
   const updateIdea = useContentStore((s) => s.updateIdea);
+  const reparentIdea = useContentStore((s) => s.reparentIdea);
   const setIdeaPriority = useContentStore((s) => s.setIdeaPriority);
   const pinIdea = useContentStore((s) => s.pinIdea);
   const unpinIdea = useContentStore((s) => s.unpinIdea);
@@ -230,11 +153,18 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // between; what's *inside* one is the idea workspace panel's job, so the
   // default here is the shortest list that still shows every idea you have.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  // Which row has its priority list expanded, if any. Keyed by id rather
-  // than a boolean so closing one menu and opening another never inherits
-  // the first one's open submenu.
-  const [priorityMenuId, setPriorityMenuId] = useState<string | null>(null);
+  // The row (or rows) the open menu is acting on, and where it opened. One
+  // menu for the whole sidebar rather than one per row: it is portaled out to
+  // the window now, so there is nothing to gain from building it inside the
+  // row it belongs to and everything to lose to the sidebar's own clipping.
+  const [menuIdeaId, setMenuIdeaId] = useState<string | null>(null);
+  const { point: menuPoint, openAt: openMenuAt, close: closeMenuPoint } = useContextMenu();
+  // Ideas ticked for a bulk action, and the row a shift-click measures from.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  // Whether the open menu has its priority list expanded. Reset every time a
+  // menu opens, so one menu never inherits the last one's open submenu.
+  const [priorityOpen, setPriorityOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -310,12 +240,40 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     return sortIdeas(roots, ideaSort);
   }, [rootIdeas, childrenByParent, searchQuery, ideaSort, matches]);
 
-  function childrenFor(idea: Idea): Idea[] {
-    const kids = childrenByParent.get(idea.id) ?? [];
-    const q = searchQuery.trim();
-    const filtered = q && !matches(idea, q) ? kids.filter((c) => matches(c, q)) : kids;
-    return sortIdeas(filtered, ideaSort);
-  }
+  const childrenFor = useCallback(
+    (idea: Idea): Idea[] => {
+      const kids = childrenByParent.get(idea.id) ?? [];
+      const q = searchQuery.trim();
+      const filtered = q && !matches(idea, q) ? kids.filter((c) => matches(c, q)) : kids;
+      return sortIdeas(filtered, ideaSort);
+    },
+    [childrenByParent, searchQuery, matches, ideaSort],
+  );
+
+  /** Is this root's sub-idea list showing? Auto-expanded when a child is the
+   * open idea, or when a search is on — hiding the row you just matched would
+   * be a bug, not tidiness. */
+  const isRowExpanded = useCallback(
+    (idea: Idea, kids: Idea[]) =>
+      expanded.has(idea.id) ||
+      searchQuery.trim() !== "" ||
+      kids.some((k) => k.id === activeIdeaId),
+    [expanded, searchQuery, activeIdeaId],
+  );
+
+  /** Every idea row on screen, top to bottom. Shift-click selects a range,
+   * and a range only means anything against the order actually rendered. */
+  const visibleOrder = useMemo(() => {
+    const order: string[] = [];
+    for (const root of visibleRoots) {
+      order.push(root.id);
+      const kids = childrenFor(root);
+      if (kids.length > 0 && isRowExpanded(root, kids)) {
+        for (const kid of kids) order.push(kid.id);
+      }
+    }
+    return order;
+  }, [visibleRoots, childrenFor, isRowExpanded]);
 
   const setShowCreationFlow = useAppStore((s) => s.setShowCreationFlow);
 
@@ -427,8 +385,228 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     showToast(`"${idea.title || "Untitled idea"}" is back`);
   }
 
+  // ---------------------------------------------------------------------
+  // Selecting several ideas at once.
+  //
+  // Ticking rows is not a mode you turn on: ⌘-click (or the checkbox that
+  // appears on hover) starts a selection, shift-click extends it, and a plain
+  // click anywhere puts it away and goes back to opening ideas. The bulk bar
+  // only exists while something is ticked, so the sidebar you use every day is
+  // the sidebar you already know.
+  // ---------------------------------------------------------------------
+
+  const selectionCount = selectedIds.size;
+
+  /** The ticked ideas, as rows that still exist and are still in the list.
+   * Filtered rather than trusted: an idea can be archived or deleted from
+   * another surface while it sits ticked here. */
+  const selectedIdeas = useMemo(() => {
+    const live: Idea[] = [];
+    for (const id of selectedIds) {
+      const idea = ideas[id];
+      if (idea && idea.deletedAt === undefined && idea.archivedAt === undefined) live.push(idea);
+    }
+    return live;
+  }, [selectedIds, ideas]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setAnchorId(null);
+  }, []);
+
+  function toggleSelected(ideaId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ideaId)) next.delete(ideaId);
+      else next.add(ideaId);
+      return next;
+    });
+    setAnchorId(ideaId);
+  }
+
+  /** Everything between the last-clicked row and this one, in screen order. */
+  function selectRangeTo(ideaId: string) {
+    const from = anchorId ? visibleOrder.indexOf(anchorId) : -1;
+    const to = visibleOrder.indexOf(ideaId);
+    if (from === -1 || to === -1) {
+      toggleSelected(ideaId);
+      return;
+    }
+    const [lo, hi] = from <= to ? [from, to] : [to, from];
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (let i = lo; i <= hi; i += 1) next.add(visibleOrder[i]);
+      return next;
+    });
+  }
+
+  /**
+   * What a click on a row means, in one place.
+   *
+   * Plain click still just opens the idea, and drops any selection on the way:
+   * a set of ticks left behind after you have moved on is a loaded gun the
+   * next Delete finds.
+   */
+  function handleRowClick(idea: Idea, e: React.MouseEvent) {
+    if (e.metaKey || e.ctrlKey) {
+      toggleSelected(idea.id);
+      return;
+    }
+    if (e.shiftKey && anchorId) {
+      selectRangeTo(idea.id);
+      return;
+    }
+    if (selectionCount > 0) clearSelection();
+    handleSelectIdea(idea.id);
+  }
+
+  // Escape puts a selection away, the same key that closes everything else
+  // here. Without it the only exit is clicking a row, which also navigates.
+  //
+  // Not while a menu is open, though: that Escape is aimed at the menu, and
+  // both listeners sit on the window, so without this the one press would
+  // close the menu and throw away the selection it was about to act on.
+  useEffect(() => {
+    if (selectionCount === 0 || menuPoint) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") clearSelection();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectionCount, menuPoint, clearSelection]);
+
+  /** Rows the open menu is acting on: the whole ticked set when the menu was
+   * opened on one of them, otherwise just the row it was opened on. */
+  const menuTargets = useMemo(() => {
+    if (!menuIdeaId) return [];
+    if (selectedIds.has(menuIdeaId) && selectedIdeas.length > 1) return selectedIdeas;
+    const idea = ideas[menuIdeaId];
+    return idea ? [idea] : [];
+  }, [menuIdeaId, selectedIds, selectedIdeas, ideas]);
+
+  const isBulkMenu = menuTargets.length > 1;
+  const allTargetsPinned = menuTargets.length > 0 && menuTargets.every((i) => i.pinnedAt !== undefined);
+
+  function openMenuFor(ideaId: string, e: React.MouseEvent) {
+    setMenuIdeaId(ideaId);
+    setPriorityOpen(false);
+    openMenuAt(e);
+  }
+
+  function closeMenu() {
+    closeMenuPoint();
+    setMenuIdeaId(null);
+    setPriorityOpen(false);
+  }
+
+  // --- the bulk actions themselves ---
+
+  function bulkSetPinned(targets: Idea[], pinned: boolean) {
+    for (const idea of targets) {
+      if (pinned) pinIdea(idea.id);
+      else unpinIdea(idea.id);
+    }
+    showToast(`${targets.length} ${targets.length === 1 ? "idea" : "ideas"} ${pinned ? "pinned" : "unpinned"}`);
+  }
+
+  function bulkSetPriority(targets: Idea[], priority: Priority) {
+    for (const idea of targets) setIdeaPriority(idea.id, priority);
+    const label = priorityMeta(priority)?.label ?? "None";
+    showToast(`Priority set to ${label} on ${targets.length} ${targets.length === 1 ? "idea" : "ideas"}`);
+  }
+
+  /** Archive or delete a whole selection as one gesture, with one undo that
+   * puts all of it back. Each idea still goes through its own cascade, so
+   * sub-ideas and pieces travel with their parent exactly as they do singly. */
+  function bulkArchive(targets: Idea[]) {
+    const ideaIds: string[] = [];
+    const pieceIds: string[] = [];
+    for (const idea of targets) {
+      const archive = archiveIdeaCascade(idea.id);
+      ideaIds.push(...archive.ideaIds);
+      pieceIds.push(...archive.pieceIds);
+    }
+    if (!ideaIds.length && !pieceIds.length) return;
+    if (ideaIds.includes(activeIdeaId ?? "")) {
+      setActiveIdea(null);
+      setActivePiece(null);
+    }
+    clearSelection();
+    showToast(`Archived ${targets.length} ${targets.length === 1 ? "idea" : "ideas"}`, {
+      label: "Undo",
+      onClick: () => restoreIdeaArchive({ ideaIds, pieceIds }),
+    });
+  }
+
+  function bulkDelete(targets: Idea[]) {
+    const ideaIds: string[] = [];
+    const pieceIds: string[] = [];
+    for (const idea of targets) {
+      const cascade = deleteIdeaCascade(idea.id);
+      ideaIds.push(...cascade.ideaIds);
+      pieceIds.push(...cascade.pieceIds);
+    }
+    if (!ideaIds.length) return;
+    if (ideaIds.includes(activeIdeaId ?? "")) {
+      setActiveIdea(null);
+      setActivePiece(null);
+    }
+    clearSelection();
+    showToast(`Deleted ${targets.length} ${targets.length === 1 ? "idea" : "ideas"}`, {
+      label: "Undo",
+      onClick: () => restoreIdeaCascade({ ideaIds, pieceIds }),
+    });
+  }
+
+  /**
+   * Group a selection under a new idea.
+   *
+   * Fragment has no folders and no tags: an idea holding sub-ideas IS the
+   * grouping, so grouping means making a new parent and moving the selection
+   * under it. Ideas nest exactly one level (see assertIdeaParentAllowed), so
+   * an idea that already has sub-ideas of its own cannot become one — those
+   * are left where they are and the toast says how many, rather than the
+   * gesture half-working in silence.
+   */
+  function bulkGroup(targets: Idea[]) {
+    const movable = targets.filter((idea) => (childrenByParent.get(idea.id) ?? []).length === 0);
+    if (movable.length === 0) {
+      showToast("Those ideas already have sub-ideas. Ideas nest one level deep");
+      return;
+    }
+    const parentId = createIdea({ title: "Untitled idea" });
+    if (!parentId) return;
+    const previous = movable
+      .filter((idea) => reparentIdea(idea.id, parentId))
+      .map((idea) => ({ id: idea.id, parentId: idea.parentId }));
+    if (previous.length === 0) {
+      deleteIdeaCascade(parentId);
+      showToast("Nothing could be grouped. Ideas nest one level deep");
+      return;
+    }
+    const skipped = targets.length - previous.length;
+    clearSelection();
+    setExpanded((prev) => new Set(prev).add(parentId));
+    handleSelectIdea(parentId);
+    // Straight into rename, the way a new idea is: a group nobody names is a
+    // row called "Untitled idea" holding everything you just tidied.
+    startRename(parentId, "");
+    showToast(
+      `Grouped ${previous.length} ${previous.length === 1 ? "idea" : "ideas"}${skipped > 0 ? `. ${skipped} left alone, already has sub-ideas` : ""}`,
+      {
+        label: "Undo",
+        onClick: () => {
+          // Put each one back where it was first, so the group idea is empty
+          // by the time it is deleted and the cascade takes nothing with it.
+          for (const row of previous) reparentIdea(row.id, row.parentId);
+          deleteIdeaCascade(parentId);
+        },
+      },
+    );
+  }
+
   function startRename(ideaId: string, currentTitle: string) {
-    setOpenMenuId(null);
+    closeMenu();
     setRenamingId(ideaId);
     setRenameValue(currentTitle);
   }
@@ -458,12 +636,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     const kids = depth === 0 ? childrenFor(idea) : [];
     const drafts = draftsForIdea(idea.id, allPieces);
     const hasChildren = kids.length > 0;
-    // Auto-expanded when a child is the open idea, or when a search is on —
-    // hiding the row you just matched would be a bug, not tidiness.
-    const isExpanded =
-      expanded.has(idea.id) ||
-      searchQuery.trim() !== "" ||
-      kids.some((k) => k.id === activeIdeaId);
+    const isExpanded = isRowExpanded(idea, kids);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
     const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
     // Across every format, unlike `counts` above: a shipped long-form draft is
@@ -474,26 +647,53 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     const hasUnseenAgent = shortPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
-    const menuOpen = openMenuId === idea.id;
     const isRenaming = renamingId === idea.id;
+    const isSelected = selectedIds.has(idea.id);
 
     return (
       <div key={idea.id}>
         <div
           role="button"
           tabIndex={0}
-          onClick={() => handleSelectIdea(idea.id)}
+          onClick={(e) => handleRowClick(idea, e)}
+          // Shift-clicking a row would otherwise drag-select the sidebar's
+          // text, which is never what extending a selection means.
+          onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleSelectIdea(idea.id); }}
           onDoubleClick={() => startRename(idea.id, idea.title)}
-          onContextMenu={(e) => { e.preventDefault(); setOpenMenuId(idea.id); }}
+          // Right-clicking a row that is part of a selection acts on the whole
+          // selection; right-clicking any other row acts on that row alone,
+          // and leaves the selection where it is.
+          onContextMenu={(e) => openMenuFor(idea.id, e)}
           title={summaryLine}
           className={`group relative flex flex-col w-full text-left px-3 py-2 rounded-[var(--radius-lg)] transition-all duration-150 cursor-pointer
-            ${isActive ? "bg-surface-3 border border-border-strong" : "hover:bg-surface-2"}`}
+            ${isSelected
+              ? "bg-gold/10 border border-gold/30"
+              : isActive
+                ? "bg-surface-3 border border-border-strong"
+                : "border border-transparent hover:bg-surface-2"}`}
         >
           {isActive && (
             <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-gold" />
           )}
           <div className="flex items-center gap-2">
+            {/* The tick box. Hidden until you hover the row or a selection is
+                already running, so the everyday sidebar keeps its shape and
+                the feature is one hover away rather than permanently in the
+                way of a 300px column. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleSelected(idea.id); }}
+              role="checkbox"
+              aria-checked={isSelected}
+              aria-label={isSelected ? `Deselect ${idea.title || "Untitled idea"}` : `Select ${idea.title || "Untitled idea"}`}
+              title="Select. ⌘-click rows to add, shift-click for a range"
+              className={`shrink-0 grid place-items-center w-3.5 h-3.5 rounded-[3px] border transition-all duration-150
+                ${isSelected
+                  ? "bg-gold border-gold text-surface opacity-100"
+                  : `border-border-strong text-transparent hover:border-gold ${selectionCount > 0 ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}`}
+            >
+              <Check size={9} strokeWidth={3} />
+            </button>
             <button
               onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpanded(idea.id); }}
               title={hasChildren ? `${kids.length} sub-${kids.length === 1 ? "idea" : "ideas"}` : undefined}
@@ -557,72 +757,16 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 style={{ animation: "pulse-gold 2s ease-in-out infinite" }}
               />
             )}
-            <IdeaRowMenu
-              open={menuOpen}
-              onToggle={() => { setPriorityMenuId(null); setOpenMenuId(menuOpen ? null : idea.id); }}
-              onOpen={() => setOpenMenuId(idea.id)}
-              onClose={() => { setPriorityMenuId(null); setOpenMenuId(null); }}
+            <button
+              onClick={(e) => { e.stopPropagation(); openMenuFor(idea.id, e); }}
+              title="Rename, add a draft, delete…"
+              // Always visible, unlike the hover-revealed actions elsewhere in
+              // this sidebar: this menu is the only route to renaming and
+              // deleting an idea, so hiding it hides the feature.
+              className="shrink-0 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
             >
-                  <IdeaMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
-                  <IdeaMenuItem
-                    label="New draft"
-                    hint="A long-form piece in this idea"
-                    onClick={() => { setOpenMenuId(null); handleNewDraft(idea.id); }}
-                  />
-                  {depth === 0 && (
-                    <IdeaMenuItem
-                      label="New sub-idea"
-                      onClick={() => {
-                        const childId = createIdea({ title: "Untitled idea", parentId: idea.id });
-                        if (childId) {
-                          setExpanded((prev) => new Set(prev).add(idea.id));
-                          handleSelectIdea(childId);
-                          startRename(childId, "Untitled idea");
-                        }
-                        setOpenMenuId(null);
-                      }}
-                    />
-                  )}
-                  <IdeaMenuItem
-                    label={isPinned ? "Unpin" : "Pin"}
-                    onClick={() => { isPinned ? unpinIdea(idea.id) : pinIdea(idea.id); setOpenMenuId(null); }}
-                  />
-                  <IdeaMenuItem
-                    label="Set priority"
-                    hint={ideaPriority ? ideaPriority.label : "None"}
-                    onClick={() => setPriorityMenuId(priorityMenuId === idea.id ? null : idea.id)}
-                  />
-                  {priorityMenuId === idea.id && (
-                    <div className="border-t border-border py-1">
-                      {PRIORITY_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIdeaPriority(idea.id, opt.value);
-                            setPriorityMenuId(null);
-                            setOpenMenuId(null);
-                          }}
-                          className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="my-1 border-t border-border" />
-                  <IdeaMenuItem
-                    label="Archive idea"
-                    hint="Hides it and its pieces. Nothing is deleted"
-                    onClick={() => { setOpenMenuId(null); handleArchiveIdea(idea); }}
-                  />
-                  <IdeaMenuItem
-                    label="Delete idea"
-                    hint="Takes its drafts and pieces with it"
-                    destructive
-                    onClick={() => { setOpenMenuId(null); handleDeleteIdea(idea); }}
-                  />
-            </IdeaRowMenu>
+              <MoreHorizontal size={12} />
+            </button>
           </div>
           {/* The counts live in the row's tooltip, not on a second line: with
               a dozen ideas the list has to stay scannable, and what's inside
@@ -774,6 +918,39 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             </div>
           </div>
 
+          {/* The bulk bar. Only here while something is ticked, and outside
+              the scroller on purpose: the actions for a selection must not
+              scroll away from the rows they act on. */}
+          {selectionCount > 0 && (
+            <div className="mx-5 mb-2 shrink-0 flex items-center gap-2 rounded-[var(--radius-lg)] border border-gold/30 bg-gold/10 px-3 py-2">
+              <span
+                className="text-[11px] font-medium text-text-primary"
+                title="⌘-click rows to tick more than one, or shift-click for a run of them. Actions works on all of them at once, with a single Undo. Esc clears the ticks."
+              >
+                {selectionCount} selected
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuIdeaId(anchorId ?? selectedIdeas[0]?.id ?? null);
+                  setPriorityOpen(false);
+                  openMenuAt(e);
+                }}
+                className="ml-auto flex items-center gap-1 rounded-[var(--radius-sm)] border border-border-strong bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-3 hover:text-text-primary transition-colors duration-150"
+              >
+                Actions
+                <ChevronDown size={10} />
+              </button>
+              <button
+                onClick={clearSelection}
+                title="Clear selection (Esc)"
+                className="shrink-0 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-colors duration-150"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
           {/* Idea list. Every fragment lives inside one, so this is the whole
               library: there is no second list of homeless documents. */}
           <div className="flex-1 overflow-y-auto px-5 py-2">
@@ -807,6 +984,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 <p className="px-1 pb-2 text-[11px] text-text-faint leading-relaxed">
                   Open an idea to work inside it: its drafts and pieces appear in the panel
                   beside this one. Right-click or use ⋯ to rename, add, or delete.
+                  ⌘-click rows to pick several at once.
                 </p>
                 <div className="space-y-1 mb-4">
                   {visibleRoots.map((idea) => renderIdeaRow(idea, 0))}
@@ -907,6 +1085,139 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
               Settings
             </button>
           </div>
+
+          {/* One menu for every idea row, rendered outside the sidebar
+              entirely (see components/common/context-menu). It used to live
+              inside the row, which meant the sidebar's own scroller cut it off
+              for any idea far enough down the list: Delete was unreachable on
+              exactly the ideas you had most of. */}
+          {menuPoint && menuTargets.length > 0 && (
+            <ContextMenu
+              point={menuPoint}
+              onClose={closeMenu}
+              header={isBulkMenu ? `${menuTargets.length} ideas` : undefined}
+            >
+              {isBulkMenu ? (
+                <>
+                  <ContextMenuItem
+                    label={allTargetsPinned ? "Unpin all" : "Pin all"}
+                    onClick={() => { closeMenu(); bulkSetPinned(menuTargets, !allTargetsPinned); }}
+                  />
+                  <ContextMenuItem
+                    label="Set priority"
+                    hint="On every selected idea"
+                    onClick={() => setPriorityOpen((v) => !v)}
+                  />
+                  {priorityOpen && (
+                    <div className="border-t border-border py-1">
+                      {PRIORITY_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const targets = menuTargets;
+                            closeMenu();
+                            bulkSetPriority(targets, opt.value);
+                          }}
+                          className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <ContextMenuItem
+                    label="Group under a new idea"
+                    hint="Makes a parent and nests these inside it"
+                    onClick={() => { const targets = menuTargets; closeMenu(); bulkGroup(targets); }}
+                  />
+
+                  <ContextMenuDivider />
+
+                  <ContextMenuItem
+                    label="Archive all"
+                    hint="Hides them and their pieces. Nothing is deleted"
+                    onClick={() => { const targets = menuTargets; closeMenu(); bulkArchive(targets); }}
+                  />
+                  <ContextMenuItem
+                    label="Delete all"
+                    hint="Takes their drafts and pieces with them"
+                    destructive
+                    onClick={() => { const targets = menuTargets; closeMenu(); bulkDelete(targets); }}
+                  />
+                </>
+              ) : (
+                menuTargets.map((idea) => {
+                  const isPinned = idea.pinnedAt !== undefined;
+                  const ideaPriority = priorityMeta(idea.priority);
+                  return (
+                    <div key={idea.id}>
+                      <ContextMenuItem label="Rename" onClick={() => startRename(idea.id, idea.title)} />
+                      <ContextMenuItem
+                        label="New draft"
+                        hint="A long-form piece in this idea"
+                        onClick={() => { closeMenu(); handleNewDraft(idea.id); }}
+                      />
+                      {idea.parentId === null && (
+                        <ContextMenuItem
+                          label="New sub-idea"
+                          onClick={() => {
+                            const childId = createIdea({ title: "Untitled idea", parentId: idea.id });
+                            closeMenu();
+                            if (childId) {
+                              setExpanded((prev) => new Set(prev).add(idea.id));
+                              handleSelectIdea(childId);
+                              startRename(childId, "Untitled idea");
+                            }
+                          }}
+                        />
+                      )}
+                      <ContextMenuItem
+                        label={isPinned ? "Unpin" : "Pin"}
+                        onClick={() => { closeMenu(); if (isPinned) unpinIdea(idea.id); else pinIdea(idea.id); }}
+                      />
+                      <ContextMenuItem
+                        label="Set priority"
+                        hint={ideaPriority ? ideaPriority.label : "None"}
+                        onClick={() => setPriorityOpen((v) => !v)}
+                      />
+                      {priorityOpen && (
+                        <div className="border-t border-border py-1">
+                          {PRIORITY_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeMenu();
+                                setIdeaPriority(idea.id, opt.value);
+                              }}
+                              className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <ContextMenuDivider />
+
+                      <ContextMenuItem
+                        label="Archive idea"
+                        hint="Hides it and its pieces. Nothing is deleted"
+                        onClick={() => { closeMenu(); handleArchiveIdea(idea); }}
+                      />
+                      <ContextMenuItem
+                        label="Delete idea"
+                        hint="Takes its drafts and pieces with it"
+                        destructive
+                        onClick={() => { closeMenu(); handleDeleteIdea(idea); }}
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </ContextMenu>
+          )}
         </>
       )}
     </div>

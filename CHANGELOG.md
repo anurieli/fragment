@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 - Menus that fit on the screen, and ideas you can act on in bulk
+
+**Every menu and tooltip now renders above the app rather than inside it.** They used to be positioned inside whichever panel opened them, which meant `overflow` on any ancestor cut them off no matter how high their z-index went. The idea row menu was the clearest case: it lived inside the sidebar's scroll container, so on an idea far enough down the list it was sliced off by the sidebar's own footer and Delete could not be reached at all. The same thing happened to the piece card and Share menus, the export menu, the resources popover, the snip preview, the publish "paste the link" form, and the settings model list, each clipped at whichever edge it reached first.
+
+There is now one `Portal` that renders to the end of the document, one layer scale in `src/lib/z-layers.ts` with menus and tooltips at the top of it, and `useMenuPlacement` returns viewport coordinates instead of positioning classes. Every menu listed above went through it, so each one flips, clamps and caps its height against the window rather than against the panel it was born in.
+
+**Sidebar ideas can be selected and acted on together.** Hold ⌘ (Ctrl on Windows) and click rows to tick more than one, shift-click for a run of them, or use the checkbox that appears when you hover a row. A bar above the list then pins, sets priority on, archives, deletes or groups the whole selection in one action, and each of those is a single Undo rather than one per idea. Right-clicking a ticked row offers the same actions; right-clicking any other row still acts on that row alone and leaves your selection where it is. Esc clears the ticks.
+
+**Grouping makes a parent idea.** Fragment has no folders and no tags, because an idea holding sub-ideas already is the grouping. So "Group under a new idea" creates an idea, moves everything you ticked inside it, and opens it for naming. Ideas nest exactly one level deep, which the store now enforces when ideas are moved and not only when they are created: an idea that already has sub-ideas of its own stays where it is, and the toast says how many were left alone rather than the action half-working in silence.
+
 ## 2026-08-13 - Publishing closes a piece, and says where it went
 
 Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.

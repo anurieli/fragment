@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { X, Loader2, GripVertical, RotateCcw } from "lucide-react";
 import type { Snippet } from "@/lib/types";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
+import { Portal } from "@/components/common/portal";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import { useToastStore } from "@/hooks/use-toast";
 import {
@@ -17,6 +19,10 @@ import {
 import { visibleSnippets } from "@/lib/snip-scope";
 import { DRAFT_FORMAT, PIECE_FORMAT, type PanelSection } from "@/lib/piece-section";
 import { formatSnippetPreview } from "@/lib/utils";
+
+/** Gap between a snip and its hover preview, and the window edge it stops at. */
+const HOVER_GAP = 12;
+const HOVER_MARGIN = 12;
 
 interface SnippetCardProps {
   snippet: Snippet;
@@ -81,6 +87,8 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
   const { point, openAt, close } = useContextMenu();
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const hoverRef = useRef<HTMLDivElement>(null);
+  const [hoverStyle, setHoverStyle] = useState<{ left: number; top: number } | null>(null);
   /** True once this edit has been resolved, saved or abandoned. See commitEdit. */
   const settled = useRef(true);
 
@@ -324,6 +332,27 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
     setShowHover(false);
   };
 
+  // Where the portaled preview goes. Beside the card on whichever side has
+  // room, clamped to the window, so a snip at the very bottom of the bar still
+  // shows its whole preview instead of running off the screen.
+  useLayoutEffect(() => {
+    if (!showHover) return;
+    const card = cardRef.current;
+    const popup = hoverRef.current;
+    if (!card || !popup) return;
+    const rect = card.getBoundingClientRect();
+    const width = popup.offsetWidth;
+    const height = popup.offsetHeight;
+    const left = rect.left - HOVER_GAP - width;
+    setHoverStyle({
+      left: left >= HOVER_MARGIN ? left : Math.min(rect.right + HOVER_GAP, window.innerWidth - width - HOVER_MARGIN),
+      top: Math.max(
+        HOVER_MARGIN,
+        Math.min(rect.top, window.innerHeight - height - HOVER_MARGIN),
+      ),
+    });
+  }, [showHover]);
+
   return (
     <div className="relative" ref={cardRef}>
       <div
@@ -473,12 +502,17 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
         </ContextMenu>
       )}
 
-      {/* Hover popup for full content */}
+      {/* Hover popup for full content. Portaled and positioned in viewport
+          coordinates: the helper bar is a rounded overflow-hidden panel, so a
+          popup absolutely positioned beside a snip was sliced off at the
+          bar's own edge no matter how high its z-index went. */}
       {showHover && isLong && !isDragging && (
+        <Portal>
         <div
-          className="absolute z-50 right-full mr-3 top-0 w-80 max-h-[70vh] overflow-y-auto
-            bg-surface-3 border border-border-strong rounded-[var(--radius-lg)] shadow-2xl p-5"
-          style={{ animation: "fadeIn 0.12s ease-out" }}
+          ref={hoverRef}
+          className={`fixed ${Z_FLOATING} w-80 max-h-[70vh] overflow-y-auto
+            bg-surface-3 border border-border-strong rounded-[var(--radius-lg)] shadow-2xl p-5`}
+          style={{ animation: "fadeIn 0.12s ease-out", ...hoverStyle }}
           onMouseEnter={() => setShowHover(true)}
           onMouseLeave={handleMouseLeave}
         >
@@ -486,6 +520,7 @@ export function SnippetCard({ snippet }: SnippetCardProps) {
             {snippet.content}
           </p>
         </div>
+        </Portal>
       )}
     </div>
   );
