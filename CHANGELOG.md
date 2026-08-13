@@ -2,6 +2,20 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 - The idea extractor
+
+Fragment could write from a brief and rewrite what you selected. It had no way to answer the question you actually have about a full idea: which parts of this are already finished thoughts.
+
+Extract pieces, above the pieces list in an idea, reads everything in that idea at once: the brief, every draft, every piece already there, and the sources attached to it. What comes back is one piece per atomic idea. Each holds exactly one thought, carries the context that thought needs to be understood by someone who has not read the rest, and holds nothing else. How many you get depends on how much the material genuinely contains.
+
+Everything it writes lands in the idea's inbox, because several pieces written at once out of material you did not re-read first is exactly the work that should not skip a review.
+
+The prompt is the feature, so it is editable like every other agent's: the extractor is a registry entry, and Settings, then AI, then Agents opens it.
+
+Two halves carry the tests. Assembling the source, where the failure is quietly sending another idea's pieces or a deleted draft. And reading the answer, where the failure is one unusable response after a paid call: fences are stripped, prose around the array is tolerated, entries with a title and no words are dropped, and a run is capped at twelve. An empty array is kept distinct from an unreadable answer, because "nothing here stands alone yet" is a real answer and not a failure.
+
+Files: src/lib/agents/extract.ts, src/hooks/use-extract-ideas.ts, src/app/api/extract/route.ts, src/lib/ai-client.ts, src/lib/defaults.ts, src/lib/types.ts, src/stores/settings-store.ts, src/lib/ai/connection-status.ts, src/lib/agents/registry.ts, src/components/settings/agents/agent-writes.ts, src/components/idea/idea-panel.tsx, src/__tests__/idea-extract.test.ts.
+
 ## 2026-08-13 - Agents you can read, a calendar of what went out, and publishing from the row
 
 **Every AI process is an agent now, with a job and a prompt you can read.** Fragment ran four of them and could not tell you what any one was doing. Each had a hand-built settings panel, so the answer to "what is the AI in here, and what is it told to do" lived in four components and nowhere a person could look. They come from one registry of plain data instead: name, the job in a sentence, where you meet it, what it reads, the prompt, and what fills every placeholder in that prompt. Settings, then AI, then Agents lists all six and opens any one of them; the three bespoke panels are gone and their controls are rebuilt generically, so a new agent arrives complete without a component being written for it.
