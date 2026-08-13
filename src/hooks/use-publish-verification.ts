@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { isTauri } from "@/lib/ai-client";
 import { fuzzyTitleMatch, markdownToPlainText, parseSubstackFeed } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
-import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
 
@@ -56,16 +55,15 @@ function titleOrFirstLine(title: string | undefined, body: string): string {
  * The Substack verified-publish loop's polling half. While any fragment is
  * awaiting confirmation, fetches the user's Substack RSS feed on mount and
  * every 3 minutes (visibility-gated, same pattern as `useAgentInbox`) and
- * fuzzy-matches titles against it.
+ * fuzzy-matches titles against it. A match moves the fragment to "published"
+ * with a verified publish record carrying the live URL off the feed.
  *
- * Two things mark a fragment as awaiting confirmation, and they are not the
- * same thing. A publish fired from the feed stamps
- * `ContentPiece.publishAttemptedAt`, which is persisted because a card has to
- * still look pending tomorrow; a match moves it to "published" with a verified
- * publish record. A publish fired from the editor lands in `data-store`'s
- * in-memory `pendingSubstackPublish` map instead, and a match there only
- * clears the flag: that path has never written a publish record, and giving it
- * one is a change of behaviour rather than a change of shape.
+ * One field marks a fragment as awaiting confirmation, whichever surface fired
+ * the publish: the persisted `ContentPiece.publishAttemptedAt`, stamped by both
+ * the feed's Share menu and the editor's publish menu. It has to be persisted
+ * because a fragment must still look pending tomorrow. (The editor used to
+ * stamp an in-memory map whose match branch only fired a toast, so a draft
+ * confirmed live on Substack never recorded the publish at all.)
  *
  * No-ops entirely (never even fetches) when the user hasn't set a Substack
  * publication URL in Settings, or nothing is pending.
@@ -85,10 +83,7 @@ export function usePublishVerification(): void {
       (p) => p.publishAttemptedAt !== undefined && p.status !== "published" && p.deletedAt === undefined,
     );
 
-    const dataState = useDataStore.getState();
-    const pendingEditorIds = Object.keys(dataState.pendingSubstackPublish);
-
-    if (pendingPieces.length === 0 && pendingEditorIds.length === 0) return;
+    if (pendingPieces.length === 0) return;
 
     runningRef.current = true;
     try {
@@ -99,10 +94,6 @@ export function usePublishVerification(): void {
       if (items.length === 0) return;
       const feedTitles = items.map((item) => item.title);
       const showToast = useToastStore.getState().showToast;
-
-      // Both routes can now be pending on the same fragment, so what the feed
-      // route already confirmed is not announced a second time by the editor's.
-      const confirmed = new Set<string>();
 
       for (const piece of pendingPieces) {
         const guess = titleOrFirstLine(piece.title, piece.body);
@@ -115,21 +106,6 @@ export function usePublishVerification(): void {
           publishedAt: Date.now(),
           verified: true,
         });
-        confirmed.add(piece.id);
-        dataState.clearPiecePublishPending(piece.id);
-        showToast(`"${piece.title || guess}" is live on Substack.`);
-      }
-
-      for (const pieceId of pendingEditorIds) {
-        if (confirmed.has(pieceId)) continue;
-        const piece = contentState.pieces[pieceId];
-        if (!piece) {
-          dataState.clearPiecePublishPending(pieceId);
-          continue;
-        }
-        const guess = titleOrFirstLine(piece.title, piece.body);
-        if (!guess || !fuzzyTitleMatch(guess, feedTitles)) continue;
-        dataState.clearPiecePublishPending(pieceId);
         showToast(`"${piece.title || guess}" is live on Substack.`);
       }
     } finally {

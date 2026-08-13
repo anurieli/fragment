@@ -29,6 +29,7 @@ import { CommentsAffordance } from "@/components/review/comments-affordance";
 import { InlineEditMenu } from "./inline-edit-menu";
 import { BriefField } from "./brief-field";
 import { VersionPreviewBanner } from "../timeline/version-preview-banner";
+import { PublishedLock, isPieceLocked } from "@/components/publish/published-lock";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
@@ -107,6 +108,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     setLiveEditorContent,
     generatingPieceId,
     streamingContent,
+    setActivePiece,
   } = useAppStore();
   const {
     versions,
@@ -116,6 +118,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   } = useDataStore();
   const pieces = useContentStore((s) => s.pieces);
   const updatePiece = useContentStore((s) => s.updatePiece);
+  const duplicatePiece = useContentStore((s) => s.duplicatePiece);
   const settings = useSettingsStore((s) => s.settings);
   const updateProviderCredentials = useSettingsStore((s) => s.updateProviderCredentials);
   const { labelSnippet } = useLabelSnippet();
@@ -151,6 +154,20 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
   const piece = activePieceId ? pieces[activePieceId] : null;
   // Stable across edits to the draft's text, unlike `piece` itself.
   const draftIdeaId = piece?.ideaId ?? null;
+  // "Edit anyway" on a published piece. Holds the piece id rather than a boolean
+  // so opening another draft re-locks by itself, with no effect resetting
+  // anything. The unlock is deliberately transient: reopening a published draft
+  // should find it closed again, because publishing is why it is closed and that
+  // has not changed.
+  const [unlockedPieceId, setUnlockedPieceId] = useState<string | null>(null);
+  const locked = piece ? isPieceLocked(piece, unlockedPieceId === piece.id) : false;
+  // Mirrors `locked` for the callbacks that outlive a render: useEditor's
+  // onUpdate is created once, and the piece-open effect deliberately runs only
+  // on piece id.
+  const lockedRef = useRef(locked);
+  useEffect(() => {
+    lockedRef.current = locked;
+  }, [locked]);
   const previewVersion = timelinePreviewVersionId ? versions[timelinePreviewVersionId] ?? null : null;
   const voicesMap = useVoiceStore((s) => s.voices);
   const voicesList = useMemo(
@@ -691,6 +708,16 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       const md = preserveEmptyParagraphs(rawMd);
       contentRef.current = md;
       const currentPieceId = useAppStore.getState().activePieceId;
+      // A locked (published) piece is read-only, so nothing here should reach
+      // the store. Tiptap still fires onUpdate for programmatic changes, and
+      // serializing a document back to markdown is not byte-exact (the reason
+      // preserveEmptyParagraphs and cleanupNbspParagraphs exist), so merely
+      // opening a published piece produced a body write that differed from what
+      // was stored. That rewrote the published text and stamped the piece as
+      // edited when nobody had touched it. Read via a ref because this callback
+      // is created once by useEditor and would otherwise close over a stale
+      // value. "Edit anyway" clears the lock, and saving resumes with it.
+      if (lockedRef.current) return;
       if (currentPieceId) {
         setLiveEditorContent(currentPieceId, md);
         debouncedSave(currentPieceId, md);
@@ -726,8 +753,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     setLiveEditorContent(piece.id, content);
     isInternalUpdate.current = false;
 
-    // Sync recovered content back to the store if it came from backup
-    if (content !== piece.body) {
+    // Sync recovered content back to the store if it came from backup. Never for
+    // a published piece: its stored text is the record of what was distributed,
+    // and a leftover localStorage backup silently overwriting it would both
+    // rewrite that record and stamp the piece as edited when nobody edited it.
+    if (content !== piece.body && !lockedRef.current) {
       updatePiece(piece.id, { body: content });
     }
   }, [editor, piece?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -789,15 +819,18 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     }
   }, [editor, streamingContent, generatingPieceId, activePieceId, setLiveEditorContent]);
 
-  // Toggle editor editability during streaming generation
+  // Toggle editor editability: streaming generation, a version preview, and a
+  // published piece all make the text read-only, and any of them being true is
+  // enough. The publish lock is the only one of the three the reader can lift
+  // from here, via "Edit anyway" (see PublishedLock).
   useEffect(() => {
     if (!editor) return;
-    if (isGenerating) {
+    if (isGenerating || locked) {
       editor.setEditable(false);
     } else if (!timelinePreviewVersionId) {
       editor.setEditable(true);
     }
-  }, [editor, isGenerating, timelinePreviewVersionId]);
+  }, [editor, isGenerating, timelinePreviewVersionId, locked]);
 
   // If user navigates away during generation, abort and persist partial content
   useEffect(() => {
@@ -1578,6 +1611,19 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
       {/* Version preview banner */}
       {timelinePreviewVersionId && <VersionPreviewBanner />}
 
+      {/* Published and therefore closed. Not shown under a version preview,
+          which is already telling the reader why the text is read-only. */}
+      {locked && !timelinePreviewVersionId && (
+        <PublishedLock
+          piece={piece}
+          onEditAnyway={() => setUnlockedPieceId(piece.id)}
+          onDuplicate={() => {
+            const copyId = duplicatePiece(piece.id);
+            if (copyId) setActivePiece(copyId);
+          }}
+        />
+      )}
+
       {/* Context fields tooltip — hidden during streaming generation */}
       {!timelinePreviewVersionId && !isGenerating && !resolvedBrief.goal && !resolvedBrief.audience && !resolvedBrief.tone && !contextPromptDismissedPieces.has(piece.id) && (
         <ContextFieldsTooltip pieceId={piece.id} onOpenGoal={openGoal} />
@@ -1595,7 +1641,7 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         <PieceHeader
           title={previewVersion ? previewVersion.title : piece.title ?? ""}
           subtitle={previewVersion ? previewVersion.subtitle ?? "" : piece.subtitle ?? ""}
-          disabled={!!timelinePreviewVersionId || isGenerating}
+          disabled={!!timelinePreviewVersionId || isGenerating || locked}
           generatingTitle={generatingTitle}
           onTitleChange={(v) => updatePiece(piece.id, { title: v })}
           onGenerateTitle={() => generateTitle(piece.id, contentRef.current || piece.body)}

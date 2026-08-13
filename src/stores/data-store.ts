@@ -27,23 +27,10 @@ interface DataState {
   comments: Record<string, Comment>;
   hydrated: boolean;
 
-  // "Awaiting confirmation" state for the Substack verified-publish loop:
-  // pieceId -> the epoch ms a "Publish to Substack" attempt fired from the
-  // editor. Deliberately NOT persisted to Dexie (or anywhere else): it is a
-  // transient UI signal that a fresh 3-min poll
-  // (use-publish-verification.ts) or the user's next explicit action
-  // naturally resolves, losing it on reload just means the badge disappears,
-  // and a genuinely stuck attempt is still visible via Substack itself. The
-  // feed's publish path stamps ContentPiece.publishAttemptedAt instead, which
-  // is persisted because a card has to still look pending tomorrow.
-  pendingSubstackPublish: Record<string, number>;
-
   setHydrated: (v: boolean) => void;
   setSnippets: (snippets: Snippet[]) => void;
   setVersions: (versions: PieceVersion[]) => void;
   setComments: (comments: Comment[]) => void;
-  markPiecePublishPending: (pieceId: string) => void;
-  clearPiecePublishPending: (pieceId: string) => void;
 
   /** pieceId null files the snippet against the idea instead (a snip taken
    * somewhere other than inside one fragment's text). */
@@ -82,22 +69,8 @@ export const useDataStore = create<DataState>((set, get) => ({
   versions: {},
   comments: {},
   hydrated: false,
-  pendingSubstackPublish: {},
 
   setHydrated: (v) => set({ hydrated: v }),
-
-  markPiecePublishPending: (pieceId) => {
-    set((s) => ({ pendingSubstackPublish: { ...s.pendingSubstackPublish, [pieceId]: Date.now() } }));
-  },
-
-  clearPiecePublishPending: (pieceId) => {
-    set((s) => {
-      if (!(pieceId in s.pendingSubstackPublish)) return s;
-      const next = { ...s.pendingSubstackPublish };
-      delete next[pieceId];
-      return { pendingSubstackPublish: next };
-    });
-  },
 
   setSnippets: (snippets) => {
     const map: Record<string, Snippet> = {};

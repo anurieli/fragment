@@ -152,6 +152,11 @@ interface ContentState {
     format?: ContentFormat;
   }) => { ideaId: string; pieceId: string };
   updatePiece: (id: string, partial: Partial<Omit<ContentPiece, "id" | "createdAt">>) => void;
+  /** Copies a piece's words and brief into a fresh in-progress piece in the
+   * same idea, carrying none of its publish history. The way forward from a
+   * published piece when the next version is a different piece rather than an
+   * edit of this one. Returns the new id, or "" if the source is gone. */
+  duplicatePiece: (id: string) => string;
   reorderPieces: (updates: { id: string; order: number }[]) => void;
   setPieceStatus: (id: string, status: PieceStatus, publish?: PublishRecord) => void;
   markPieceSeen: (id: string) => void;
@@ -498,9 +503,62 @@ export const useContentStore = create<ContentState>((set, get) => ({
     const piece = get().pieces[id];
     if (!piece) return;
     const updated: ContentPiece = { ...piece, ...partial, updatedAt: Date.now() };
+    // Publishing closes a piece's text, and "Edit anyway" reopens it. Every
+    // body write in the app lands here (the editor, its auto-save, the card's
+    // textarea, Flow's streamed output), so this is the one place that can
+    // notice a published piece's words changing. Stamped once and never
+    // recleared: the piece has diverged from what was distributed, and a
+    // second edit does not make it match again. See editedAfterPublishAt in
+    // the contract, and setPieceStatus below for the one thing that clears it.
+    if (
+      updated.status === "published" &&
+      piece.editedAfterPublishAt === undefined &&
+      partial.body !== undefined &&
+      partial.body !== piece.body
+    ) {
+      updated.editedAfterPublishAt = Date.now();
+    }
     assertPublishGuard(updated);
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
+  },
+
+  duplicatePiece: (id) => {
+    if (!get().hydrated) return "";
+    const source = get().pieces[id];
+    if (!source) return "";
+
+    // The copy lands beside the piece it came from, in the same idea and the
+    // same format, because the reason to duplicate a published piece is to
+    // keep working on that piece rather than to start somewhere else. Same
+    // shape as data-store's duplicateFromVersion, which copies from a version
+    // instead of from the live piece.
+    const newId = get().createPiece({
+      ideaId: source.ideaId,
+      format: source.format,
+      origin: "user",
+      status: "in-progress",
+      title: source.title ? `${source.title} copy` : undefined,
+      body: source.body,
+      seen: true,
+    });
+    if (!newId) return "";
+
+    // The brief travels with the words. createPiece takes only the fields
+    // every piece is born with; a copy you have to re-brief drafts differently
+    // from the one you copied. Deliberately absent: publish, publishAttemptedAt,
+    // editedAfterPublishAt, scheduledAt and pinnedAt. The copy has not been
+    // published or scheduled, and inheriting any of those would make it claim
+    // its parent's history.
+    get().updatePiece(newId, {
+      subtitle: source.subtitle ?? "",
+      goal: source.goal,
+      audience: source.audience ?? "",
+      tone: source.tone ?? "",
+      remember: source.remember ?? "",
+      voiceId: source.voiceId,
+    });
+    return newId;
   },
 
   reorderPieces: (updates) => {
@@ -530,6 +588,10 @@ export const useContentStore = create<ContentState>((set, get) => ({
       // count as resolution. See publishPendingState in
       // src/lib/publish/substack-verify.ts for the badge this backs.
       publishAttemptedAt: undefined,
+      // Cleared for the same reason, in both directions. Leaving "published"
+      // makes the field meaningless, and publishing again makes the piece match
+      // what was just distributed, so either way it no longer has diverged.
+      editedAfterPublishAt: undefined,
       updatedAt: Date.now(),
     };
     assertPublishGuard(updated);

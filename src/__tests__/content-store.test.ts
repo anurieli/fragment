@@ -398,6 +398,121 @@ describe("content-store — pieces", () => {
   });
 });
 
+describe("content-store — published text is closed", () => {
+  beforeEach(resetStore);
+
+  function publishedPiece(body = "shipped words"): string {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const id = store.createPiece({
+      ideaId,
+      format: "substack",
+      origin: "user",
+      status: "in-progress",
+      body,
+    });
+    useContentStore.getState().setPieceStatus(id, "published", {
+      platform: "substack",
+      method: "manual",
+      publishedAt: 1000,
+      url: "https://example.substack.com/p/shipped",
+      verified: true,
+    });
+    return id;
+  }
+
+  it("a published piece starts undiverged", () => {
+    const id = publishedPiece();
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeUndefined();
+  });
+
+  it("changing a published piece's body stamps that it diverged", () => {
+    const id = publishedPiece();
+    useContentStore.getState().updatePiece(id, { body: "shipped words, fixed" });
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeGreaterThan(0);
+  });
+
+  it("stamps once and keeps the first time, since a later edit does not undo the divergence", () => {
+    const id = publishedPiece();
+    useContentStore.getState().updatePiece(id, { body: "first fix" });
+    const first = useContentStore.getState().pieces[id].editedAfterPublishAt;
+    useContentStore.getState().updatePiece(id, { body: "second fix" });
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBe(first);
+  });
+
+  it("writing the same body is not a change", () => {
+    const id = publishedPiece("shipped words");
+    useContentStore.getState().updatePiece(id, { body: "shipped words" });
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeUndefined();
+  });
+
+  it("editing a field other than the body is not a divergence", () => {
+    const id = publishedPiece();
+    useContentStore.getState().updatePiece(id, { title: "A better title" });
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeUndefined();
+  });
+
+  it("an unpublished piece is never stamped", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const id = store.createPiece({ ideaId, format: "tweet", origin: "user", status: "ready", body: "a" });
+    useContentStore.getState().updatePiece(id, { body: "b" });
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeUndefined();
+  });
+
+  it("a status change clears the divergence, in both directions", () => {
+    const id = publishedPiece();
+    useContentStore.getState().updatePiece(id, { body: "edited" });
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeGreaterThan(0);
+
+    // Back to a working state: the field is meaningless off "published".
+    useContentStore.getState().setPieceStatus(id, "ready");
+    expect(useContentStore.getState().pieces[id].editedAfterPublishAt).toBeUndefined();
+  });
+
+  it("duplicatePiece copies words and brief but none of the publish history", () => {
+    const store = useContentStore.getState();
+    const ideaId = store.createIdea({ title: "Idea" });
+    const sourceId = store.createPiece({
+      ideaId,
+      format: "substack",
+      origin: "user",
+      status: "in-progress",
+      body: "shipped words",
+      title: "Shipped",
+    });
+    useContentStore.getState().updatePiece(sourceId, { goal: "Convince the reader", tone: "dry" });
+    useContentStore.getState().setPieceStatus(sourceId, "published", {
+      platform: "substack",
+      method: "manual",
+      publishedAt: 1000,
+      verified: false,
+    });
+
+    const copyId = useContentStore.getState().duplicatePiece(sourceId);
+    const copy = useContentStore.getState().pieces[copyId];
+
+    expect(copy.body).toBe("shipped words");
+    expect(copy.goal).toBe("Convince the reader");
+    expect(copy.tone).toBe("dry");
+    expect(copy.ideaId).toBe(ideaId);
+    expect(copy.format).toBe("substack");
+    // The whole point: the copy is open to edit and claims nothing about
+    // having been published.
+    expect(copy.status).toBe("in-progress");
+    expect(copy.publish).toBeUndefined();
+    expect(copy.editedAfterPublishAt).toBeUndefined();
+    // And the original is untouched.
+    expect(useContentStore.getState().pieces[sourceId].status).toBe("published");
+  });
+
+  it("duplicating a piece that is gone returns nothing rather than a stray piece", () => {
+    const before = Object.keys(useContentStore.getState().pieces).length;
+    expect(useContentStore.getState().duplicatePiece("no-such-piece")).toBe("");
+    expect(Object.keys(useContentStore.getState().pieces).length).toBe(before);
+  });
+});
+
 describe("content-store: creating and deleting a fragment", () => {
   beforeEach(resetStore);
 

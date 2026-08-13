@@ -7,6 +7,7 @@ import {
   FileText,
   Flag,
   LayoutList,
+  Lock,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -861,9 +862,30 @@ function DraftRow({
           <Trash2 size={11} />
         </button>
       </div>
-      <span className="pl-[19px] text-[10px] text-text-faint font-[family-name:var(--font-mono)]">
-        {wordCount(piece.body)} words · {formatDate(piece.updatedAt)}
-      </span>
+      {/* A published draft says so instead of showing a word count and a last-
+          edited date. Both of those are about work in progress, and the one
+          thing worth knowing from the list about a published draft is that its
+          words are closed. */}
+      {piece.status === "published" ? (
+        <span
+          title={
+            piece.editedAfterPublishAt !== undefined
+              ? "Published, and edited since. What is here no longer matches what went out."
+              : "Published. Its words are closed. Open it to duplicate it or edit anyway."
+          }
+          className="pl-[19px] flex items-center gap-1 text-[10px] text-text-faint font-[family-name:var(--font-mono)]"
+        >
+          <Lock size={9} className="shrink-0" />
+          {piece.editedAfterPublishAt !== undefined
+            ? "published, edited since"
+            : "this is published"}
+          {piece.publish && ` · ${formatDate(piece.publish.publishedAt)}`}
+        </span>
+      ) : (
+        <span className="pl-[19px] text-[10px] text-text-faint font-[family-name:var(--font-mono)]">
+          {wordCount(piece.body)} words · {formatDate(piece.updatedAt)}
+        </span>
+      )}
 
       {point && (
         <ContextMenu point={point} onClose={close}>
@@ -972,6 +994,22 @@ function PieceRow({
         </span>
       )}
       {priority && <Flag size={9} fill="currentColor" className={`shrink-0 ${priority.className}`} />}
+
+      {/* A single-line row has no room for the sentence, so the padlock carries
+          it and the tooltip says it. The green status dot above already means
+          "published"; this is the part that means "and therefore closed". */}
+      {piece.status === "published" && (
+        <span
+          className="shrink-0 text-text-faint"
+          title={
+            piece.editedAfterPublishAt !== undefined
+              ? "This is published, and edited since. What is here no longer matches what went out."
+              : "This is published. Its words are closed."
+          }
+        >
+          <Lock size={9} />
+        </span>
+      )}
 
       {!piece.seen && piece.origin === "agent" && (
         <span

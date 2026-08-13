@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2 } from "lucide-react";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2, CheckCircle2 } from "lucide-react";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -27,6 +27,8 @@ import {
 import { buildReviewFile, reviewFileName, parseReviewReturn } from "@/lib/review";
 import { ReviewPanel } from "@/components/review/review-panel";
 import { ShareDialog } from "@/components/review/share-dialog";
+import { MarkPublishedForm } from "@/components/publish/mark-published-form";
+import { PublishReceipt } from "@/components/publish/publish-receipt";
 import { isHosted } from "@/lib/edition";
 import type { Editor } from "@tiptap/react";
 
@@ -52,6 +54,7 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [kitDraftBusy, setKitDraftBusy] = useState(false);
+  const [markFormOpen, setMarkFormOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +62,7 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
   // long enough (publish, copy, download, review) to run off the bottom.
   const placement = useMenuPlacement(open, menuRef, dropdownRef);
   const createVersion = useDataStore((s) => s.createVersion);
-  const markPiecePublishPending = useDataStore((s) => s.markPiecePublishPending);
+  const updatePiece = useContentStore((s) => s.updatePiece);
   const userProfile = useSettingsStore((s) => s.settings.userProfile);
   const showToast = useToastStore((s) => s.showToast);
   const substackPublicationUrl = userProfile.substackPublicationUrl;
@@ -77,6 +80,7 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setMarkFormOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -136,7 +140,14 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
     // user-gesture timing for why the ordering matters here.
     openComposer("substack", { publicationUrl: substackPublicationUrl });
     void copyForPlatform(getMarkdown(), "substack");
-    markPiecePublishPending(pieceId);
+    // Stamps the same persisted field the feed's publish path stamps, so the
+    // RSS verification loop treats a draft published from the editor exactly
+    // like one published from a card: a feed match flips it to "published"
+    // with a verified publish record. This used to write to an in-memory map
+    // whose match branch only fired a toast, so a draft confirmed live on
+    // Substack never actually recorded the publish (and lost even the pending
+    // state on reload).
+    updatePiece(pieceId, { publishAttemptedAt: Date.now() });
     showToast("Copied. Opening Substack — Fragment will confirm once it's live.");
     setOpen(false);
   }
@@ -144,10 +155,10 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
   // ARI-164: a Kit draft is not "published", it is a draft sitting in someone
   // else's editor, so unlike the piece-share-menu's "Schedule on Kit" (which
   // does flip a fragment to "published") this action is toast-only and leaves
-  // the fragment's status alone. Nothing is stamped either:
-  // `markPiecePublishPending` is reserved for the Substack RSS verified-publish
-  // loop (use-publish-verification.ts polls the Substack feed specifically),
-  // which a Kit draft has no bearing on.
+  // the fragment's status alone. Nothing is stamped either: `publishAttemptedAt`
+  // is reserved for the Substack RSS verified-publish loop
+  // (use-publish-verification.ts polls the Substack feed specifically), which a
+  // Kit draft has no bearing on.
   async function handleSendToKitDraft() {
     if (!hasKitKey || kitDraftBusy) return;
     setKitDraftBusy(true);
@@ -245,6 +256,16 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
           className={`absolute right-0 ${placement.className} w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl z-20 overflow-y-auto`}
           style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
         >
+          {/* Where this already went, if anywhere. A draft that has been
+              published had no way of saying so on this surface: the record was
+              written and then never read. */}
+          {piece.publish && (
+            <>
+              <PublishReceipt publish={piece.publish} variant="line" />
+              <div className="mx-3 border-t border-border" />
+            </>
+          )}
+
           <button
             onClick={handlePublishToSubstack}
             disabled={!hasSubstackPub}
@@ -273,6 +294,23 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
               {kitDraftBusy ? "Sending…" : "Send to Kit as draft"}
             </span>
           </button>
+          <button
+            onClick={() => setMarkFormOpen((v) => !v)}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+            title="Record that this went live somewhere, with its URL"
+          >
+            <CheckCircle2 size={13} className="shrink-0" />
+            <span className="flex-1 text-left">Mark as published…</span>
+          </button>
+          {markFormOpen && (
+            <MarkPublishedForm
+              piece={piece}
+              onDone={() => {
+                setMarkFormOpen(false);
+                setOpen(false);
+              }}
+            />
+          )}
           <button
             onClick={handleCopyCleanHtml}
             className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"

@@ -2,6 +2,31 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 - Publishing closes a piece, and says where it went
+
+Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.
+
+**A draft published to Substack is now recorded.** It never was. Publishing a draft from the editor put it in a pending state that the Substack feed check could see, and when the check found your post it said so in a toast and then dropped it. The piece stayed at "ready" forever, and reloading lost even the pending state. A draft published from the editor and a piece published from the feed now travel the same path, so a confirmed post becomes published, with the live URL taken off your feed.
+
+**Any piece can be marked published by hand, including a draft.** "Mark as published", with an optional URL, was only on feed cards. Drafts open in the editor, which had no such action, so the piece most likely to be published manually on Substack was the one piece you could not mark.
+
+**A published piece shows where it went and when.** Fragment was already recording the URL and the date and showing neither. Published pieces now carry a green badge naming the platform and the date, linking straight to the post when a URL is on file. It appears on the card and at the top of the editor's publish menu. Pieces marked published without a URL say so plainly rather than looking broken.
+
+**Ideas show what came of them.** An idea in the sidebar gave no sign of having produced anything. Ideas with published work now carry a green marker and the date they last shipped, and the row's summary counts them. This counts long-form drafts as well as short-form pieces, which matters because a published Substack draft was exactly the thing the old counts could not see.
+
+Pieces that are archived stay out of an idea's published count, so the marker always points at work you can still open.
+
+**Published text is closed.** Once a piece is published, the editor and the feed card go read-only and say so: "This is published. Its words are closed." What shipped is a fact, and quietly rewriting it turns the publish record into a claim about text that no longer exists.
+
+There are two ways forward, because they answer different questions. **Duplicate** is for when the next version is a new piece: it copies the words and the brief into a fresh in-progress piece in the same idea, and inherits none of the publish history. **Edit anyway** is for a typo, where making a whole second piece would split one piece's history over a comma.
+
+Taking that second route is recorded rather than hidden. The first change stamps the piece, and the notice starts reading "Published, edited since <date>. What is here no longer matches what went out." The unlock lasts only as long as you are looking at that piece: reopen it later and it is closed again, because publishing is why it was closed.
+
+**Finishing a publish now asks for the link.** Publishing somewhere without an API, a Substack post or note, an X intent, happens in another tab, so Fragment cannot see it land. It used to guess by watching your Substack feed for a matching title, which works for posts and never fires for notes, since notes are not in the feed. The pending badge now opens a field for the published link, which works for anywhere you publish and gives you the real URL immediately. The feed check still runs and still resolves the badge on its own when it can.
+
+An idea's rows show this too: a published draft's line reads "this is published" with the date instead of a word count and a last-edited time, and a published short-form row gets a padlock beside its status dot.
+
+The receipt names a place rather than a format. A long-form draft published to Substack used to read "Published to Essay", which names nowhere you can go; it reads the URL now, so it says Substack, LinkedIn, X, or the site's own domain.
 ## 2026-08-13 14:20 - Drafts written to a folder nobody reads can be rescued, and now they announce themselves
 The local file transport writes pieces to `~/.fragment/inbox` and trusts a running Fragment app to import them. If no such app is running, every push succeeds, reports cleanly, and delivers nothing: real drafts sitting on a disk nobody reads. `fragment-mcp drain` is the way back. With hosted mode configured it moves everything stranded locally into the account, matching ideas by normalized title rather than id (local ids were minted offline and mean nothing to the account, so matching stops a drain from cloning an idea you already have and minting the rest stops it dropping one). Pieces travel with the resolved idea id and go oldest first, so a re-draft carrying `supersedes` still retires the piece it replaced instead of leaving two near-identical pieces with no way to tell which is live. Drained files move to `.imported/` so a second run is a no-op, an unparseable file is reported and left in place for a retry, and `--dry-run` previews the whole thing. Separately, a file-mode write whose folder has never been imported from now returns a warning in the tool result the calling model reads, naming the two environment variables that fix it and pointing at `drain` for whatever is already stranded. A warning on stderr is a warning nobody in the loop sees.
 Files: packages/fragment-mcp/src/drain.ts, packages/fragment-mcp/src/bin.ts, packages/fragment-mcp/src/file-transport.ts, packages/fragment-mcp/src/transport.ts, packages/fragment-mcp/src/tools.ts, packages/fragment-mcp/src/__tests__/drain.test.ts, packages/fragment-mcp/README.md.
