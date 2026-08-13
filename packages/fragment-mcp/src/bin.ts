@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { createServer, FileTransport, pushFile } from "./index.js";
 import { HttpTransport, resolveHttpConfig } from "./http-transport.js";
+import { drainInbox, formatDrainResult, requireHostedForDrain } from "./drain.js";
 import { checkDelivery, formatFinding } from "./delivery-check.js";
 import type { Transport } from "./transport.js";
 
@@ -11,7 +12,9 @@ const HELP =
   "Usage:\n" +
   "  fragment-mcp                 start the MCP server over stdio\n" +
   "  fragment-mcp push <file.md>  validate a handoff file and push it\n" +
-  "  fragment-mcp doctor          check that pushes will actually arrive\n\n" +
+  "  fragment-mcp doctor          check that pushes will actually arrive\n" +
+  "  fragment-mcp drain           move anything stranded in the local inbox\n" +
+  "                               into the hosted account (--dry-run to preview)\n\n" +
   "Transports:\n" +
   "  local (default)  writes to FRAGMENT_INBOX_DIR (~/.fragment/inbox);\n" +
   "                   the running Fragment app imports the files.\n" +
@@ -56,6 +59,11 @@ async function runPush(file: string | undefined): Promise<void> {
     if (transport instanceof FileTransport) {
       process.stdout.write("queued 1 piece(s); open Fragment to import.\n");
       process.stdout.write(`  piece ${result.pieceId} -> idea ${result.ideaId} (${transport.inboxDir})\n`);
+      // The same caution the MCP tools return to the model: a queue nothing
+      // drains is not a delivery, and saying so here is the difference
+      // between a fixable setup and a folder quietly filling for weeks.
+      const warning = await transport.deliveryWarning();
+      if (warning) process.stdout.write(`\n${warning}\n`);
     } else {
       process.stdout.write("pushed 1 piece(s) to the Fragment account.\n");
       process.stdout.write(`  piece ${result.pieceId} -> idea ${result.ideaId}\n`);
@@ -91,6 +99,27 @@ async function runDoctor(): Promise<void> {
   if (finding.state !== "ok") process.exitCode = 1;
 }
 
+/**
+ * Rescue pieces written in local file mode into the hosted account. The
+ * counterpart to the file transport's one real failure: a draft that was
+ * saved perfectly and delivered to nobody.
+ */
+async function runDrain(args: string[]): Promise<void> {
+  const dryRun = args.includes("--dry-run");
+  try {
+    const hosted = resolveHttpConfig();
+    if (!hosted) requireHostedForDrain();
+
+    const result = await drainInbox(new HttpTransport(hosted), { dryRun });
+    process.stdout.write(formatDrainResult(result, dryRun) + "\n");
+    if (result.failures.length) process.exitCode = 1;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`fragment-mcp drain failed: ${message}\n`);
+    process.exitCode = 1;
+  }
+}
+
 async function runServer(): Promise<void> {
   const transport = selectTransport();
   const server = createServer(transport);
@@ -106,6 +135,10 @@ async function main(): Promise<void> {
   }
   if (command === "doctor") {
     await runDoctor();
+    return;
+  }
+  if (command === "drain") {
+    await runDrain(rest);
     return;
   }
   if (command === "--help" || command === "-h") {

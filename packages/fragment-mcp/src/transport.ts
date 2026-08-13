@@ -78,6 +78,9 @@ export interface Transport {
    * will ever read (the file transport's ingress-blocked state). Transports
    * whose writes fail loudly on their own (HTTP) simply don't implement it. */
   assertDeliverable?(): Promise<void>;
+  /** Optional post-write note surfaced in the tool result: a write that
+   * succeeded but is unlikely to ever be seen. Null when all is well. */
+  deliveryWarning?(): Promise<string | null>;
   createIdea(input: CreateIdeaInput): Promise<Idea>;
   /** Takes an already-validated PieceHandoff (validate with the contract's
    * zod schemas before calling). Always creates a new piece file — agents
