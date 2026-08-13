@@ -152,6 +152,11 @@ export interface InlineEditSettings extends AIProcessSettings {
   maxContextChars: number;
 }
 
+/** The idea extractor has no context window of its own to tune: it reads the
+ * whole idea by definition, and the ceiling on that lives in lib/agents/extract.ts
+ * where the source is assembled. */
+export type IdeaExtractorSettings = AIProcessSettings;
+
 export interface ProviderModel {
   id: string;
   name: string;
@@ -442,6 +447,7 @@ export interface AppSettings {
     snippetLabeling: FeatureProviderConfig;
     slashCommand: FeatureProviderConfig;
     inlineEdit: FeatureProviderConfig;
+    ideaExtractor: FeatureProviderConfig;
   };
   userProfile: UserProfile;
   writingStyle: WritingStyleSettings;
@@ -450,5 +456,6 @@ export interface AppSettings {
   snippetLabeling: SnippetLabelingSettings;
   slashCommand: SlashCommandSettings;
   inlineEdit: InlineEditSettings;
+  ideaExtractor: IdeaExtractorSettings;
 }
 

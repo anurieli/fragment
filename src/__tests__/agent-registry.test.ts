@@ -33,6 +33,11 @@ function withPrompt(agent: AgentDefinition, prompt: string): AppSettings {
         ...DEFAULT_SETTINGS,
         brandVoice: { ...DEFAULT_SETTINGS.brandVoice, analysisPromptTemplate: prompt },
       };
+    case "idea-extractor":
+      return {
+        ...DEFAULT_SETTINGS,
+        ideaExtractor: { ...DEFAULT_SETTINGS.ideaExtractor, promptTemplate: prompt },
+      };
     default:
       return DEFAULT_SETTINGS;
   }

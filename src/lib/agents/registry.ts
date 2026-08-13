@@ -28,6 +28,7 @@ import {
   DEFAULT_NOTE_CREATION_PROMPT,
   DEFAULT_TITLE_PROMPT,
   DEFAULT_VOICE_ANALYSIS_PROMPT,
+  DEFAULT_EXTRACT_PROMPT,
 } from "@/lib/defaults";
 
 export type AgentId =
@@ -36,7 +37,8 @@ export type AgentId =
   | "refine-editor"
   | "voice-analyst"
   | "title-writer"
-  | "draft-writer";
+  | "draft-writer"
+  | "idea-extractor";
 
 /**
  * Which feature-provider config picks an agent's model. Only the three
@@ -44,7 +46,11 @@ export type AgentId =
  * neighbour's, which the detail view says out loud rather than implying every
  * agent is separately steerable.
  */
-export type AgentProviderKey = "snippetLabeling" | "slashCommand" | "inlineEdit";
+export type AgentProviderKey =
+  | "snippetLabeling"
+  | "slashCommand"
+  | "inlineEdit"
+  | "ideaExtractor";
 
 export interface AgentVariable {
   /** The placeholder as it appears in the prompt, braces included. */
@@ -207,6 +213,26 @@ export const AGENTS: readonly AgentDefinition[] = [
     ],
     defaultPrompt: DEFAULT_VOICE_ANALYSIS_PROMPT,
     readPrompt: (s) => s.brandVoice.analysisPromptTemplate,
+    promptIsBuiltIn: false,
+  },
+  {
+    id: "idea-extractor",
+    name: "Idea extractor",
+    does: "Reads a whole idea and pulls out each part that stands on its own.",
+    runsAt: "Extract pieces, at the top of an idea's panel.",
+    howItWorks:
+      "The extractor is the only agent that reads everything in an idea at once: the brief, every draft, every piece already in it, and the sources attached to it. It looks for the sections and concepts that are already complete thoughts, and writes each one out as its own piece. Each piece holds exactly one idea, carries whatever context that idea needs to be understood alone, and holds nothing else. Everything it writes lands in the idea's inbox for you to triage, because several pieces written at once from material you did not re-read is exactly the work that should not skip a review.",
+    variables: [
+      { token: "{source}", describes: "everything in the idea: brief, drafts, pieces and sources" },
+      { token: "{goal}", describes: "the goal set on the idea" },
+      { token: "{audience}", describes: "who the idea is written for" },
+      { token: "{tone}", describes: "the tone set on the idea" },
+      { token: "{remember}", describes: "anything you added to the brief" },
+    ],
+    defaultPrompt: DEFAULT_EXTRACT_PROMPT,
+    readPrompt: (s) => s.ideaExtractor.promptTemplate,
+    readEnabled: (s) => s.ideaExtractor.enabled,
+    providerKey: "ideaExtractor",
     promptIsBuiltIn: false,
   },
   {

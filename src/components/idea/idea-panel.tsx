@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   Pin,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
@@ -33,6 +34,7 @@ import {
 import { PieceMenuItems, PieceShapeItems } from "@/components/shortform/piece-menu-items";
 import { MarkPublishedMenuSection } from "@/components/publish/mark-published-menu-section";
 import { MarkPublishedDialog } from "@/components/publish/mark-published-dialog";
+import { useExtractIdeas } from "@/hooks/use-extract-ideas";
 import { markdownToPlainText } from "@/lib/publish";
 import { moveToSection, type PanelSection } from "@/lib/piece-section";
 import { priorityMeta } from "@/lib/priority";
@@ -588,6 +590,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
           <p className="text-[10px] text-text-faint leading-relaxed mb-2">
             Short-form posts drawn from this idea. Click one to open the feed.
           </p>
+          <ExtractButton ideaId={ideaId} />
           {shortPieces.length === 0 ? (
             <p className="px-3 py-2 text-[11px] text-text-faint">
               Nothing yet. Snip from a draft, or let an agent drop one in.
@@ -808,6 +811,38 @@ export function IdeaPanelToggle() {
  * already listed oldest-first by hand; a pin would be ceremony over a list
  * short enough to read at a glance.
  */
+/**
+ * Runs the idea extractor over everything in this idea.
+ *
+ * Sits above the pieces list rather than in a menu because it is the one
+ * action here that reads the whole idea at once, and because what it produces
+ * appears directly below it. The count of what came back is deliberately not
+ * promised up front: how many pieces an idea contains is the question being
+ * asked, not a setting.
+ */
+function ExtractButton({ ideaId }: { ideaId: string }) {
+  const { extract, isExtracting } = useExtractIdeas();
+
+  // The tip sits beside the button rather than inside it: a button inside a
+  // button is invalid markup, and React says so at hydration.
+  return (
+    <div className="flex items-center gap-1.5 mb-2">
+      <button
+        onClick={() => { void extract(ideaId); }}
+        disabled={isExtracting}
+        title="Read everything in this idea and pull out the parts that stand on their own"
+        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)]
+          border border-border bg-surface-2 text-[10px] text-text-muted
+          hover:text-text-secondary hover:border-border-strong
+          disabled:opacity-50 disabled:pointer-events-none transition-all duration-150"
+      >
+        <Sparkles size={10} />
+        {isExtracting ? "Reading the whole idea…" : "Extract pieces"}
+      </button>
+    </div>
+  );
+}
+
 function DraftRow({
   piece,
   isActive,

@@ -11,7 +11,7 @@ import type { AppSettings, AIProvider } from "@/lib/types";
 import { PROVIDER_IDS, getProviderKey } from "@/lib/ai/provider-runtime";
 import { getProvider } from "@/lib/providers";
 
-export type FeatureKey = "snippetLabeling" | "slashCommand" | "inlineEdit";
+export type FeatureKey = "snippetLabeling" | "slashCommand" | "inlineEdit" | "ideaExtractor";
 
 export function isAiAuthFailureStatus(status: number): boolean {
   return status === 401 || status === 403;

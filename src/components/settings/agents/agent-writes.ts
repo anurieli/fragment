@@ -28,10 +28,12 @@ export function useAgentWriters(agent: AgentDefinition): AgentWriters {
     updateSnippetLabeling,
     updateSlashCommand,
     updateInlineEdit,
+    updateIdeaExtractor,
     updateBrandVoiceSettings,
     resetSnippetLabelingPrompt,
     resetSlashCommandPrompt,
     resetInlineEditPrompt,
+    resetIdeaExtractorPrompt,
     resetVoiceAnalysisPrompt,
   } = useSettingsStore();
 
@@ -66,6 +68,12 @@ export function useAgentWriters(agent: AgentDefinition): AgentWriters {
         setPrompt: (analysisPromptTemplate) =>
           updateBrandVoiceSettings({ analysisPromptTemplate }),
         resetPrompt: resetVoiceAnalysisPrompt,
+      };
+    case "idea-extractor":
+      return {
+        setPrompt: (promptTemplate) => updateIdeaExtractor({ promptTemplate }),
+        resetPrompt: resetIdeaExtractorPrompt,
+        setEnabled: (enabled) => updateIdeaExtractor({ enabled }),
       };
     case "title-writer":
     case "draft-writer":
