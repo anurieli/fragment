@@ -9,6 +9,8 @@ interface MarkPublishedFormProps {
   piece: ContentPiece;
   /** Called after a confirm, so the host menu can close itself. */
   onDone: () => void;
+  /** Set by the dialog, whose only reason to exist is this field. */
+  autoFocus?: boolean;
 }
 
 /**
@@ -24,7 +26,7 @@ interface MarkPublishedFormProps {
  * "we can point at this" rather than "we checked it", which is the same meaning
  * the Substack RSS loop gives it when it matches a feed entry.
  */
-export function MarkPublishedForm({ piece, onDone }: MarkPublishedFormProps) {
+export function MarkPublishedForm({ piece, onDone, autoFocus }: MarkPublishedFormProps) {
   const [url, setUrl] = useState("");
   const setPieceStatus = useContentStore((s) => s.setPieceStatus);
   const showToast = useToastStore((s) => s.showToast);
@@ -38,7 +40,7 @@ export function MarkPublishedForm({ piece, onDone }: MarkPublishedFormProps) {
       url: trimmed || undefined,
       verified: Boolean(trimmed),
     });
-    showToast(trimmed ? "Marked published." : "Marked published — no URL on file.");
+    showToast(trimmed ? "Marked published." : "Marked published, with no URL on file.");
     setUrl("");
     onDone();
   }
@@ -47,6 +49,7 @@ export function MarkPublishedForm({ piece, onDone }: MarkPublishedFormProps) {
     <div className="px-3 pb-2 pt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
       <input
         type="text"
+        autoFocus={autoFocus}
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         onKeyDown={(e) => {

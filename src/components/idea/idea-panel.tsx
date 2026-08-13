@@ -31,6 +31,8 @@ import {
   useContextMenu,
 } from "@/components/common/context-menu";
 import { PieceMenuItems, PieceShapeItems } from "@/components/shortform/piece-menu-items";
+import { MarkPublishedMenuSection } from "@/components/publish/mark-published-menu-section";
+import { MarkPublishedDialog } from "@/components/publish/mark-published-dialog";
 import { markdownToPlainText } from "@/lib/publish";
 import { moveToSection, type PanelSection } from "@/lib/piece-section";
 import { priorityMeta } from "@/lib/priority";
@@ -825,6 +827,7 @@ function DraftRow({
 }) {
   const { point, openAt, close } = useContextMenu();
   const [renaming, setRenaming] = useState(false);
+  const [marking, setMarking] = useState(false);
   const { onMouseDown, dragged } = useRowDrag(piece, "drafts", onMove);
 
   return (
@@ -896,6 +899,11 @@ function DraftRow({
             onClick={() => { close(); setRenaming(true); }}
           />
           <ContextMenuDivider />
+          <MarkPublishedMenuSection
+            piece={piece}
+            onMark={() => { close(); setMarking(true); }}
+          />
+          <ContextMenuDivider />
           <PieceShapeItems piece={piece} onClose={close} />
           <ContextMenuDivider />
           <ContextMenuItem
@@ -909,6 +917,10 @@ function DraftRow({
             onClick={() => { close(); onDelete(); }}
           />
         </ContextMenu>
+      )}
+
+      {marking && (
+        <MarkPublishedDialog piece={piece} onClose={() => setMarking(false)} />
       )}
     </div>
   );
@@ -949,6 +961,7 @@ function PieceRow({
   const priority = priorityMeta(piece.priority);
   const { point, openAt, close } = useContextMenu();
   const [renaming, setRenaming] = useState(false);
+  const [marking, setMarking] = useState(false);
   const { onMouseDown, dragged } = useRowDrag(piece, "pieces", onMove);
 
   return (
@@ -1022,6 +1035,11 @@ function PieceRow({
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
           <ContextMenuDivider />
+          <MarkPublishedMenuSection
+            piece={piece}
+            onMark={() => { close(); setMarking(true); }}
+          />
+          <ContextMenuDivider />
           <PieceMenuItems
             piece={piece}
             onClose={close}
@@ -1029,6 +1047,10 @@ function PieceRow({
             onDelete={onDelete}
           />
         </ContextMenu>
+      )}
+
+      {marking && (
+        <MarkPublishedDialog piece={piece} onClose={() => setMarking(false)} />
       )}
     </div>
   );
