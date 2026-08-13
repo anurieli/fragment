@@ -54,6 +54,17 @@ export function registerTools(server: McpServer, transport: Transport): void {
   const assertDeliverable = async (): Promise<void> => {
     await transport.assertDeliverable?.();
   };
+
+  /**
+   * Attach the transport's delivery warning, when it has one, to a
+   * successful write. It rides in the tool result because that is what the
+   * calling model reads: a warning printed to stderr is a warning nobody in
+   * the loop ever sees.
+   */
+  const okWithDelivery = async (data: Record<string, unknown>): Promise<CallToolResult> => {
+    const warning = await transport.deliveryWarning?.();
+    return ok(warning ? { ...data, warning } : data);
+  };
   server.registerTool(
     "create_idea",
     {
@@ -75,7 +86,7 @@ export function registerTools(server: McpServer, transport: Transport): void {
       try {
         await assertDeliverable();
         const idea = await transport.createIdea({ title, summary, agent, parentId });
-        return ok({ ideaId: idea.id, title: idea.title, parentId: idea.parentId });
+        return okWithDelivery({ ideaId: idea.id, title: idea.title, parentId: idea.parentId });
       } catch (err) {
         return fail(err);
       }
@@ -130,7 +141,7 @@ export function registerTools(server: McpServer, transport: Transport): void {
           resources: args.resources ?? [],
         });
         const result = await transport.addPiece(handoff);
-        return ok(result);
+        return okWithDelivery({ ...result });
       } catch (err) {
         return fail(err);
       }

@@ -115,6 +115,36 @@ export class FileTransport implements Transport {
     }
   }
 
+  /**
+   * The sentence an agent needs to read after a successful local write.
+   *
+   * Writing to this directory only becomes a delivered draft when a running
+   * Fragment app imports it. If no app is answering AND none ever has, the
+   * agent has just filed a real draft into a folder nobody reads, and it
+   * will keep doing so, cheerfully, forever. The write is not undone (the
+   * words are safe on disk, and `drain` exists to rescue them) but the
+   * caller must be told, in the tool result the model actually reads,
+   * rather than left to infer it from an inbox that never fills.
+   *
+   * Null when delivery looks fine, so the happy path stays quiet.
+   */
+  async deliveryWarning(): Promise<string | null> {
+    const { checkDelivery } = await import("./delivery-check.js");
+    const finding = await checkDelivery(this.inboxDir);
+    if (finding.state !== "app_down" || finding.everImported) return null;
+
+    return (
+      `WARNING: this was written to the local folder ${this.inboxDir}, and nothing has ever ` +
+      "imported from it. No Fragment app is running here, so this draft has NOT reached the " +
+      "user's Fragment account and will not until something picks it up. If they use hosted " +
+      "Fragment, set FRAGMENT_API_URL and FRAGMENT_API_TOKEN on this MCP server (a token is " +
+      "minted in Fragment under Settings, Account & Sync, Agent access) and every push will go " +
+      "straight to their account. Anything already stranded here can be recovered with " +
+      "`fragment-mcp drain` once those two variables are set. Tell the user this rather than " +
+      "reporting a clean success."
+    );
+  }
+
   async createIdea(input: CreateIdeaInput): Promise<Idea> {
     const title = input.title.trim();
     if (!title) throw new TransportError("idea title is required", "invalid");
