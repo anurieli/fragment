@@ -2,7 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 import type { PublishRecord } from "@/lib/content-engine";
-import { formatLabel } from "@/lib/format-labels";
+import { destinationLabel } from "@/lib/publish";
 import { formatDate } from "@/lib/utils";
 
 interface PublishReceiptProps {
@@ -10,6 +10,7 @@ interface PublishReceiptProps {
   /** "pill" sits in the feed card's meta row; "line" is a menu header row. */
   variant?: "pill" | "line";
 }
+
 
 /**
  * Where a published piece went, and when.
@@ -22,16 +23,19 @@ interface PublishReceiptProps {
  * legitimate state rather than an error.
  */
 export function PublishReceipt({ publish, variant = "pill" }: PublishReceiptProps) {
-  const where = formatLabel(publish.platform);
+  const where = destinationLabel(publish.url, publish.platform);
   const exact = new Date(publish.publishedAt).toLocaleString();
   const title = publish.url
-    ? `Published to ${where} on ${exact}. Opens in a new tab.`
-    : `Published to ${where} on ${exact}. No URL on file.`;
+    ? `Published${where ? ` to ${where}` : ""} on ${exact}. Opens in a new tab.`
+    : `Published${where ? ` to ${where}` : ""} on ${exact}. No URL on file.`;
 
   const label = (
     <>
-      {variant === "line" ? `Live on ${where}` : where}
-      <span className="opacity-60"> · {formatDate(publish.publishedAt)}</span>
+      {where && (variant === "line" ? `Live on ${where}` : where)}
+      <span className={where ? "opacity-60" : undefined}>
+        {where ? " · " : variant === "line" ? "Published " : ""}
+        {formatDate(publish.publishedAt)}
+      </span>
       {publish.url && <ExternalLink size={variant === "line" ? 11 : 9} className="shrink-0 opacity-70" />}
     </>
   );

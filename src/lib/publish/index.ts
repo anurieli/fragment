@@ -23,6 +23,8 @@ export type { TweetSegmentCount } from "./limits";
 
 export { escapeLinkedInReserved } from "./linkedin";
 
+export { destinationLabel } from "./destination-label";
+
 export {
   parseSubstackFeed,
   parseFeedItemsRegex,

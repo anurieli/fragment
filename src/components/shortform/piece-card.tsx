@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { Flag, MoreHorizontal, Pin } from "lucide-react";
 import type { ContentFormat, ContentPiece } from "@/lib/content-engine";
-import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml, publishPendingState } from "@/lib/publish";
+import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
@@ -38,6 +38,8 @@ import { PieceTriageBar } from "./piece-triage";
 import { PieceMenuItems } from "./piece-menu-items";
 import { ContextMenu, useContextMenu } from "@/components/common/context-menu";
 import { PublishReceipt } from "@/components/publish/publish-receipt";
+import { PublishedLock, isPieceLocked } from "@/components/publish/published-lock";
+import { PublishPendingPrompt } from "@/components/publish/publish-pending-prompt";
 import { FORMAT_LABELS } from "@/lib/format-labels";
 import { LiveMarkdownTextarea } from "./live-markdown-textarea";
 
@@ -120,6 +122,7 @@ export function PieceCard({
   onDelete,
 }: PieceCardProps) {
   const updatePiece = useContentStore((s) => s.updatePiece);
+  const duplicatePiece = useContentStore((s) => s.duplicatePiece);
   const markPieceSeen = useContentStore((s) => s.markPieceSeen);
   const cyclePiecePriority = useContentStore((s) => s.cyclePiecePriority);
   const ideas = useContentStore((s) => s.ideas);
@@ -169,6 +172,12 @@ export function PieceCard({
   // Flow streams into the textarea, so a generating card counts as editing
   // even if the user never clicked in.
   const isEditing = editing || flowGenerating;
+  // "Edit anyway" on a published card. Holds the piece id rather than a boolean
+  // so switching cards re-locks by itself, with no effect resetting anything:
+  // the unlock is transient on purpose, because publishing is why the text is
+  // closed and reading a different piece does not change that.
+  const [unlockedPieceId, setUnlockedPieceId] = useState<string | null>(null);
+  const locked = isPieceLocked(piece, unlockedPieceId === piece.id);
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -197,8 +206,12 @@ export function PieceCard({
 
   const enterEditing = useCallback(() => {
     if (!piece.seen) markPieceSeen(piece.id);
+    // A published card is read-only, so clicking its text marks it seen and
+    // then does nothing else. The notice above it says why, and offers the two
+    // ways forward, rather than a click silently failing to put a caret in.
+    if (locked) return;
     onEnterEdit();
-  }, [piece.seen, piece.id, markPieceSeen, onEnterEdit]);
+  }, [piece.seen, piece.id, markPieceSeen, onEnterEdit, locked]);
 
   // Focus is reading, not just a prelude to editing: now that a card shows
   // its formatted text, landing on one (click, J/K, or a jump from the idea
@@ -670,28 +683,11 @@ export function PieceCard({
             its own never answered either question. */}
         {piece.publish && <PublishReceipt publish={piece.publish} />}
 
-        {/* Substack verified-publish loop: "awaiting confirmation" / "did
-            this go live?" badge — see publishPendingState. */}
-        {(() => {
-          const pending = publishPendingState(piece.publishAttemptedAt, now);
-          if (pending === "none") return null;
-          return (
-            <span
-              title={
-                pending === "nudge"
-                  ? "Attempted over 24h ago — did this go live on Substack?"
-                  : "Copied — waiting for Fragment to confirm this went live on Substack"
-              }
-              className={`text-[10px] px-1.5 py-0.5 rounded-[4px] border ${
-                pending === "nudge"
-                  ? "text-gold border-gold/40 bg-gold/10"
-                  : "text-text-faint border-border bg-surface-2"
-              }`}
-            >
-              {pending === "nudge" ? "did this go live?" : "awaiting confirmation"}
-            </span>
-          );
-        })()}
+        {/* Between pressing publish and the piece being live. Opens a field for
+            the published link, because the publish itself happened in another
+            tab and pasting the URL beats inferring it. See
+            PublishPendingPrompt. */}
+        <PublishPendingPrompt piece={piece} now={now} />
 
         {piece.priority !== 0 && (
           <button
@@ -781,6 +777,20 @@ export function PieceCard({
         </div>
       )}
 
+      {locked && (
+        <div className="shrink-0">
+          <PublishedLock
+            piece={piece}
+            variant="inline"
+            onEditAnyway={() => setUnlockedPieceId(piece.id)}
+            onDuplicate={() => {
+              const copyId = duplicatePiece(piece.id);
+              if (copyId) showToast("Duplicated. The copy is unpublished and open to edit.");
+            }}
+          />
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-y-auto pr-3 -mr-1">
         {isEditing ? (
           <>
@@ -793,7 +803,7 @@ export function PieceCard({
               onFocus={enterEditing}
               onBlur={onExitEdit}
               onKeyDown={handleTextareaKeyDown}
-              readOnly={flowGenerating}
+              readOnly={flowGenerating || locked}
               placeholder={slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
             />
             {inlineEditEnabled && !flowGenerating && (

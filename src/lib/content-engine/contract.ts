@@ -153,6 +153,20 @@ export interface ContentPiece {
   // (see src/lib/publish/substack-verify.ts's publishPendingState and
   // src/hooks/use-publish-verification.ts).
   publishAttemptedAt?: number;
+  // When a published piece's text was first changed after it went live.
+  //
+  // Publishing closes a piece's text: the editor and the card go read-only and
+  // say so, because what shipped is a fact and quietly rewriting it makes the
+  // publish record a lie. But a typo is not a reason to duplicate a piece and
+  // split its history, so "Edit anyway" unlocks it and this records that it
+  // happened. Set once, by the first body change while published (see
+  // updatePiece in content-store), and never cleared while the piece stays
+  // published: the point is that the piece no longer matches what was
+  // distributed, which one later edit does not undo.
+  //
+  // Undefined on a published piece means its text is still exactly what
+  // shipped. Meaningless on an unpublished one, where it is always undefined.
+  editedAfterPublishAt?: number;
   agentMeta?: AgentMeta;
   createdAt: number;
   updatedAt: number;
@@ -439,6 +453,7 @@ export const contentPieceSchema = z.object({
   order: z.number(),
   scheduledAt: z.number().optional(),
   publishAttemptedAt: z.number().optional(),
+  editedAfterPublishAt: z.number().optional(),
   publish: z
     .object({
       platform: z.enum(CONTENT_FORMATS),
