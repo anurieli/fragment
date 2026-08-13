@@ -2,6 +2,20 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 - Agents you can read, a calendar of what went out, and publishing from the row
+
+**Every AI process is an agent now, with a job and a prompt you can read.** Fragment ran four of them and could not tell you what any one was doing. Each had a hand-built settings panel, so the answer to "what is the AI in here, and what is it told to do" lived in four components and nowhere a person could look. They come from one registry of plain data instead: name, the job in a sentence, where you meet it, what it reads, the prompt, and what fills every placeholder in that prompt. Settings, then AI, then Agents lists all six and opens any one of them; the three bespoke panels are gone and their controls are rebuilt generically, so a new agent arrives complete without a component being written for it.
+
+Two of the six are built in. The title writer and the draft writer assemble their prompt when they run, from choices made at that moment, so they are listed with the prompt shown read-only rather than left out: an AI process nobody can see is exactly what this exists to end. Both say which model they borrow instead of showing a picker that would silently steer three agents at once. A test holds the invariant that makes the variable lists worth reading, that a documented placeholder appears in the prompt receiving it.
+
+The empty demo-video box went with them. It told users to drop a screen recording at a path, which reads like a bug to anyone who is not us.
+
+**Saying a draft went live, from the row it is listed on.** Marking something published lived in two menus, both reached by opening the piece first, and the idea panel is where you are actually looking when the thought arrives. Right-clicking any draft or piece row now offers Mark as published; an already-published row shows where it went, as a link back to the post. The link is asked for in a dialog rather than inside the menu, because a menu pinned to a point closes on any scroll and focusing a field inside it was enough to dismiss it mid-word. The form is unchanged and still shared with the Share and publish dropdowns.
+
+**A calendar of what is going out and what went out**, from the sidebar. Scheduling a piece and recording that one went live both already worked, but the two facts only ever appeared on the piece itself, so the question a schedule exists to answer had nowhere to be asked. The calendar is a month of both, with four states per piece: still ahead, due today, past its time with nothing published, or published. Two decisions worth keeping. A published piece sits on the day it really went live rather than the day it was planned for, because a calendar that redraws the past to match the plan is worth less than none. And a booked slot with nothing written in it is marked, which is the other half of "did this work": an empty Thursday is a missed post you can still fix on Monday. Nothing here posts anything.
+
+Files: src/lib/agents/registry.ts, src/components/settings/agents/*, src/components/settings/ai-section.tsx, src/components/publish/mark-published-menu-section.tsx, src/components/publish/mark-published-dialog.tsx, src/components/publish/mark-published-form.tsx, src/components/idea/idea-panel.tsx, src/lib/calendar/schedule.ts, src/components/calendar/content-calendar.tsx, src/components/app-shell.tsx, src/components/sidebar/sidebar.tsx, src/__tests__/agent-registry.test.ts, src/__tests__/calendar-schedule.test.ts.
+
 ## 2026-08-13 - Publishing closes a piece, and says where it went
 
 Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.
