@@ -2,14 +2,34 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { createServer, FileTransport, pushFile } from "./index.js";
+import { HttpTransport, resolveHttpConfig } from "./http-transport.js";
 import { checkDelivery, formatFinding } from "./delivery-check.js";
+import type { Transport } from "./transport.js";
 
 const HELP =
   "fragment-mcp - MCP server + CLI for pushing content into Fragment\n\n" +
   "Usage:\n" +
   "  fragment-mcp                 start the MCP server over stdio\n" +
-  "  fragment-mcp push <file.md>  validate a handoff file and drop it in the inbox\n" +
-  "  fragment-mcp doctor          check that pushes will actually reach the app\n";
+  "  fragment-mcp push <file.md>  validate a handoff file and push it\n" +
+  "  fragment-mcp doctor          check that pushes will actually arrive\n\n" +
+  "Transports:\n" +
+  "  local (default)  writes to FRAGMENT_INBOX_DIR (~/.fragment/inbox);\n" +
+  "                   the running Fragment app imports the files.\n" +
+  "  hosted           set FRAGMENT_API_URL + FRAGMENT_API_TOKEN to push\n" +
+  "                   straight into a Fragment account over HTTPS. Mint a\n" +
+  "                   token in Fragment: Settings -> Agent access.\n";
+
+/**
+ * Pick the transport once, at startup. Hosted wins when configured: an
+ * operator who set an API URL and token wants pushes to reach the account,
+ * not a local directory. resolveHttpConfig throws on a half-configured
+ * pair rather than silently falling back to files.
+ */
+function selectTransport(): Transport {
+  const hosted = resolveHttpConfig();
+  if (hosted) return new HttpTransport(hosted);
+  return new FileTransport();
+}
 
 async function runPush(file: string | undefined): Promise<void> {
   if (!file) {
@@ -18,20 +38,28 @@ async function runPush(file: string | undefined): Promise<void> {
     return;
   }
   try {
-    const preflight = await checkDelivery();
-    if (preflight.state === "ingress_blocked") {
-      process.stderr.write(
-        "fragment-mcp push refused: " + preflight.summary + "\n" +
-        (preflight.fix ? "  fix: " + preflight.fix + "\n" : "") +
-        "  run `fragment-mcp doctor` for the full report.\n",
-      );
-      process.exitCode = 1;
-      return;
+    const transport = selectTransport();
+    if (transport.assertDeliverable) {
+      try {
+        await transport.assertDeliverable();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          "fragment-mcp push refused: " + message + "\n" +
+          "  run `fragment-mcp doctor` for the full report.\n",
+        );
+        process.exitCode = 1;
+        return;
+      }
     }
-    const transport = new FileTransport();
     const result = await pushFile(file, transport);
-    process.stdout.write("queued 1 piece(s); open Fragment to import.\n");
-    process.stdout.write(`  piece ${result.pieceId} -> idea ${result.ideaId} (${transport.inboxDir})\n`);
+    if (transport instanceof FileTransport) {
+      process.stdout.write("queued 1 piece(s); open Fragment to import.\n");
+      process.stdout.write(`  piece ${result.pieceId} -> idea ${result.ideaId} (${transport.inboxDir})\n`);
+    } else {
+      process.stdout.write("pushed 1 piece(s) to the Fragment account.\n");
+      process.stdout.write(`  piece ${result.pieceId} -> idea ${result.ideaId}\n`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`fragment-mcp push failed: ${message}\n`);
@@ -40,13 +68,31 @@ async function runPush(file: string | undefined): Promise<void> {
 }
 
 async function runDoctor(): Promise<void> {
+  const hosted = resolveHttpConfig();
+  if (hosted) {
+    const transport = new HttpTransport(hosted);
+    try {
+      const pong = await transport.ping();
+      process.stdout.write(
+        `[OK] Connected to ${hosted.baseUrl} as "${pong.tokenName}" (account: ${pong.account}).\n` +
+          `  scopes  ${pong.scopes.join(", ")}\n` +
+          "  Pushes land in the account's cloud store and sync to every signed-in device.\n",
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stdout.write(`[FAIL] ${message}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const finding = await checkDelivery();
   process.stdout.write(formatFinding(finding) + "\n");
   if (finding.state !== "ok") process.exitCode = 1;
 }
 
 async function runServer(): Promise<void> {
-  const transport = new FileTransport();
+  const transport = selectTransport();
   const server = createServer(transport);
   await server.connect(new StdioServerTransport());
 }

@@ -2,6 +2,10 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-13 03:41 - fragment-mcp can connect to a hosted Fragment account
+The MCP server previously only wrote to the local inbox directory, which meant the agent and the Fragment app had to share a machine. Setting FRAGMENT_API_URL and FRAGMENT_API_TOKEN now switches fragment-mcp to a hosted transport: the same six tools, spoken over HTTPS to a Fragment server that supports agent tokens, scoped to that one account. Pushes are durable on response and reach every signed-in device through sync, no local app required. `fragment-mcp doctor` in hosted mode reports which account and scopes the token resolves to; setting exactly one of the two variables errors loudly instead of silently falling back to local files. The deliverability preflight moved onto the Transport interface because only the file transport needs one, and the HTTP transport gained unit tests for its error mapping.
+Files: packages/fragment-mcp/src/http-transport.ts, packages/fragment-mcp/src/file-transport.ts, packages/fragment-mcp/src/transport.ts, packages/fragment-mcp/src/tools.ts, packages/fragment-mcp/src/bin.ts, packages/fragment-mcp/src/index.ts, packages/fragment-mcp/src/__tests__/http-transport.test.ts, packages/fragment-mcp/README.md, docs/AGENT-API.md.
+
 ## 2026-08-10 - The one-entity model, plus everything the hosted edition had gained since 3 August
 
 **Summary**: The open-source client had drifted eight days behind the hosted edition. This closes the gap in one pass and changes how Fragment stores what you write.

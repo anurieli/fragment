@@ -103,9 +103,12 @@ That's what we built. 🧵 below.
 
 Each line: `{"id"?, "ownerType": "idea"|"piece", "ownerId", "kind": "link"|"note"|"asset", "title", "url"?, "note"?, "createdAt"?}\n`. `id` and `createdAt` are optional on the wire (a hand-written line still imports) — `fragment-mcp`'s `add_resource` tool always fills both, which is what makes re-importing the same file idempotent (a line whose `id` is already known is skipped). A whole `resources.jsonl` is read and imported in full on every poll — there's no `since` filter the way there is for piece files, because the idempotent-by-id upsert makes that safe and cheap.
 
-## How the import actually happens today (read this before assuming an HTTP push endpoint exists)
+## How a handoff reaches Fragment: two transports
 
-There is **no HTTP endpoint that accepts a piece body directly.** The only way to hand Fragment a piece today is to write a `.md` file into the inbox directory — via `fragment-mcp`'s tools/CLI (which write straight to disk), or by hand. What varies is how the **running Fragment app** notices those files and imports them into its store:
+There are two ways to hand Fragment a piece, and `fragment-mcp` speaks both behind the same six tools:
+
+- **Hosted (account) transport** — HTTPS against a Fragment server with a cloud database, authenticated by a per-account **agent token**. See "Hosted transport" below. Pushes are durable on response: they land in the account's cloud store and reach every signed-in device through normal sync, whether or not a Fragment tab is open anywhere.
+- **Local file transport** — write a `.md` file into the inbox directory (via the tools/CLI, or by hand) and let the **running Fragment app** import it. This is the only path for the open-source/self-hosted build with no database. What varies is how the running app notices the files:
 
 - **Desktop (Tauri):** the app reads `~/.fragment/inbox` directly off the filesystem. No HTTP involved.
 - **Browser / self-hosted server:** a browser can't read your local filesystem, so the app polls its own Next.js server every 10 seconds:
@@ -114,7 +117,37 @@ There is **no HTTP endpoint that accepts a piece body directly.** The only way t
 
 Both routes are gated identically by `gateAgentInbox` (`src/lib/agent-inbox/gate.ts`) — see the security section below. **fragment-mcp itself never calls either route** — its `FileTransport` writes and reads the inbox directory directly, the same directory the browser-mode app is polling over HTTP. The gated HTTP routes exist so the *browser tab* can see what an agent already wrote to disk, not so an agent can push over HTTP.
 
-**M2 seam:** `fragment-mcp`'s `HttpTransport` (`packages/fragment-mcp/src/http-transport.ts`) is a typed stub for a future hosted push API — every method currently throws `"not implemented yet"`. Until the hosted Fragment API ships, every `fragment-mcp` install talks to a local `FRAGMENT_INBOX_DIR`, full stop.
+## Hosted transport: connect an agent to a Fragment account (ARI-161)
+
+The hosted API is the six tools as HTTP routes, all bearer-authenticated with an **agent token** minted in **Settings → Account & Sync → Agent access** (hosted build, signed in). The plaintext is shown exactly once at mint time; the server stores only a SHA-256. Revoking a token in Settings cuts the agent off on its next request.
+
+| Route | Tool |
+|---|---|
+| `GET  /api/v1/agent/ping` | connection test (any live token) |
+| `POST /api/v1/agent/ideas` | `create_idea` |
+| `GET  /api/v1/agent/ideas?status=` | `list_ideas` |
+| `POST /api/v1/agent/pieces` | `add_piece` (body: the contract's JSON handoff) |
+| `GET  /api/v1/agent/pieces/:id` | `get_piece` |
+| `POST /api/v1/agent/pieces/:id/status` | `update_status` (`"published"` only) |
+| `POST /api/v1/agent/resources` | `add_resource` |
+
+Properties worth knowing:
+
+- **Account-scoped, bearer-only.** The token resolves to one user; every row read or written is scoped to that user in SQL. Session cookies carry zero authority on these routes, so there is no CSRF surface, and an agent token cannot call the token-management routes (a leaked agent credential cannot mint or revoke credentials).
+- **Scoped.** Tokens carry `content:read` / `content:write` scopes covering exactly the six tools — an agent connected this way can reach ideas, pieces and resources, never notes, snips, settings, or credentials.
+- **Same import rules as the local inbox.** Pushes run the identical pure upsert logic (`src/lib/content-engine/upsert.ts`): forced `status: inbox` and `origin: agent`, append-only with `supersedes`, last-write-wins that never clobbers a newer local edit, tombstones never resurrected.
+- **Delivered via sync.** A push writes the account's `documents` rows with a rev bump, so every signed-in device pulls it on its next sync tick. No Fragment tab needs to be open.
+
+Point `fragment-mcp` at an account by setting two environment variables (both, not one):
+
+```bash
+claude mcp add fragment \
+  --env FRAGMENT_API_URL=https://your-fragment-domain.example \
+  --env FRAGMENT_API_TOKEN=frg_agent_... \
+  -- node /path/to/fragment/packages/fragment-mcp/dist/bin.js
+```
+
+`fragment-mcp doctor` in this mode probes `/api/v1/agent/ping` and reports which account and scopes the token resolves to. When neither variable is set, `fragment-mcp` uses the local file transport below; setting exactly one is an error, never a silent fallback.
 
 ## Eventual consistency
 

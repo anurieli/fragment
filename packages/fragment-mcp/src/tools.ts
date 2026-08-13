@@ -1,5 +1,3 @@
-import { checkDelivery } from "./delivery-check.js";
-
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -48,26 +46,14 @@ function fail(err: unknown): CallToolResult {
 }
 
 
-/**
- * A write to the inbox only counts if the running app can still pick it up.
- * When the app's agent-inbox is closed to the operator's browser origin,
- * pushes land on disk and are never imported, so the honest move is to refuse
- * the call rather than report a success the user will never see. An app that
- * is merely closed right now is fine: files legitimately queue for it.
- */
-async function assertDeliverable(): Promise<void> {
-  const finding = await checkDelivery();
-  if (finding.state === "ingress_blocked") {
-    throw new TransportError(
-      finding.summary +
-        (finding.fix ? " " + finding.fix : "") +
-        " (run `fragment-mcp doctor` for the full report)",
-      "invalid",
-    );
-  }
-}
-
 export function registerTools(server: McpServer, transport: Transport): void {
+  // Deliverability is a transport concern: the file transport probes the
+  // local app's ingress gate before writing (a file nothing will import is
+  // a silent failure), while the HTTP transport's own response is the
+  // delivery verdict and needs no preflight.
+  const assertDeliverable = async (): Promise<void> => {
+    await transport.assertDeliverable?.();
+  };
   server.registerTool(
     "create_idea",
     {

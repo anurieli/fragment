@@ -94,6 +94,27 @@ export class FileTransport implements Transport {
     this.statusLogPath = path.join(this.inboxDir, ".status.jsonl");
   }
 
+  /**
+   * A write to the inbox only counts if the running app can still pick it
+   * up. When the app's agent-inbox is closed to the operator's browser
+   * origin, pushes land on disk and are never imported, so the honest move
+   * is to refuse the call rather than report a success the user will never
+   * see. An app that is merely closed right now is fine: files legitimately
+   * queue for it.
+   */
+  async assertDeliverable(): Promise<void> {
+    const { checkDelivery } = await import("./delivery-check.js");
+    const finding = await checkDelivery(this.inboxDir);
+    if (finding.state === "ingress_blocked") {
+      throw new TransportError(
+        finding.summary +
+          (finding.fix ? " " + finding.fix : "") +
+          " (run `fragment-mcp doctor` for the full report)",
+        "invalid",
+      );
+    }
+  }
+
   async createIdea(input: CreateIdeaInput): Promise<Idea> {
     const title = input.title.trim();
     if (!title) throw new TransportError("idea title is required", "invalid");
