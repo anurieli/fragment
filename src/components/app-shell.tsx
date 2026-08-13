@@ -36,6 +36,7 @@ import { AccountSection } from "./settings/account-section";
 import { GlobalSearch } from "./search/global-search";
 import { ToastContainer } from "./ui/toast";
 import { HelpOverlay } from "./help/help-overlay";
+import { ContentCalendar } from "./calendar/content-calendar";
 import { FloatingDragCard } from "./floating-drag-card";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
 import { MigrationFailed } from "@/components/migration/migration-failed";
@@ -165,6 +166,7 @@ export function AppShell() {
   });
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("fragment:onboardingComplete") !== "true";
@@ -250,6 +252,7 @@ export function AppShell() {
       onOpenAccount: () => { setSettingsSection("account"); setShowSettings(true); },
       onOpenAI: () => { setSettingsSection("ai"); setShowSettings(true); },
       onOpenHelp: () => setShowHelp(true),
+      onOpenCalendar: () => setShowCalendar(true),
       onOpenLogs: () => { setSettingsSection("logs"); setShowSettings(true); },
     }),
     // setShowSettings is a stable useCallback defined below; the setters are
@@ -379,6 +382,7 @@ export function AppShell() {
         if (showOnboarding) { completeOnboarding(); return; }
         if (useAppStore.getState().aiGate) { useAppStore.getState().closeAiGate(); return; }
         if (isFeedbackOpen) { closeFeedback(); return; }
+        if (showCalendar) { setShowCalendar(false); return; }
         if (showHelp) { setShowHelp(false); return; }
         const previewId = useAppStore.getState().timelinePreviewVersionId;
         if (previewId) { setTimelinePreviewVersionId(null); return; }
@@ -390,7 +394,7 @@ export function AppShell() {
     },
     [
       toggleHelperBar, toggleTimeline, toggleSidebar, activePieceId, createVersion,
-      setTimelinePreviewVersionId, showSettings, showGlobalSearch, showHelp,
+      setTimelinePreviewVersionId, showSettings, showGlobalSearch, showHelp, showCalendar,
       showOnboarding, completeOnboarding,
       isCompact, helperBarOpen, closeHelperBar,
       isFeedbackOpen, closeFeedback,
@@ -652,6 +656,9 @@ export function AppShell() {
       )}
       {showHelp && (
         <HelpOverlay onClose={() => setShowHelp(false)} />
+      )}
+      {showCalendar && (
+        <ContentCalendar onClose={() => setShowCalendar(false)} />
       )}
 
       <ToastContainer />

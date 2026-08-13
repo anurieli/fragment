@@ -7,6 +7,7 @@ import {
   Settings,
   Search,
   HelpCircle,
+  CalendarDays,
   ScrollText,
   Cloud,
   CloudOff,
@@ -61,6 +62,7 @@ interface SidebarProps {
   onOpenAccount: () => void;
   onOpenAI: () => void;
   onOpenHelp: () => void;
+  onOpenCalendar: () => void;
   onOpenLogs: () => void;
 }
 
@@ -191,7 +193,7 @@ function IdeaMenuItem({
   );
 }
 
-export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenLogs, rail, peeking }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, onOpenCalendar, onOpenLogs, rail, peeking }: SidebarProps) {
   const { toggleSidebar } = useAppStore();
   const pinSidebar = useAppStore((s) => s.pinSidebar);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
@@ -881,6 +883,13 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
             >
               <MessageSquare size={15} />
               Comments
+            </button>
+            <button
+              onClick={onOpenCalendar}
+              className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-lg)] text-[12px] text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors duration-150 w-full"
+            >
+              <CalendarDays size={15} />
+              Calendar
             </button>
             <button
               onClick={onOpenHelp}
