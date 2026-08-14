@@ -33,7 +33,7 @@ import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
-import { PieceRefineMenu } from "./piece-refine-menu";
+import { isPieceRefineMenuTarget, PieceRefineMenu } from "./piece-refine-menu";
 import { PieceTriageBar } from "./piece-triage";
 import { PieceMenuItems } from "./piece-menu-items";
 import { ContextMenu, useContextMenu } from "@/components/common/context-menu";
@@ -212,6 +212,14 @@ export function PieceCard({
     if (locked) return;
     onEnterEdit();
   }, [piece.seen, piece.id, markPieceSeen, onEnterEdit, locked]);
+
+  const handleTextareaBlur = useCallback(
+    (event: React.FocusEvent<HTMLTextAreaElement>) => {
+      if (isPieceRefineMenuTarget(event.relatedTarget)) return;
+      onExitEdit();
+    },
+    [onExitEdit],
+  );
 
   // Focus is reading, not just a prelude to editing: now that a card shows
   // its formatted text, landing on one (click, J/K, or a jump from the idea
@@ -801,7 +809,7 @@ export function PieceCard({
               value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
               onChange={handleBodyChange}
               onFocus={enterEditing}
-              onBlur={onExitEdit}
+              onBlur={handleTextareaBlur}
               onKeyDown={handleTextareaKeyDown}
               readOnly={flowGenerating || locked}
               placeholder={slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
@@ -813,6 +821,7 @@ export function PieceCard({
                 onEdit={handleRefineEdit}
                 onSnip={handleRefineSnip}
                 onCapturePiece={handleCapturePiece}
+                onExitEdit={onExitEdit}
               />
             )}
           </>
