@@ -2,15 +2,25 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
-## 2026-08-19 - Internal extraction gets its own review queue (ARI-342)
+## 2026-08-19 - Keep the manually snapped piece in place (ARI-345)
 
-Extract Ideas results no longer enter Inbox, which remains reserved for work arriving from outside Fragment. Extracted thoughts wait in a separate review queue surfaced in both the idea panel and the feed. Each result can be accepted into active work or tossed through the existing undoable removal path.
+**Summary**: The Pieces deck tracked keyboard and click focus, but CSS scroll snap moved only the viewport. The old focused index stayed behind, and any piece update rebuilt the visible list and re-ran `scrollIntoView` for that stale piece, pulling the deck back after it had appeared to land. Settled manual scrolling now promotes the page nearest the feed top to roving focus, exits edit mode when the page changes, and focused scrolling depends on the focused piece id rather than the whole mutable list. A content update during the snap can no longer pull the deck back.
 
-The queue is part of the stored content contract rather than a visual-only filter, so internal results stay out of Inbox and active-work counts everywhere until review resolves them. Regression coverage holds extraction creation, storage, filtering, contract validation, and both review actions.
+**Files**: `src/components/shortform/shortform-view.tsx`, `src/__tests__/shortform-scroll-focus.test.tsx` (new).
 
-**Files**: `src/hooks/use-extract-ideas.ts`, `src/lib/content-engine/contract.ts`, `src/stores/content-store.ts`, `src/components/idea/idea-panel.tsx`, `src/components/shortform/`, `src/__tests__/`.
+**Verification**: Regression coverage reproduces a manual snap followed by a concurrent piece update and verifies the newly landed page remains focused. It also proves a pending scroll settle cannot override a new edit intent. After predecessor reconciliation, the full suite passes 916/916 tests; `npx tsc --noEmit`, `npm run lint` (30 pre-existing warnings, zero errors), and `npm run build` pass.
 
-**Verification**: Focused extraction, contract, store, feed, and review-action tests; TypeScript; full test, lint, and production build checks.
+## 2026-08-19 - Inbox is external and extraction gets its own review queue (ARI-342)
+
+Inbox now has one meaning: work that arrived from outside Fragment through MCP or another ingress path. The sidebar has one global Inbox entry; opening it lands on the oldest pending arrival inside its idea and advances across ideas as decisions clear the queue.
+
+Each idea keeps its own Inbox collapsed below Pieces with a separate count. Approve moves an arrival into active work, Toss removes it with Undo, and clicking the idea row's Inbox badge opens that exact queue. Pending arrivals and internally extracted options no longer inflate the idea's finished Pieces count.
+
+Extract Ideas is internal work against the writer's own material. Its results now land in a separate extraction review queue and filter with `origin: user`, where Accept or Toss resolves each option without presenting it as external Inbox work. Stored lifecycle guards keep review work out of editing, publishing, prioritizing, archiving, duplication, sharing, and active-work signals until acceptance. The status shortcut accepts Inbox work into `in-progress` but never cycles internal work back into Inbox.
+
+**Files**: `src/lib/content-engine/contract.ts`, `src/lib/persistence.ts`, `src/hooks/use-extract-ideas.ts`, `src/components/idea/idea-panel.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/shortform/*`, `src/stores/app-store.ts`, `src/stores/content-store.ts`, `src/stores/content-selectors.ts`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `docs/AGENT-API.md`, `PRD.md`, and tests.
+
+**Verification**: Regression coverage proves internal extraction stays in its own guarded review queue and external Inbox review starts collapsed, opens from the global or per-idea entry, approves into active work, tosses with Undo, and advances across ideas. All 914 app tests and 48 MCP tests pass; TypeScript and the production build are clean; lint reports zero errors and 30 pre-existing warnings.
 
 ## 2026-08-19 - Priority is one visible choice (ARI-343)
 
@@ -206,7 +216,6 @@ Vocabulary is consistent across the interface: idea, draft, piece, snip. The wor
 **Files**: `src/lib/textarea-selection.ts`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
 
 **Verification**: 690 tests pass with 17 opt-in integration tests skipped, including focused coverage for mixed heading-to-paragraph movement and stale selection rejection; `npm run lint` exits with 0 errors and 31 existing warnings; `npx tsc --noEmit` and the production build are clean.
-
 ## 2026-08-03 05:35 - Fixed eslint linting agent worktrees' full .next builds as source (68cd16e)
 
 **Commit**: `68cd16e` on `agent/offline-cloud-accounts`, pushed for PR #9

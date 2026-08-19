@@ -24,6 +24,12 @@ interface PanelDrag {
   from: PanelSection;
 }
 
+interface InboxReviewRequest {
+  ideaId: string;
+  /** True when review began from the global Inbox rather than one idea. */
+  global: boolean;
+}
+
 interface PendingEditorDeletion {
   from: number;
   to: number;
@@ -69,6 +75,9 @@ interface AppState {
    * an idea's Write space opens one of its own long-form fragments, and the
    * sidebar can have an idea selected with no fragment open at all. */
   activeIdeaId: string | null;
+  /** Opens an idea's collapsed Inbox section. In global mode, a decision can
+   * advance directly to the next idea with external arrivals. */
+  inboxReviewRequest: InboxReviewRequest | null;
   /** Per-idea Write/Pieces choice, persisted in-session (see ARI-154 §2). Missing entries default to "write". */
   ideaSpaces: Record<string, IdeaSpace>;
   /** The idea workspace column between the sidebar and the editor. Only ever
@@ -137,6 +146,8 @@ interface AppState {
   setTimelinePreviewVersionId: (id: string | null) => void;
   setActivePiece: (id: string | null) => void;
   setActiveIdea: (id: string | null) => void;
+  openInboxReview: (ideaId: string, global?: boolean) => void;
+  clearInboxReview: () => void;
   setIdeaSpace: (ideaId: string, space: IdeaSpace) => void;
   toggleIdeaSpace: (ideaId: string) => void;
   setIdeaPanelOpen: (v: boolean) => void;
@@ -174,6 +185,7 @@ export const useAppStore = create<AppState>((set) => ({
   timelinePreviewVersionId: null,
   activePieceId: null,
   activeIdeaId: null,
+  inboxReviewRequest: null,
   ideaSpaces: {},
   ideaPanelOpen: true,
   revealPieceId: null,
@@ -248,7 +260,17 @@ export const useAppStore = create<AppState>((set) => ({
     timelinePreviewVersionId: null,
     showCreationFlow: false,
   }),
-  setActiveIdea: (id) => set({ activeIdeaId: id }),
+  setActiveIdea: (id) => set({ activeIdeaId: id, inboxReviewRequest: null }),
+  openInboxReview: (ideaId, global = false) => set((s) => ({
+    activeIdeaId: ideaId,
+    activePieceId: null,
+    ideaPanelOpen: true,
+    ideaSpaces: { ...s.ideaSpaces, [ideaId]: "pieces" },
+    // Replace the object on every call so another item in the same idea still
+    // wakes a panel that the reviewer collapsed between decisions.
+    inboxReviewRequest: { ideaId, global },
+  })),
+  clearInboxReview: () => set({ inboxReviewRequest: null }),
   setIdeaSpace: (ideaId, space) => set((s) => ({
     ideaSpaces: { ...s.ideaSpaces, [ideaId]: space },
   })),

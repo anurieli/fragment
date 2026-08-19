@@ -792,7 +792,7 @@ The edited text replaces the selection in place. It's a normal edit: you can und
 
 Every idea has two writing spaces: **Write**, the long-form editor covered above, and the **fragment feed**, holding that idea's LinkedIn posts, tweets, Substack drafts, and other short-form content. Toggle between them with the segmented control at the top of the center panel, or `⌘1` / `⌘2`.
 
-**Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **fragment** always belongs to an idea and always holds its own text in `body`: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` moves `inbox → in-progress → ready → published`. A fragment whose format is long-form (`essay`, `substack`, `script`) is a **draft** and belongs in the editor rather than the feed. Which space a fragment appears in is a function of its format and nothing else.
+**Data model:** Ideas nest one level deep (a root idea can have child ideas; children can't have their own children). Ideas carry a priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned. A **fragment** always belongs to an idea and always holds its own text in `body`: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; external work moves `inbox → in-progress → ready → published`, while internal extraction waits in its own review queue before joining active work at `in-progress`. A fragment whose format is long-form (`essay`, `substack`, `script`) is a **draft** and belongs in the editor rather than the feed. Which space a fragment appears in is a function of its format and nothing else.
 
 **Three columns when an idea is open.** The sidebar navigates *across* ideas; opening one adds an **idea workspace** column beside it showing what's *inside* that idea: its drafts and its short-form fragments: with the writing surface to the right of that:
 
@@ -800,11 +800,11 @@ Every idea has two writing spaces: **Write**, the long-form editor covered above
 [ Sidebar: ideas ] [ Idea workspace: drafts + fragments ] [ Editor or fragment feed ] [ Snip Bar ]
 ```
 
-The workspace mirrors where you are in the feed: the piece with roving focus gets the gold rail and a lit row, and hovering a card in the feed lights up its row here (and vice versa). Status is the dot on the left of each row: grey inbox, blue in progress, gold ready, green published.
+The workspace mirrors where you are in the feed: the piece with roving focus gets the gold rail and a lit row, and hovering a card in the feed lights up its row here (and vice versa). Status is the dot on the left of each row: grey inbox, blue in progress, gold ready, green published. Extraction review uses its own gold review indicator until acceptance.
 
-The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form fragments with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Fragments** lists the short-form feed (rolled up through child ideas, newest first, capped at 12 with a "N more" link); clicking any of them opens the feed. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace: `⌘\` brings the sidebar back.
+The workspace header renames the idea (click the title) and carries an optional one-line summary. **Drafts** lists the idea's long-form fragments with word count and last-edited time; clicking one opens it in the editor, `+` starts another, and each row has its own delete. **Pieces** counts only accepted short-form work. A separate **Inbox N** section stays collapsed at the bottom until opened, then gives every external arrival an **Approve** and **Toss** decision in the idea where it belongs. The footer jumps to whichever space you're not in (`⌘1` / `⌘2`). Collapse the column from its header; a toolbar button in the center panel brings it back, and the choice persists. On windows under 960px the three columns don't fit, so opening an idea hands the left rail to the workspace: `⌘\` brings the sidebar back.
 
-**Ideas in the sidebar (managing the container itself):** "New idea" creates an idea *and its first fragment* in one step and drops straight into renaming it. The sidebar lists ideas only; there is no standalone-notes section, because there is nothing that can live outside an idea. Rows are a single line each and sub-ideas start collapsed, so a long list stays scannable; hovering a row shows `N drafts · M fragments` (short-form only: drafts are listed by name in the workspace instead of counted twice). A gold number on the right of a row counts fragments waiting in that idea's inbox. Sub-ideas expand automatically when one of them is the open idea, or while a search is active.
+**Ideas in the sidebar (managing the container itself):** "New idea" creates an idea *and its first fragment* in one step and drops straight into renaming it. The global **Inbox N** entry below New idea collects every external arrival across the library. Clicking it opens the first waiting idea's collapsed Inbox and advances through the remaining ideas as decisions are made. Rows stay a single line and sub-ideas start collapsed; hovering a row shows accepted pieces separately from extracted and Inbox counts. A gold number on the right opens that idea's own Inbox directly.
 
 Right-click a row (or use its `⋯` button) for **Rename** (also double-click), **New draft**, **New sub-idea**, **Pin**, and **Delete idea**. Deleting cascades to the idea's sub-ideas and fragments with a single Undo toast, and Undo restores exactly those.
 
@@ -812,7 +812,9 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 
 **Agent inbox:** agents (Claude Code, Codex, Hermes, or anything MCP-capable) push pieces into the inbox via `fragment-mcp` (`create_idea`, `add_piece`, etc.) or a hand-written `.md` file dropped into `~/.fragment/inbox`. The desktop (Tauri) build reads that directory directly; the browser build polls two gated local-ingress routes every 10 seconds. Local ingress is off by default: see [`docs/AGENT-API.md`](./AGENT-API.md) for the exact `FRAGMENT_LOCAL_INGRESS` / `FRAGMENT_INGRESS_TOKEN` / `FRAGMENT_INBOX_DIR` env vars. Every agent-pushed piece lands in `inbox` status, unseen, regardless of what the agent requests.
 
-**Clearing the inbox.** An inbox is only worth having if it can reach zero, so the feed opens on the **Inbox** filter whenever that idea has anything untriaged, and every inbox card carries a triage row of one-click exits:
+**Internal extraction review:** Extract Ideas is deliberately not part of Inbox. The writer starts it inside Fragment against their own draft or idea, so each result lands in the extraction review queue with `origin: user`. The **Extracted** filter and the gold **Extracted N · accept or toss** workspace group keep the batch together until every result is accepted or tossed.
+
+**Clearing the inbox.** An inbox is only worth having if it can reach zero. Review it globally from the sidebar or locally from an idea's collapsed Inbox section. **Approve** moves an external arrival into that idea's active Pieces immediately; **Toss** removes it with Undo. The feed's Inbox filter remains available for reading a full card before deciding, and every inbox card carries the same one-click exits:
 
 | Action | What it does |
 |---|---|
@@ -823,7 +825,7 @@ Right-click a row (or use its `⋯` button) for **Rename** (also double-click), 
 
 **Make it a draft** is the answer to an agent dropping a 900-word Substack piece into a feed of tweets. In the one-entity model this is not a conversion: the fragment already holds its own text, so nothing is created, copied, or moved. Its format is long-form, which is what makes it a draft, so it leaves the feed and appears under **Drafts** in the workspace with the same id, body, brief, voice, origin, `agentMeta`, priority, resources, snips, and version history it already had. The old model needed `convertPieceToDraft` to move a piece's text into a new note and swap its content home; that function and its `revertPieceToShortform` counterpart no longer exist, and neither does the exactly-one-content-home rule they served.
 
-The triage row only exists while a fragment's status is `inbox`; once triaged, the card goes back to being just the fragment. The idea workspace mirrors this, listing untriaged fragments under a gold **Inbox N · needs a decision** heading above the rest.
+The decision row exists while a fragment is in external `inbox` status or the internal extraction review queue; once decided, the card goes back to being just the fragment. Inbox uses **Triage** and **Dismiss**. Extracted uses **Review** and **Toss**. The idea workspace keeps Extracted separate from ordinary work and keeps external Inbox collapsed below it, so internally generated options never look like external arrivals.
 
 **One piece per page.** The feed is a deck, not a scroll. Each piece fills the viewport: its meta row is pinned to the top, its triage row and footer to the bottom, and only its text moves in between. Run off the end of a long piece and the scroll chains outward and snaps to the next one (`scroll-snap-type: y mandatory` with `scroll-snap-stop: always`, so a fast flick can't skip a piece). The meta row carries a `3/12` locator. This replaced a continuous feed of hairline-separated cards, where reading one piece meant watching the next slide halfway into frame.
 
@@ -846,11 +848,11 @@ This is the reason short-form doesn't use Tiptap: a document model round-trips t
 | `K` / `↑` | Move focus to the previous card |
 | `Enter` | Open the focused card's textarea for editing |
 | `Esc` | Exit editing, back to roving focus |
-| `S` | Cycle status: inbox → in-progress → ready (never jumps to published: that requires an actual publish action) |
+| `S` | Accept extracted or inbox work into in-progress, then toggle in-progress / ready. It never puts internal work into inbox or jumps to published. |
 | `P` | Cycle priority |
 | `C` | Copy the focused piece's exact body text to the clipboard |
 | `N` | Create a new piece |
-| `1` `2` `3` `4` | Jump to the All / Inbox / In-progress / Ready filter |
+| `1` `2` `3` `4` `5` `6` | Jump to the All / Extracted / Inbox / In-progress / Ready / Archived filter |
 | `Backspace` | Delete the focused piece (soft-delete, with an Undo toast) |
 | `⌘Enter` | While editing a piece's text, draft it via Flow |
 

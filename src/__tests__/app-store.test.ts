@@ -9,6 +9,10 @@ function resetStore() {
     timelineOpen: false,
     timelinePreviewVersionId: null,
     activePieceId: null,
+    activeIdeaId: null,
+    ideaSpaces: {},
+    ideaPanelOpen: false,
+    inboxReviewRequest: null,
     isDraggingToHelper: false,
     isDraggingToEditor: false,
   });
@@ -74,6 +78,23 @@ describe("app-store", () => {
 
     useAppStore.getState().setActivePiece(null);
     expect(useAppStore.getState().activePieceId).toBeNull();
+  });
+
+  it("opens an idea's Inbox in its Pieces workspace", () => {
+    useAppStore.setState({ activePieceId: "draft-1" });
+
+    useAppStore.getState().openInboxReview("idea-1", true);
+
+    expect(useAppStore.getState()).toMatchObject({
+      activeIdeaId: "idea-1",
+      activePieceId: null,
+      ideaPanelOpen: true,
+      ideaSpaces: { "idea-1": "pieces" },
+      inboxReviewRequest: { ideaId: "idea-1", global: true },
+    });
+
+    useAppStore.getState().setActiveIdea("idea-2");
+    expect(useAppStore.getState().inboxReviewRequest).toBeNull();
   });
 
   it("setDraggingToHelper sets flag", () => {

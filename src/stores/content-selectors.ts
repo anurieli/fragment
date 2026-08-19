@@ -153,8 +153,9 @@ export function shortformOnly(pieces: readonly ContentPiece[]): ContentPiece[] {
 }
 
 /**
- * An idea's long-form drafts, oldest first so the first draft created stays
- * the idea's primary one across sessions.
+ * An idea's accepted long-form drafts, oldest first so the first draft created
+ * stays the idea's primary one across sessions. External arrivals remain in
+ * the idea's Inbox until approved instead of appearing as drafts prematurely.
  */
 export function draftsForIdea(
   ideaId: string,
@@ -166,6 +167,8 @@ export function draftsForIdea(
         piece.deletedAt === undefined &&
         piece.archivedAt === undefined &&
         piece.ideaId === ideaId &&
+        piece.status !== "inbox" &&
+        piece.reviewQueue === undefined &&
         isLongformFormat(piece.format),
     )
     .slice()

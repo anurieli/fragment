@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UIEvent as ReactUIEvent } from "react";
 import type { ContentPiece } from "@/lib/content-engine";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
@@ -60,6 +61,18 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   const [mode, setMode] = useState<FocusMode>("roving");
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const scrollFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusedIndexRef = useRef(focusedIndex);
+
+  useEffect(() => {
+    focusedIndexRef.current = focusedIndex;
+    // A click, keyboard move, panel jump, or edit-mode change is newer intent
+    // than any manual-scroll settle still waiting to run.
+    if (scrollFocusTimer.current !== null) {
+      clearTimeout(scrollFocusTimer.current);
+      scrollFocusTimer.current = null;
+    }
+  }, [focusedIndex, mode]);
 
   // Refresh "age"/"stale" tokens periodically — cheap, and keeps long-idle
   // sessions from showing a frozen relative time.
@@ -76,6 +89,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   );
   const counts = useMemo(() => filterCounts(rollup), [rollup]);
   const visible = useMemo(() => visiblePieces(rollup, filter, sort), [rollup, filter, sort]);
+  const focusedPieceId = focusedIndex >= 0 ? visible[focusedIndex]?.id ?? null : null;
 
   const setFilter = useCallback((next: PieceFilter) => {
     setFilterRaw(next);
@@ -118,23 +132,56 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   // it is so the idea workspace can mark it. Roving with J/K, or arriving
   // from the panel, should always land a whole page.
   useEffect(() => {
-    const id = focusedIndex >= 0 ? visible[focusedIndex]?.id : null;
-    setFocusedPiece(id);
-    if (!id) return;
+    setFocusedPiece(focusedPieceId);
+    if (!focusedPieceId) return;
     document
-      .querySelector(`[data-piece-card][data-piece-id="${id}"]`)
+      .querySelector(`[data-piece-card][data-piece-id="${focusedPieceId}"]`)
       ?.closest("[data-piece-page]")
       ?.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, [focusedIndex, visible, setFocusedPiece]);
+  }, [focusedPieceId, setFocusedPiece]);
 
   // Leaving the Pieces space clears both markers — a stale "you are here"
   // pointing at a feed nobody is looking at is worse than none.
   useEffect(() => {
     return () => {
+      if (scrollFocusTimer.current !== null) clearTimeout(scrollFocusTimer.current);
       setFocusedPiece(null);
       setHoveredPiece(null);
     };
   }, [setFocusedPiece, setHoveredPiece]);
+
+  // CSS scroll snap moves the viewport without going through the roving-focus
+  // controls. Once the snap settles, make the page that actually landed the
+  // focused page too. Otherwise a later piece update re-runs the focused-piece
+  // effect above and scrolls the deck back to the stale page.
+  const handleFeedScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    if (scrollFocusTimer.current !== null) clearTimeout(scrollFocusTimer.current);
+    scrollFocusTimer.current = setTimeout(() => {
+      scrollFocusTimer.current = null;
+      const pages = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-piece-page]"),
+      );
+      if (pages.length === 0) return;
+
+      const containerTop = container.getBoundingClientRect().top;
+      let nearestIndex = 0;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      pages.forEach((page, index) => {
+        const distance = Math.abs(page.getBoundingClientRect().top - containerTop);
+        if (distance < nearestDistance) {
+          nearestIndex = index;
+          nearestDistance = distance;
+        }
+      });
+
+      if (nearestIndex !== focusedIndexRef.current) {
+        focusedIndexRef.current = nearestIndex;
+        setFocusedIndex(nearestIndex);
+        setMode("roving");
+      }
+    }, 120);
+  }, []);
 
   // A click in the idea workspace names a piece; land on it here. If the
   // current filter hides it, widen to All first and resolve on the next pass.
@@ -289,7 +336,11 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
 
       <IdeaResources ideaId={ideaId} />
 
-      <div className="flex-1 overflow-y-auto snap-y snap-mandatory">
+      <div
+        data-piece-feed-scroll
+        className="flex-1 overflow-y-auto snap-y snap-mandatory"
+        onScroll={handleFeedScroll}
+      >
         {visible.length === 0 ? (
           <ShortformEmptyState filter={filter} />
         ) : (

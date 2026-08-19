@@ -232,14 +232,11 @@ export function rovingPrev(currentIndex: number, count: number): number {
  * PieceStatus cycle used by the "S" key. Deliberately excludes "published" —
  * moving a piece to published requires a PublishRecord (see
  * assertPublishGuard in the content-engine contract), which only exists once
- * the Share flow lands in a later issue. The keyboard cycle stays within the
- * three working statuses; "published" is reached explicitly via that future
- * Share action instead.
+ * the Share flow lands in a later issue. Inbox is also one-way: external work
+ * can leave it, but an internal shortcut must never put work back there.
  */
-const STATUS_CYCLE: readonly PieceStatus[] = ["inbox", "in-progress", "ready"];
-
 export function nextStatus(current: PieceStatus): PieceStatus {
-  const index = STATUS_CYCLE.indexOf(current);
-  if (index === -1) return STATUS_CYCLE[0];
-  return STATUS_CYCLE[(index + 1) % STATUS_CYCLE.length];
+  if (current === "inbox") return "in-progress";
+  if (current === "in-progress") return "ready";
+  return "in-progress";
 }

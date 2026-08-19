@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
+  Check,
   FileText,
   Flag,
   LayoutList,
@@ -271,6 +272,10 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const createPiece = useContentStore((s) => s.createPiece);
   const deletePieceCascade = useContentStore((s) => s.deletePieceCascade);
   const restorePieceCascade = useContentStore((s) => s.restorePieceCascade);
+  const setPieceStatus = useContentStore((s) => s.setPieceStatus);
+  const markPieceSeen = useContentStore((s) => s.markPieceSeen);
+  const rejectPiece = useContentStore((s) => s.rejectPiece);
+  const undeletePiece = useContentStore((s) => s.undeletePiece);
   const archivePiece = useContentStore((s) => s.archivePiece);
   const unarchivePiece = useContentStore((s) => s.unarchivePiece);
   const activePieceId = useAppStore((s) => s.activePieceId);
@@ -282,6 +287,9 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
   const setIdeaPanelOpen = useAppStore((s) => s.setIdeaPanelOpen);
   const revealPiece = useAppStore((s) => s.revealPiece);
+  const inboxReviewRequest = useAppStore((s) => s.inboxReviewRequest);
+  const openInboxReview = useAppStore((s) => s.openInboxReview);
+  const clearInboxReview = useAppStore((s) => s.clearInboxReview);
   const showToast = useToastStore((s) => s.showToast);
   // One controller owns every extraction surface in this panel. A draft's
   // context menu disappears as soon as its action is chosen, so keeping the
@@ -307,12 +315,10 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const allPieces = useMemo(() => Object.values(pieces), [pieces]);
   const drafts = useMemo(() => draftsForIdea(ideaId, allPieces), [ideaId, allPieces]);
   // Rolled up so a parent idea's workspace shows the pieces of its children
-  // too — same rule the Pieces feed uses.
-  const shortPieces = useMemo(
+  // too, including external long-form arrivals that have not become drafts yet.
+  const rolledPieces = useMemo(
     () =>
-      unarchived(
-        shortformOnly(hierarchyRollup(ideaId, Object.values(ideas), allPieces)),
-      ).sort((a, b) => {
+      unarchived(hierarchyRollup(ideaId, Object.values(ideas), allPieces)).sort((a, b) => {
         // Pinned first, exactly as the feed orders them, so the panel and the
         // feed never disagree about what is at the top.
         const aPinned = a.pinnedAt !== undefined;
@@ -322,12 +328,10 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
       }),
     [ideaId, ideas, allPieces],
   );
-  // Untriaged pieces are the ones that owe you a decision, so they list
-  // first and separately — the panel should say "three waiting", not bury
-  // them among everything you already dealt with.
+  const shortPieces = useMemo(() => shortformOnly(rolledPieces), [rolledPieces]);
   const inboxPieces = useMemo(
-    () => shortPieces.filter((p) => p.status === "inbox" && p.reviewQueue === undefined),
-    [shortPieces],
+    () => rolledPieces.filter((p) => p.status === "inbox" && p.reviewQueue === undefined),
+    [rolledPieces],
   );
   const reviewPieces = useMemo(
     () => shortPieces.filter((p) => p.reviewQueue === "extraction"),
@@ -337,6 +341,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
     () => shortPieces.filter((p) => p.status !== "inbox" && p.reviewQueue === undefined),
     [shortPieces],
   );
+  const inboxOpen = inboxReviewRequest?.ideaId === ideaId;
 
   if (!idea) return null;
 
@@ -455,6 +460,49 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
       label: "Undo",
       onClick: () => restorePieceCascade(pieceId),
     });
+  }
+
+  function advanceInboxReview() {
+    const state = useContentStore.getState();
+    const remaining = Object.values(state.pieces)
+      .filter((piece) => {
+        const owner = state.ideas[piece.ideaId];
+        return (
+          piece.status === "inbox" &&
+          piece.reviewQueue === undefined &&
+          piece.deletedAt === undefined &&
+          piece.archivedAt === undefined &&
+          owner !== undefined &&
+          owner.deletedAt === undefined &&
+          owner.archivedAt === undefined
+        );
+      })
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    if (inboxReviewRequest?.global) {
+      const next = remaining[0];
+      if (next) openInboxReview(next.ideaId, true);
+      else clearInboxReview();
+      return;
+    }
+
+    if (!remaining.some((piece) => piece.ideaId === ideaId)) clearInboxReview();
+  }
+
+  function handleApproveInbox(pieceId: string) {
+    setPieceStatus(pieceId, "in-progress");
+    markPieceSeen(pieceId);
+    showToast("Approved into Pieces");
+    advanceInboxReview();
+  }
+
+  function handleTossInbox(pieceId: string) {
+    rejectPiece(pieceId);
+    showToast("Inbox piece tossed", {
+      label: "Undo",
+      onClick: () => undeletePiece(pieceId),
+    });
+    advanceInboxReview();
   }
 
   /** Open the pieces feed with this exact piece selected and scrolled to —
@@ -593,7 +641,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
         <DropSection section="pieces" ideaId={ideaId}>
           <SectionHeader
             label="Pieces"
-            count={inboxPieces.length + triagedPieces.length}
+            count={triagedPieces.length}
             actionLabel="New piece"
             onAction={handleNewPiece}
           />
@@ -605,7 +653,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
             isExtracting={extractor.isExtracting}
             activeLabel={extractor.activeLabel}
           />
-          {shortPieces.length === 0 ? (
+          {triagedPieces.length === 0 && reviewPieces.length === 0 && inboxPieces.length === 0 ? (
             <p className="px-3 py-2 text-[11px] text-text-faint">
               Nothing yet. Snip from a draft, or let an agent drop one in.
             </p>
@@ -645,40 +693,6 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                 </div>
               )}
 
-              {inboxPieces.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setIdeaSpace(ideaId, "pieces")}
-                    title="Open the feed to triage these"
-                    className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider
-                      text-gold font-[family-name:var(--font-mono)] hover:opacity-80 transition-opacity duration-150"
-                  >
-                    Inbox {inboxPieces.length}
-                    <span className="normal-case tracking-normal text-text-faint">
-                      · needs a decision
-                    </span>
-                  </button>
-                  <div className="space-y-0.5">
-                    {inboxPieces.slice(0, 8).map((piece) => (
-                      <PieceRow
-                        key={piece.id}
-                        piece={piece}
-                        onOpen={() => openPiece(piece.id)}
-                        onRename={(title) => handleRenamePiece(piece.id, title)}
-                        onMove={(to) => handleMovePiece(piece.id, to)}
-                        onDelete={() => handleDeletePiece(piece.id)}
-                      />
-                    ))}
-                  </div>
-                  {inboxPieces.length > 8 && (
-                    <MoreInFeed
-                      count={inboxPieces.length - 8}
-                      onClick={() => setIdeaSpace(ideaId, "pieces")}
-                    />
-                  )}
-                </div>
-              )}
-
               {triagedPieces.length > 0 && (
                 <div>
                   {(reviewPieces.length > 0 || inboxPieces.length > 0) && (
@@ -703,6 +717,42 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                       count={triagedPieces.length - 8}
                       onClick={() => setIdeaSpace(ideaId, "pieces")}
                     />
+                  )}
+                </div>
+              )}
+
+              {inboxPieces.length > 0 && (
+                <div className="border-t border-border pt-2">
+                  <button
+                    onClick={() => {
+                      if (inboxOpen) clearInboxReview();
+                      else openInboxReview(ideaId);
+                    }}
+                    aria-expanded={inboxOpen}
+                    className="flex items-center gap-1.5 w-full text-left text-[10px] uppercase tracking-wider
+                      text-gold font-[family-name:var(--font-mono)] hover:opacity-80 transition-opacity duration-150"
+                  >
+                    {inboxOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                    Inbox {inboxPieces.length}
+                    <span className="ml-auto normal-case tracking-normal text-text-faint">
+                      external
+                    </span>
+                  </button>
+                  {inboxOpen && (
+                    <div className="space-y-0.5 mt-1.5">
+                      {inboxPieces.map((piece) => (
+                        <PieceRow
+                          key={piece.id}
+                          piece={piece}
+                          onOpen={() => openPiece(piece.id)}
+                          onRename={(title) => handleRenamePiece(piece.id, title)}
+                          onMove={(to) => handleMovePiece(piece.id, to)}
+                          onDelete={() => handleDeletePiece(piece.id)}
+                          onApprove={() => handleApproveInbox(piece.id)}
+                          onToss={() => handleTossInbox(piece.id)}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
@@ -1072,12 +1122,16 @@ function PieceRow({
   onRename,
   onMove,
   onDelete,
+  onApprove,
+  onToss,
 }: {
   piece: ContentPiece;
   onOpen: () => void;
   onRename: (title: string) => void;
   onMove: (to: PanelSection) => void;
   onDelete: () => void;
+  onApprove?: () => void;
+  onToss?: () => void;
 }) {
   const focusedPieceId = useAppStore((s) => s.focusedPieceId);
   const hoveredPieceId = useAppStore((s) => s.hoveredPieceId);
@@ -1135,6 +1189,32 @@ function PieceRow({
         >
           {pieceLabel(piece)}
         </span>
+      )}
+      {onApprove && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onApprove();
+          }}
+          title="Approve into Pieces"
+          className="shrink-0 flex items-center gap-1 rounded-[var(--radius-sm)] border border-gold/30 bg-gold/5 px-1.5 py-0.5 text-[10px] text-gold hover:bg-gold/10 transition-colors duration-150"
+        >
+          <Check size={9} />
+          Approve
+        </button>
+      )}
+      {onToss && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onToss();
+          }}
+          title="Toss this arrival"
+          aria-label="Toss this arrival"
+          className="shrink-0 p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-red hover:bg-red-muted transition-colors duration-150"
+        >
+          <Trash2 size={10} />
+        </button>
       )}
       {priority && <Flag size={9} fill="currentColor" className={`shrink-0 ${priority.className}`} />}
 
