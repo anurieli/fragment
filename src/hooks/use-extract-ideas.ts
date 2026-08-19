@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -42,8 +42,15 @@ export interface ExtractOutcome {
  */
 export function useExtractIdeas() {
   const [isExtracting, setIsExtracting] = useState(false);
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
+  // State updates are not synchronous. The ref closes the same-tick window in
+  // which a second click could otherwise launch another paid request before
+  // React has re-rendered the disabled controls.
+  const activeRun = useRef(false);
 
   const extract = useCallback(async (scope: ExtractScope): Promise<ExtractOutcome | null> => {
+    if (activeRun.current) return null;
+
     const content = useContentStore.getState();
     const ideaId =
       scope.kind === "idea" ? scope.ideaId : content.pieces[scope.pieceId]?.ideaId;
@@ -85,6 +92,8 @@ export function useExtractIdeas() {
     );
     const brief = inheritedBrief("idea", { idea, voice });
 
+    activeRun.current = true;
+    setActiveLabel(source.label);
     setIsExtracting(true);
     try {
       let codexToken: string | undefined;
@@ -146,11 +155,13 @@ export function useExtractIdeas() {
       useToastStore.getState().showToast("Could not reach your AI provider.");
       return null;
     } finally {
+      activeRun.current = false;
+      setActiveLabel(null);
       setIsExtracting(false);
     }
   }, []);
 
-  return { extract, isExtracting };
+  return { extract, isExtracting, activeLabel };
 }
 
 function createFromExtracted(ideaId: string, extracted: readonly ExtractedPiece[]): void {

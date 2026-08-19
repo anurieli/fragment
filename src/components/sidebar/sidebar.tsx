@@ -20,7 +20,6 @@ import {
   Flag,
   MoreHorizontal,
   Monitor,
-  Download,
   MessageSquare,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
@@ -112,83 +111,6 @@ function ideaMatches(idea: Idea, query: string, fragmentText: string): boolean {
     idea.title.toLowerCase().includes(q) ||
     (idea.summary ?? "").toLowerCase().includes(q) ||
     fragmentText.includes(q)
-  );
-}
-
-/**
- * The ⋯ button on an idea row plus the menu it opens. A real component rather
- * than inline JSX so each row can own the refs useMenuPlacement measures: an
- * idea near the bottom of a long sidebar would otherwise open its menu
- * straight into the window's edge, with Delete unreachable.
- */
-function IdeaRowMenu({
-  open,
-  onToggle,
-  onOpen,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  onOpen: () => void;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const placement = useMenuPlacement(open, anchorRef, menuRef);
-
-  return (
-    <div ref={anchorRef} className="relative shrink-0">
-      <button
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onOpen(); }}
-        title="Rename, add a draft, delete…"
-        // Always visible, unlike the hover-revealed actions elsewhere in this
-        // sidebar: this menu is the only route to renaming and deleting an
-        // idea, so hiding it hides the feature.
-        className="p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
-      >
-        <MoreHorizontal size={12} />
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          onClick={(e) => e.stopPropagation()}
-          onMouseLeave={onClose}
-          className={`absolute right-0 ${placement.className} z-30 w-44 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
-          style={{ maxHeight: placement.maxHeight || undefined }}
-        >
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function IdeaMenuItem({
-  label,
-  hint,
-  destructive,
-  onClick,
-}: {
-  label: string;
-  hint?: string;
-  destructive?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`block w-full text-left px-3 py-1.5 transition-colors duration-150 ${
-        destructive
-          ? "text-red hover:bg-red-muted"
-          : "text-text-secondary hover:bg-surface-hover"
-      }`}
-    >
-      <span className="block text-[12px]">{label}</span>
-      {hint && <span className="block text-[10px] text-text-faint">{hint}</span>}
-    </button>
   );
 }
 

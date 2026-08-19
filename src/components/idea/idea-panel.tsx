@@ -283,6 +283,10 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const setIdeaPanelOpen = useAppStore((s) => s.setIdeaPanelOpen);
   const revealPiece = useAppStore((s) => s.revealPiece);
   const showToast = useToastStore((s) => s.showToast);
+  // One controller owns every extraction surface in this panel. A draft's
+  // context menu disappears as soon as its action is chosen, so keeping the
+  // hook inside that menu used to throw away the only visible working state.
+  const extractor = useExtractIdeas();
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -570,6 +574,8 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   onOpen={() => openDraft(piece.id)}
                   onRename={(title) => handleRenamePiece(piece.id, title)}
                   onMove={(to) => handleMovePiece(piece.id, to)}
+                  onExtract={() => { void extractor.extract({ kind: "piece", pieceId: piece.id }); }}
+                  extractDisabled={extractor.isExtracting}
                   onArchive={() => handleArchiveDraft(piece.id)}
                   onDelete={() => handleDeleteDraft(piece.id)}
                 />
@@ -590,7 +596,11 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
           <p className="text-[10px] text-text-faint leading-relaxed mb-2">
             Short-form posts drawn from this idea. Click one to open the feed.
           </p>
-          <ExtractButton ideaId={ideaId} />
+          <ExtractButton
+            onExtract={() => { void extractor.extract({ kind: "idea", ideaId }); }}
+            isExtracting={extractor.isExtracting}
+            activeLabel={extractor.activeLabel}
+          />
           {shortPieces.length === 0 ? (
             <p className="px-3 py-2 text-[11px] text-text-faint">
               Nothing yet. Snip from a draft, or let an agent drop one in.
@@ -818,17 +828,23 @@ export function IdeaPanelToggle() {
  * wrong answer when four drafts are open: pieces come back and you cannot tell
  * which draft each one came out of. Pointing at a row removes the question.
  */
-function ExtractMenuItem({ piece, onClose }: { piece: ContentPiece; onClose: () => void }) {
-  const { extract, isExtracting } = useExtractIdeas();
-
+function ExtractMenuItem({
+  disabled,
+  onExtract,
+  onClose,
+}: {
+  disabled: boolean;
+  onExtract: () => void;
+  onClose: () => void;
+}) {
   return (
     <ContextMenuItem
       label="Extract pieces from this draft"
       hint="Reads this draft only. What comes back waits in the inbox"
-      disabled={isExtracting}
+      disabled={disabled}
       onClick={() => {
         onClose();
-        void extract({ kind: "piece", pieceId: piece.id });
+        onExtract();
       }}
     />
   );
@@ -843,15 +859,21 @@ function ExtractMenuItem({ piece, onClose }: { piece: ContentPiece; onClose: () 
  * promised up front: how many pieces an idea contains is the question being
  * asked, not a setting.
  */
-function ExtractButton({ ideaId }: { ideaId: string }) {
-  const { extract, isExtracting } = useExtractIdeas();
-
+function ExtractButton({
+  onExtract,
+  isExtracting,
+  activeLabel,
+}: {
+  onExtract: () => void;
+  isExtracting: boolean;
+  activeLabel: string | null;
+}) {
   // The tip sits beside the button rather than inside it: a button inside a
   // button is invalid markup, and React says so at hydration.
   return (
     <div className="flex items-center gap-1.5 mb-2">
       <button
-        onClick={() => { void extract({ kind: "idea", ideaId }); }}
+        onClick={onExtract}
         disabled={isExtracting}
         title="Read the brief, every draft and every source in this idea, and pull out the parts that stand on their own. To read one draft on its own, right-click that draft"
         className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)]
@@ -860,7 +882,9 @@ function ExtractButton({ ideaId }: { ideaId: string }) {
           disabled:opacity-50 disabled:pointer-events-none transition-all duration-150"
       >
         <Sparkles size={10} />
-        {isExtracting ? "Reading the whole idea…" : "Extract from the whole idea"}
+        {isExtracting
+          ? `Extracting from ${activeLabel ?? "this idea"}…`
+          : "Extract from the whole idea"}
       </button>
     </div>
   );
@@ -872,6 +896,8 @@ function DraftRow({
   onOpen,
   onRename,
   onMove,
+  onExtract,
+  extractDisabled,
   onArchive,
   onDelete,
 }: {
@@ -880,6 +906,8 @@ function DraftRow({
   onOpen: () => void;
   onRename: (title: string) => void;
   onMove: (to: PanelSection) => void;
+  onExtract: () => void;
+  extractDisabled: boolean;
   onArchive: () => void;
   onDelete: () => void;
 }) {
@@ -957,7 +985,7 @@ function DraftRow({
             onClick={() => { close(); setRenaming(true); }}
           />
           <ContextMenuDivider />
-          <ExtractMenuItem piece={piece} onClose={close} />
+          <ExtractMenuItem disabled={extractDisabled} onExtract={onExtract} onClose={close} />
           <ContextMenuDivider />
           <MarkPublishedMenuSection
             piece={piece}

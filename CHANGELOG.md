@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-19 - Right-click draft extraction stays visible (ARI-341)
+
+Choosing Extract pieces from this draft used a controller owned by the context-menu item. Closing the menu immediately unmounted that controller, so the extraction continued with no visible working state and another click could start the same paid request again. The idea panel now owns one controller for both extraction entry points, keeps the source draft named on the button until the run settles, and refuses overlapping runs even before React can render the disabled state.
+
+The predecessor extraction branch also carried an obsolete sidebar-menu component that referenced a hook it no longer imported. Removing that unreachable component restores production builds without changing the live context menu.
+
+**Files**: `src/components/idea/idea-panel.tsx`, `src/hooks/use-extract-ideas.ts`, `src/components/sidebar/sidebar.tsx`, `src/__tests__/use-extract-ideas.test.tsx`.
+
+**Verification**: Regression coverage opens a real draft context menu, starts extraction, confirms the closed menu leaves visible progress behind, and holds duplicate requests to one. All 892 tests, lint, TypeScript, and the production build pass.
+
 ## 2026-08-13 - The extractor points at one draft, and says what it read
 
 Extract pieces sat above the pieces list and read everything in the idea. With one draft open that is obviously right. With four, it is a button that will not tell you what it just did: pieces come back and there is no way to trace any of them to the draft they came out of.
