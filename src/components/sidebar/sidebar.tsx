@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
   Monitor,
   MessageSquare,
+  Inbox,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
@@ -121,6 +122,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setActiveIdea = useAppStore((s) => s.setActiveIdea);
+  const openInboxReview = useAppStore((s) => s.openInboxReview);
   const isFeedbackOpen = useAppStore((s) => s.isFeedbackOpen);
   const openFeedback = useAppStore((s) => s.openFeedback);
   const toggleCommentsPanel = useAppStore((s) => s.toggleCommentsPanel);
@@ -186,6 +188,21 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   const allIdeas = useMemo(
     () => Object.values(ideas).filter((i) => !i.deletedAt && i.archivedAt === undefined),
     [ideas],
+  );
+  const liveIdeaIds = useMemo(() => new Set(allIdeas.map((idea) => idea.id)), [allIdeas]);
+  const inboxPieces = useMemo(
+    () =>
+      allPieces
+        .filter(
+          (piece) =>
+            piece.status === "inbox" &&
+            piece.reviewQueue === undefined &&
+            piece.deletedAt === undefined &&
+            piece.archivedAt === undefined &&
+            liveIdeaIds.has(piece.ideaId),
+        )
+        .sort((a, b) => a.createdAt - b.createdAt),
+    [allPieces, liveIdeaIds],
   );
   // Only the top of each archived tree gets a row: a sub-idea archived along
   // with its parent is already accounted for by the parent's line, and listing
@@ -314,6 +331,11 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     }
     const drafts = draftsForIdea(ideaId, allPieces);
     setActivePiece(drafts[0]?.id ?? null);
+  }
+
+  function handleOpenInbox() {
+    const first = inboxPieces[0];
+    if (first) openInboxReview(first.ideaId, true);
   }
 
   /** Start a fresh long-form fragment inside an idea. */
@@ -635,13 +657,28 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
     const hasChildren = kids.length > 0;
     const isExpanded = isRowExpanded(idea, kids);
     const counts = pieceCountsForIdea(idea.id, shortPieces);
-    const total = counts.inbox + counts["in-progress"] + counts.ready + counts.published;
+    const inboxCount = allPieces.filter(
+      (piece) =>
+        piece.ideaId === idea.id &&
+        piece.status === "inbox" &&
+        piece.reviewQueue === undefined &&
+        piece.deletedAt === undefined &&
+        piece.archivedAt === undefined,
+    ).length;
+    const extractedCount = shortPieces.filter(
+      (piece) =>
+        piece.ideaId === idea.id &&
+        piece.reviewQueue === "extraction" &&
+        piece.deletedAt === undefined &&
+        piece.archivedAt === undefined,
+    ).length;
+    const total = counts["in-progress"] + counts.ready + counts.published;
     // Across every format, unlike `counts` above: a shipped long-form draft is
     // the main thing "did anything come of this idea?" is asking about.
     const shipped = publishRollupForIdea(idea.id, allPieces);
     const shippedSummary = shipped.count > 0 ? ` · ${shipped.count} published` : "";
-    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${counts.inbox > 0 ? ` · ${counts.inbox} in inbox` : ""}${shippedSummary}`;
-    const hasUnseenAgent = shortPieces.some(
+    const summaryLine = `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} · ${total} ${total === 1 ? "piece" : "pieces"}${extractedCount > 0 ? ` · ${extractedCount} extracted` : ""}${inboxCount > 0 ? ` · ${inboxCount} in inbox` : ""}${shippedSummary}`;
+    const hasUnseenAgent = allPieces.some(
       (p) => p.ideaId === idea.id && p.deletedAt === undefined && !p.seen && p.origin === "agent",
     );
     const isRenaming = renamingId === idea.id;
@@ -724,13 +761,17 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 {idea.title || "Untitled idea"}
               </span>
             )}
-            {counts.inbox > 0 && (
-              <span
-                title={`${counts.inbox} piece${counts.inbox === 1 ? "" : "s"} waiting in this idea's inbox`}
-                className="shrink-0 px-1.5 rounded-full text-[10px] font-[family-name:var(--font-mono)] text-gold bg-gold/10 border border-gold/20"
+            {inboxCount > 0 && (
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openInboxReview(idea.id);
+                }}
+                title={`${inboxCount} piece${inboxCount === 1 ? "" : "s"} waiting in this idea's inbox`}
+                className="shrink-0 px-1.5 rounded-full text-[10px] font-[family-name:var(--font-mono)] text-gold bg-gold/10 border border-gold/20 hover:bg-gold/20 transition-colors duration-150"
               >
-                {counts.inbox}
-              </span>
+                {inboxCount}
+              </button>
             )}
             {/* This idea shipped something. The count was already being
                 computed here and thrown away, so an idea gave no sign of having
@@ -799,6 +840,7 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
         <PanelLeftOpen size={16} />
         <div className="w-5 border-t border-border" />
         <Lightbulb size={16} />
+        <Inbox size={16} />
         <Search size={16} />
         <div className="flex-1" />
         <Settings size={16} />
@@ -913,6 +955,29 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="px-5 pb-3">
+            <button
+              onClick={handleOpenInbox}
+              disabled={inboxPieces.length === 0}
+              title={
+                inboxPieces.length > 0
+                  ? `Review ${inboxPieces.length} external piece${inboxPieces.length === 1 ? "" : "s"}`
+                  : "No external pieces are waiting"
+              }
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-[var(--radius-lg)] border text-[12px] font-medium transition-all duration-150 ${
+                inboxPieces.length > 0
+                  ? "border-gold/25 bg-gold/5 text-text-secondary hover:bg-gold/10 hover:text-text-primary"
+                  : "border-border text-text-faint opacity-60 cursor-default"
+              }`}
+            >
+              <Inbox size={14} className={inboxPieces.length > 0 ? "text-gold" : ""} />
+              <span>Inbox</span>
+              <span className="ml-auto font-[family-name:var(--font-mono)] text-[11px]">
+                {inboxPieces.length}
+              </span>
+            </button>
           </div>
 
           {/* The bulk bar. Only here while something is ticked, and outside

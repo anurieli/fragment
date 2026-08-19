@@ -10,15 +10,17 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 **Verification**: Regression coverage reproduces a manual snap followed by a concurrent piece update and verifies the newly landed page remains focused. It also proves a pending scroll settle cannot override a new edit intent. The full suite passes 649/649 tests; `npx tsc --noEmit`, `npm run lint` (32 pre-existing warnings, zero errors), and `npm run build` pass.
 
-## 2026-08-19 - Internal extraction gets its own review queue (ARI-342)
+## 2026-08-19 - Inbox is external and extraction gets its own review queue (ARI-342)
 
-Extract Ideas results no longer enter Inbox, which remains reserved for work arriving from outside Fragment. Extracted thoughts wait in a separate review queue surfaced in both the idea panel and the feed. Each result can be accepted into active work or tossed through the existing undoable removal path.
+Inbox now has one meaning: work that arrived from outside Fragment through MCP or another ingress path. The sidebar has one global Inbox entry; opening it lands on the oldest pending arrival inside its idea and advances across ideas as decisions clear the queue.
 
-The queue is part of the stored content contract rather than a visual-only filter, so internal results stay out of Inbox and active-work counts everywhere until review resolves them. Regression coverage holds extraction creation, storage, filtering, contract validation, and both review actions.
+Each idea keeps its own Inbox collapsed below Pieces with a separate count. Approve moves an arrival into active work, Toss removes it with Undo, and clicking the idea row's Inbox badge opens that exact queue. Pending arrivals and internally extracted options no longer inflate the idea's finished Pieces count.
 
-**Files**: `src/hooks/use-extract-ideas.ts`, `src/lib/content-engine/contract.ts`, `src/stores/content-store.ts`, `src/components/idea/idea-panel.tsx`, `src/components/shortform/`, `src/__tests__/`.
+Extract Ideas is internal work against the writer's own material. Its results now land in a separate extraction review queue and filter with `origin: user`, where Accept or Toss resolves each option without presenting it as external Inbox work. Stored lifecycle guards keep review work out of editing, publishing, prioritizing, archiving, duplication, sharing, and active-work signals until acceptance. The status shortcut accepts Inbox work into `in-progress` but never cycles internal work back into Inbox.
 
-**Verification**: Focused extraction, contract, store, feed, and review-action tests; TypeScript; full test, lint, and production build checks.
+**Files**: `src/lib/content-engine/contract.ts`, `src/lib/persistence.ts`, `src/hooks/use-extract-ideas.ts`, `src/components/idea/idea-panel.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/shortform/*`, `src/stores/app-store.ts`, `src/stores/content-store.ts`, `src/stores/content-selectors.ts`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `docs/AGENT-API.md`, `PRD.md`, and tests.
+
+**Verification**: Regression coverage proves internal extraction stays in its own guarded review queue and external Inbox review starts collapsed, opens from the global or per-idea entry, approves into active work, tosses with Undo, and advances across ideas. All 914 app tests and 48 MCP tests pass; TypeScript and the production build are clean; lint reports zero errors and 30 pre-existing warnings.
 
 ## 2026-08-19 - Priority is one visible choice (ARI-343)
 
