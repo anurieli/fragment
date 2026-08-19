@@ -11,6 +11,13 @@ There is now one `Portal` that renders to the end of the document, one layer sca
 **Sidebar ideas can be selected and acted on together.** Hold ⌘ (Ctrl on Windows) and click rows to tick more than one, shift-click for a run of them, or use the checkbox that appears when you hover a row. A bar above the list then pins, sets priority on, archives, deletes or groups the whole selection in one action, and each of those is a single Undo rather than one per idea. Right-clicking a ticked row offers the same actions; right-clicking any other row still acts on that row alone and leaves your selection where it is. Esc clears the ticks.
 
 **Grouping makes a parent idea.** Fragment has no folders and no tags, because an idea holding sub-ideas already is the grouping. So "Group under a new idea" creates an idea, moves everything you ticked inside it, and opens it for naming. Ideas nest exactly one level deep, which the store now enforces when ideas are moved and not only when they are created: an idea that already has sub-ideas of its own stays where it is, and the toast says how many were left alone rather than the action half-working in silence.
+## 2026-08-14 - Keep the short-form Edit prompt open (ARI-335)
+
+Clicking Edit in a short-form piece's selection toolbar did create the custom-instruction input, but focusing that input blurred the piece textarea. The card treated every textarea blur as leaving edit mode, immediately switched to its read view, and unmounted the prompt before the writer could see or use it. Focus transfers into the Refine menu now keep the piece editing while ordinary blurs still return to reading. User-created pieces already bypass Inbox and start in progress, as verified by the existing store coverage.
+
+**Files**: `src/components/shortform/piece-card.tsx`, `src/components/shortform/piece-refine-menu.tsx`, `src/components/shortform/live-markdown-textarea.tsx`, `src/__tests__/piece-refine-menu.test.tsx`.
+
+**Verification**: Regression coverage follows the real textarea selection, Edit click, prompt focus, cancellation, and outside-focus exit paths. All 838 tests, lint, TypeScript, and the production build pass.
 
 ## 2026-08-13 - Publishing closes a piece, and says where it went
 
