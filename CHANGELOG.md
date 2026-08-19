@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-19 - Keep the manually snapped piece in place (ARI-345)
+
+**Summary**: The Pieces deck tracked keyboard and click focus, but CSS scroll snap moved only the viewport. The old focused index stayed behind, and any piece update rebuilt the visible list and re-ran `scrollIntoView` for that stale piece, pulling the deck back after it had appeared to land. Settled manual scrolling now promotes the page nearest the feed top to roving focus, exits edit mode when the page changes, and focused scrolling depends on the focused piece id rather than the whole mutable list. A content update during the snap can no longer pull the deck back.
+
+**Files**: `src/components/shortform/shortform-view.tsx`, `src/__tests__/shortform-scroll-focus.test.tsx` (new).
+
+**Verification**: Regression coverage reproduces a manual snap followed by a concurrent piece update and verifies the newly landed page remains focused. It also proves a pending scroll settle cannot override a new edit intent. The full suite passes 649/649 tests; `npx tsc --noEmit`, `npm run lint` (32 pre-existing warnings, zero errors), and `npm run build` pass.
+
 ## 2026-08-19 - Internal extraction gets its own review queue (ARI-342)
 
 Extract Ideas results no longer enter Inbox, which remains reserved for work arriving from outside Fragment. Extracted thoughts wait in a separate review queue surfaced in both the idea panel and the feed. Each result can be accepted into active work or tossed through the existing undoable removal path.
@@ -206,7 +214,6 @@ Vocabulary is consistent across the interface: idea, draft, piece, snip. The wor
 **Files**: `src/lib/textarea-selection.ts`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
 
 **Verification**: 690 tests pass with 17 opt-in integration tests skipped, including focused coverage for mixed heading-to-paragraph movement and stale selection rejection; `npm run lint` exits with 0 errors and 31 existing warnings; `npx tsc --noEmit` and the production build are clean.
-
 ## 2026-08-03 05:35 - Fixed eslint linting agent worktrees' full .next builds as source (68cd16e)
 
 **Commit**: `68cd16e` on `agent/offline-cloud-accounts`, pushed for PR #9
