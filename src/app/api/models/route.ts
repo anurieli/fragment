@@ -7,6 +7,7 @@ import {
 } from "@/lib/api-guards";
 import {
   isAIProvider,
+  isApiKeyProvider,
   getServerEnvKey,
   getStaticModels,
   buildModelsRequest,
@@ -28,14 +29,30 @@ export async function GET(req: NextRequest) {
   }
   const provider = providerParam;
 
+  const apiKey = req.headers.get("x-api-key") || getServerEnvKey(provider);
+  const codexToken = req.headers.get("x-auth-token") || undefined;
+
+  // No credential, no catalogue. A key-based provider stays invisible until it
+  // is connected, whether its list is fetched or curated here.
+  if (isApiKeyProvider(provider) && !apiKey?.trim()) {
+    const error = "Missing API key";
+    return NextResponse.json(
+      {
+        models: [],
+        error,
+        code: "AI_AUTH_REQUIRED",
+        _meta: { durationMs: Date.now() - startTime, statusCode: 401, error },
+      },
+      { status: 401 },
+    );
+  }
+
   // Providers without a list endpoint (Perplexity) serve a curated static list.
   const staticModels = getStaticModels(provider);
   if (staticModels) {
     return NextResponse.json({ models: staticModels, _meta: { durationMs: Date.now() - startTime, statusCode: 200 } });
   }
 
-  const apiKey = req.headers.get("x-api-key") || getServerEnvKey(provider);
-  const codexToken = req.headers.get("x-auth-token") || undefined;
   const modelsRequest = buildModelsRequest(provider, { apiKey, codexToken });
 
   if (!modelsRequest) {

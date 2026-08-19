@@ -691,6 +691,11 @@ export function buildModelsRequest(
     case "openai-chat":
     default: {
       const key = normalizeApiKey(auth.apiKey ?? undefined);
+      // A provider that authenticates with a key does not get its catalogue
+      // listed without one. OpenRouter's /models is public, which used to mean
+      // the model picker filled with hundreds of models from a provider the
+      // user had never connected and could not call.
+      if (config.keyField && !key) return null;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (key) {
         headers.Authorization = `Bearer ${key}`;

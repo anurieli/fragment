@@ -6,6 +6,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useVoiceStore } from "@/stores/voice-store";
 import { useSpeechDictation } from "@/hooks/use-speech-dictation";
 import { ModelSelector } from "@/components/settings/model-selector";
+import { useFeatureProvider } from "@/hooks/use-feature-provider";
 import type { GenerateFormat, GenerateLength } from "@/lib/defaults";
 import type { ResolvedBrief } from "@/lib/brief-context";
 import { BriefField } from "./brief-field";
@@ -83,7 +84,7 @@ export function GeneratePanel({ compact, initial, inherited, voiceName, onGenera
     onGenerate({ prompt: prompt.trim(), goal, audience, tone, remember, voiceId, format, length });
   }, [prompt, goal, audience, tone, remember, voiceId, format, length, onGenerate, dictation]);
 
-  const featureConfig = settings.featureProviders.slashCommand;
+  const featureConfig = useFeatureProvider("slashCommand");
 
   return (
     <div>
@@ -201,7 +202,9 @@ export function GeneratePanel({ compact, initial, inherited, voiceName, onGenera
           <ModelSelector
             value={featureConfig.model}
             provider={featureConfig.provider}
-            onChange={(model) => updateFeatureProvider("slashCommand", { model })}
+            onChange={(model) =>
+              updateFeatureProvider("slashCommand", { provider: featureConfig.provider, model })
+            }
           />
         </div>
         {onOpenAISettings && (

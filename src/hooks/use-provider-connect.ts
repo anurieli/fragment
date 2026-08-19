@@ -11,7 +11,7 @@ import type { FeatureKey } from "@/lib/ai/connection-status";
 
 export type ConnectState = "idle" | "validating" | "success" | "error";
 
-const ALL_FEATURES: FeatureKey[] = ["snippetLabeling", "slashCommand", "inlineEdit"];
+const ALL_FEATURES: FeatureKey[] = ["snippetLabeling", "slashCommand", "inlineEdit", "ideaExtractor"];
 
 export interface UseProviderConnect {
   state: ConnectState;
@@ -19,7 +19,7 @@ export interface UseProviderConnect {
   /** True when the last failure looks like a reach problem (not a rejected key) — safe to bypass. */
   canSaveAnyway: boolean;
   /** Save + validate a key provider. On success: persist key, set it as the
-   *  active provider for `activateFor` (default: all three features), clear it
+   *  active provider for `activateFor` (default: every AI feature), clear it
    *  from badProviders, and fire onConnected. */
   connectKeyProvider: (provider: AIProvider, apiKey: string) => Promise<void>;
   /** Codex device-flow (delegates to useCodexSignIn). */
