@@ -6,7 +6,7 @@ import { pieceAge, staleness } from "@/stores/content-selectors";
 // unit-testable without mocking time. Mirrors the convention already set by
 // src/stores/content-selectors.ts.
 
-export const PIECE_FILTERS = ["all", "inbox", "in-progress", "ready", "archived"] as const;
+export const PIECE_FILTERS = ["all", "inbox", "extracted", "in-progress", "ready", "archived"] as const;
 export type PieceFilter = (typeof PIECE_FILTERS)[number];
 
 export const PIECE_SORT_MODES = ["newest", "oldest", "priority", "last-edited", "schedule", "manual"] as const;
@@ -33,13 +33,16 @@ export function filterPieces(pieces: readonly ContentPiece[], filter: PieceFilte
   const live = pieces.filter((p) => p.deletedAt === undefined);
   if (filter === "archived") return live.filter((p) => p.archivedAt !== undefined);
   const current = live.filter((p) => p.archivedAt === undefined);
-  if (filter === "all") return current;
-  return current.filter((p) => p.status === filter);
+  if (filter === "extracted") return current.filter((p) => p.reviewQueue === "extraction");
+  const active = current.filter((p) => p.reviewQueue === undefined);
+  if (filter === "all") return active;
+  return active.filter((p) => p.status === filter);
 }
 
 export interface PieceFilterCounts {
   all: number;
   inbox: number;
+  extracted: number;
   "in-progress": number;
   ready: number;
   archived: number;
@@ -51,6 +54,7 @@ export function filterCounts(pieces: readonly ContentPiece[]): PieceFilterCounts
   const counts: PieceFilterCounts = {
     all: 0,
     inbox: 0,
+    extracted: 0,
     "in-progress": 0,
     ready: 0,
     archived: 0,
@@ -58,6 +62,10 @@ export function filterCounts(pieces: readonly ContentPiece[]): PieceFilterCounts
   for (const piece of live) {
     if (piece.archivedAt !== undefined) {
       counts.archived += 1;
+      continue;
+    }
+    if (piece.reviewQueue === "extraction") {
+      counts.extracted += 1;
       continue;
     }
     counts.all += 1;
@@ -197,6 +205,7 @@ export function stalenessLevel(piece: Pick<ContentPiece, "updatedAt">, now: numb
 export const EMPTY_STATE_COPY: Record<PieceFilter, string> = {
   all: "No pieces yet. Snip something out, or drop in a draft from an agent.",
   inbox: "Nothing waiting. Agents drop drafts here — or snip one out yourself.",
+  extracted: "Nothing to review. Extract Ideas results wait here before becoming active work.",
   "in-progress": "Nothing in motion. Pull a piece from the inbox to start shaping it.",
   ready: "Nothing queued. Mark a piece ready when it's good to publish.",
   archived: "Nothing put away. Archiving a piece hides it here without deleting a word.",

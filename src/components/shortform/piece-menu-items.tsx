@@ -57,6 +57,16 @@ export function PieceMenuItems({
   const isPinned = piece.pinnedAt !== undefined;
   const isArchived = piece.archivedAt !== undefined;
 
+  if (piece.reviewQueue === "extraction") {
+    return (
+      <ContextMenuItem
+        label="Toss"
+        destructive
+        onClick={() => { onClose(); onDelete(); }}
+      />
+    );
+  }
+
   return (
     <>
       {onRename && (
@@ -178,6 +188,8 @@ export function PieceShapeItems({
   const showToast = useToastStore((s) => s.showToast);
 
   const isDraft = isLongformFormat(piece.format);
+
+  if (piece.reviewQueue === "extraction") return null;
 
   /** Put the writer in front of the piece in whichever surface now owns it. */
   function show(shape: "draft" | "piece", pieceId: string, ideaId: string) {

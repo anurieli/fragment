@@ -202,7 +202,7 @@ function useRowDrag(
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || piece.reviewQueue === "extraction") return;
       // Buttons act, inputs take text. Neither is a handle.
       if ((e.target as HTMLElement).closest("button, input, textarea")) return;
 
@@ -246,7 +246,7 @@ function useRowDrag(
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
     },
-    [piece.id, from, label, onMove],
+    [piece.id, piece.reviewQueue, from, label, onMove],
   );
 
   return { onMouseDown, dragged };
@@ -326,11 +326,15 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   // first and separately — the panel should say "three waiting", not bury
   // them among everything you already dealt with.
   const inboxPieces = useMemo(
-    () => shortPieces.filter((p) => p.status === "inbox"),
+    () => shortPieces.filter((p) => p.status === "inbox" && p.reviewQueue === undefined),
+    [shortPieces],
+  );
+  const reviewPieces = useMemo(
+    () => shortPieces.filter((p) => p.reviewQueue === "extraction"),
     [shortPieces],
   );
   const triagedPieces = useMemo(
-    () => shortPieces.filter((p) => p.status !== "inbox"),
+    () => shortPieces.filter((p) => p.status !== "inbox" && p.reviewQueue === undefined),
     [shortPieces],
   );
 
@@ -427,7 +431,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
    */
   function handleMovePiece(pieceId: string, to: PanelSection) {
     const piece = pieces[pieceId];
-    if (!piece) return;
+    if (!piece || piece.reviewQueue === "extraction") return;
     const change = moveToSection(piece, to);
     if (!change) return;
     const before = { format: piece.format, status: piece.status };
@@ -589,7 +593,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
         <DropSection section="pieces" ideaId={ideaId}>
           <SectionHeader
             label="Pieces"
-            count={shortPieces.length}
+            count={inboxPieces.length + triagedPieces.length}
             actionLabel="New piece"
             onAction={handleNewPiece}
           />
@@ -607,6 +611,40 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
             </p>
           ) : (
             <div className="space-y-3">
+              {reviewPieces.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => openPiece(reviewPieces[0].id)}
+                    title="Open the extracted review queue"
+                    className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider
+                      text-gold font-[family-name:var(--font-mono)] hover:opacity-80 transition-opacity duration-150"
+                  >
+                    Extracted {reviewPieces.length}
+                    <span className="normal-case tracking-normal text-text-faint">
+                      · accept or toss
+                    </span>
+                  </button>
+                  <div className="space-y-0.5">
+                    {reviewPieces.slice(0, 8).map((piece) => (
+                      <PieceRow
+                        key={piece.id}
+                        piece={piece}
+                        onOpen={() => openPiece(piece.id)}
+                        onRename={(title) => handleRenamePiece(piece.id, title)}
+                        onMove={(to) => handleMovePiece(piece.id, to)}
+                        onDelete={() => handleDeletePiece(piece.id)}
+                      />
+                    ))}
+                  </div>
+                  {reviewPieces.length > 8 && (
+                    <MoreInFeed
+                      count={reviewPieces.length - 8}
+                      onClick={() => openPiece(reviewPieces[0].id)}
+                    />
+                  )}
+                </div>
+              )}
+
               {inboxPieces.length > 0 && (
                 <div>
                   <button
@@ -643,7 +681,7 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
 
               {triagedPieces.length > 0 && (
                 <div>
-                  {inboxPieces.length > 0 && (
+                  {(reviewPieces.length > 0 || inboxPieces.length > 0) && (
                     <div className="mb-1 text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)]">
                       Working
                     </div>
@@ -1059,13 +1097,13 @@ function PieceRow({
       onMouseDown={onMouseDown}
       onClick={() => { if (!dragged.current) onOpen(); }}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(); }}
-      onDoubleClick={() => setRenaming(true)}
+      onDoubleClick={() => { if (piece.reviewQueue === undefined) setRenaming(true); }}
       onContextMenu={openAt}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
       title={[
         pieceLabel(piece),
-        STATUS_WORD[piece.status],
+        piece.reviewQueue === "extraction" ? "awaiting extraction review" : STATUS_WORD[piece.status],
         priority ? `${priority.label} priority` : null,
         piece.pinnedAt !== undefined ? "pinned" : null,
       ]
@@ -1079,7 +1117,11 @@ function PieceRow({
       {piece.pinnedAt !== undefined && (
         <Pin size={9} fill="currentColor" className="shrink-0 text-gold" />
       )}
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[piece.status]}`} />
+      <span
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+          piece.reviewQueue === "extraction" ? "bg-gold" : STATUS_DOT[piece.status]
+        }`}
+      />
       {renaming ? (
         <RenameInput
           seed={renameSeed(piece)}
@@ -1122,12 +1164,16 @@ function PieceRow({
       {point && (
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
-          <ContextMenuDivider />
-          <MarkPublishedMenuSection
-            piece={piece}
-            onMark={() => { close(); setMarking(true); }}
-          />
-          <ContextMenuDivider />
+          {piece.reviewQueue === undefined && (
+            <>
+              <ContextMenuDivider />
+              <MarkPublishedMenuSection
+                piece={piece}
+                onMark={() => { close(); setMarking(true); }}
+              />
+              <ContextMenuDivider />
+            </>
+          )}
           <PieceMenuItems
             piece={piece}
             onClose={close}

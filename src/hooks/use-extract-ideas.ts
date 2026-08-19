@@ -33,12 +33,10 @@ export interface ExtractOutcome {
  * different pieces from the same library, and an agent that will not say which
  * it read is one you cannot use with four drafts open.
  *
- * Everything it creates lands in that idea's inbox, unpublished and untriaged,
- * which is where agent-pushed work already arrives. That is deliberate: this
- * agent writes several pieces at once from material you did not re-read first,
- * and dropping them straight into the ready queue would mean trusting output
- * nobody has looked at. The inbox is the surface built for exactly that
- * doubt, and Dismiss is one click.
+ * Everything it creates waits in the internal extraction review queue. Inbox
+ * is reserved for work arriving from outside Fragment through MCP/API
+ * handoffs. Review keeps generated possibilities separate until the writer
+ * accepts or tosses each one.
  */
 export function useExtractIdeas() {
   const [isExtracting, setIsExtracting] = useState(false);
@@ -148,7 +146,7 @@ export function useExtractIdeas() {
       useToastStore
         .getState()
         .showToast(
-          `${extracted.length} ${extracted.length === 1 ? "piece" : "pieces"} from ${source.label}, in the inbox.`,
+          `${extracted.length} ${extracted.length === 1 ? "piece" : "pieces"} from ${source.label}, ready to review.`,
         );
       return { created: extracted.length, truncated: source.truncated, label: source.label };
     } catch {
@@ -172,8 +170,9 @@ function createFromExtracted(ideaId: string, extracted: readonly ExtractedPiece[
       title: piece.title || undefined,
       body: piece.body,
       format: "linkedin",
-      status: "inbox",
-      origin: "agent",
+      status: "in-progress",
+      origin: "user",
+      reviewQueue: "extraction",
     });
   }
 }

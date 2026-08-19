@@ -394,6 +394,95 @@ describe("content-store — pieces", () => {
     expect(useContentStore.getState().pieces[id].deletedAt).toBeUndefined();
   });
 
+  it("acceptExtractedPiece moves a reviewed result into active work", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({
+      ideaId,
+      format: "linkedin",
+      origin: "user",
+      status: "in-progress",
+      reviewQueue: "extraction",
+      body: "keep this",
+    });
+
+    useContentStore.getState().acceptExtractedPiece(id);
+
+    expect(useContentStore.getState().pieces[id]).toMatchObject({
+      status: "in-progress",
+      seen: true,
+    });
+    expect(useContentStore.getState().pieces[id].reviewQueue).toBeUndefined();
+  });
+
+  it("keeps extraction review items isolated until they are accepted", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({
+      ideaId,
+      format: "linkedin",
+      origin: "user",
+      status: "in-progress",
+      reviewQueue: "extraction",
+      body: "review me",
+    });
+
+    useContentStore.getState().setPieceStatus(id, "ready");
+    useContentStore.getState().updatePiece(id, { format: "essay" });
+    useContentStore.getState().updatePiece(id, {
+      reviewQueue: undefined,
+      body: "edited without accepting",
+    });
+    useContentStore.getState().archivePiece(id);
+
+    expect(useContentStore.getState().pieces[id]).toMatchObject({
+      status: "in-progress",
+      format: "linkedin",
+      reviewQueue: "extraction",
+      body: "review me",
+    });
+    expect(useContentStore.getState().pieces[id].archivedAt).toBeUndefined();
+  });
+
+  it("does not let generic updates put active work into the extraction queue", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({
+      ideaId,
+      format: "linkedin",
+      origin: "user",
+      status: "in-progress",
+      body: "active work",
+    });
+
+    useContentStore.getState().updatePiece(id, { reviewQueue: "extraction" });
+
+    expect(useContentStore.getState().pieces[id].reviewQueue).toBeUndefined();
+  });
+
+  it("accepts a defensive legacy published review item without breaking persistence invariants", () => {
+    const ideaId = makeIdea();
+    const id = useContentStore.getState().createPiece({
+      ideaId,
+      format: "linkedin",
+      origin: "user",
+      status: "in-progress",
+      reviewQueue: "extraction",
+      body: "legacy",
+    });
+    const piece = {
+      ...useContentStore.getState().pieces[id],
+      status: "published" as const,
+      publish: { platform: "linkedin" as const, method: "manual" as const, publishedAt: 1, verified: true },
+    };
+    useContentStore.setState({ pieces: { [piece.id]: piece } });
+
+    useContentStore.getState().acceptExtractedPiece(piece.id);
+
+    expect(useContentStore.getState().pieces[piece.id]).toMatchObject({
+      status: "published",
+      publish: piece.publish,
+    });
+    expect(useContentStore.getState().pieces[piece.id].reviewQueue).toBeUndefined();
+  });
+
   it("updatePiece on an unknown id changes nothing", () => {
     useContentStore.getState().updatePiece("missing", { body: "x" });
     expect(Object.keys(useContentStore.getState().pieces)).toHaveLength(0);

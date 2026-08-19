@@ -61,10 +61,13 @@ describe("filterPieces / filterCounts", () => {
     makePiece({ id: "e", status: "published" }),
     makePiece({ id: "f", status: "ready", deletedAt: 5000 }),
     makePiece({ id: "g", status: "ready", archivedAt: 6000 }),
+    makePiece({ id: "h", status: "in-progress", reviewQueue: "extraction" }),
   ];
 
-  it("'all' keeps every live piece regardless of status", () => {
+  it("keeps extracted results in their own review filter", () => {
     expect(filterPieces(pieces, "all").map((p) => p.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(filterPieces(pieces, "in-progress").map((p) => p.id)).toEqual(["c"]);
+    expect(filterPieces(pieces, "extracted").map((p) => p.id)).toEqual(["h"]);
   });
 
   it("narrows to a single status and excludes deleted pieces", () => {
@@ -85,6 +88,7 @@ describe("filterPieces / filterCounts", () => {
     expect(filterCounts(pieces)).toEqual({
       all: 5,
       inbox: 2,
+      extracted: 1,
       "in-progress": 1,
       ready: 1,
       archived: 1,

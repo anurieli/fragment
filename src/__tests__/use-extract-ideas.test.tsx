@@ -140,4 +140,27 @@ describe("useExtractIdeas", () => {
       expect(screen.getByRole("button", { name: "Extract from the whole idea" })).toBeEnabled();
     });
   });
+
+  it("stages extracted results for review instead of putting them in Inbox", async () => {
+    postExtract.mockResolvedValue(
+      response({ content: JSON.stringify([{ title: "Found thought", body: "Worth reviewing" }]) }),
+    );
+
+    const draftId = seedDraft();
+    const { result } = renderHook(() => useExtractIdeas());
+
+    await act(async () => {
+      await result.current.extract({ kind: "piece", pieceId: draftId });
+    });
+
+    const created = Object.values(useContentStore.getState().pieces).find(
+      (piece) => piece.id !== draftId,
+    );
+    expect(created).toMatchObject({
+      title: "Found thought",
+      status: "in-progress",
+      reviewQueue: "extraction",
+      origin: "user",
+    });
+  });
 });

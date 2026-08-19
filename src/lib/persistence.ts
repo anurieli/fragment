@@ -5,6 +5,7 @@ import { backupPieceToFs } from "./fs-backup";
 import {
   ContractError,
   assertIdeaParentAllowed,
+  isLongformFormat,
   type Idea,
   type ContentPiece,
   type Resource,
@@ -230,6 +231,23 @@ export function assertPublishGuard(piece: Pick<ContentPiece, "status" | "publish
   }
 }
 
+/** Internal extraction stays review-only until the dedicated accept action
+ * removes reviewQueue. This backs every write path, including direct imports
+ * and any UI path that forgets to hide an ordinary piece action. */
+export function assertReviewQueueGuard(
+  piece: Pick<ContentPiece, "reviewQueue" | "status" | "origin" | "format" | "publish">,
+): void {
+  if (piece.reviewQueue !== "extraction") return;
+  if (
+    piece.status !== "in-progress" ||
+    piece.origin !== "user" ||
+    isLongformFormat(piece.format) ||
+    piece.publish !== undefined
+  ) {
+    throw new ContractError("an extraction-review piece must remain unpublished short-form work until accepted");
+  }
+}
+
 /**
  * Throws on a read failure rather than returning [].
  *
@@ -290,8 +308,9 @@ export async function loadAllContentPieces(): Promise<ContentPiece[]> {
  * destroys the last durable copy of a piece that only ever existed in memory.
  */
 export async function savePiece(piece: ContentPiece): Promise<boolean> {
-  // Publish-record guard.
+  // Stored lifecycle guards.
   assertPublishGuard(piece);
+  assertReviewQueueGuard(piece);
 
   try {
     await db.contentPieces.put(piece);

@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { ArrowRight, Check, FileText, X } from "lucide-react";
 import type { ContentPiece } from "@/lib/content-engine";
 import { isLongformFormat } from "@/lib/content-engine";
@@ -29,6 +28,7 @@ interface PieceTriageBarProps {
  */
 export function PieceTriageBar({ piece, onDismiss }: PieceTriageBarProps) {
   const setPieceStatus = useContentStore((s) => s.setPieceStatus);
+  const acceptExtractedPiece = useContentStore((s) => s.acceptExtractedPiece);
   const updatePiece = useContentStore((s) => s.updatePiece);
   const setActivePiece = useAppStore((s) => s.setActivePiece);
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
@@ -38,7 +38,34 @@ export function PieceTriageBar({ piece, onDismiss }: PieceTriageBarProps) {
   // shape belongs to the Write space and does not reach the feed at all.
   const longform = isLongformFormat(piece.format);
 
-  const handleMakeDraft = useCallback(() => {
+  if (piece.reviewQueue === "extraction") {
+    return (
+      <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)] mr-1">
+          Review
+        </span>
+        <TriageButton
+          icon={<Check size={11} />}
+          label="Accept"
+          title="Keep this and move it into active work"
+          primary
+          onClick={() => {
+            acceptExtractedPiece(piece.id);
+            showToast("Accepted into In progress");
+          }}
+        />
+        <TriageButton
+          icon={<X size={11} />}
+          label="Toss"
+          title="Not worth working on; removes it with an undo"
+          destructive
+          onClick={onDismiss}
+        />
+      </div>
+    );
+  }
+
+  function handleMakeDraft() {
     const previousFormat = piece.format;
     const previousStatus = piece.status;
     updatePiece(piece.id, { format: "essay", status: "in-progress" });
@@ -52,7 +79,7 @@ export function PieceTriageBar({ piece, onDismiss }: PieceTriageBarProps) {
         setIdeaSpace(piece.ideaId, "pieces");
       },
     });
-  }, [piece, updatePiece, setActivePiece, setIdeaSpace, showToast]);
+  }
 
   return (
     <div className="flex items-center gap-1.5 mt-3 flex-wrap">

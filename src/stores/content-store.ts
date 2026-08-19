@@ -22,6 +22,7 @@ import {
   saveResource as persistResource,
   deleteResourceRow,
   assertPublishGuard,
+  assertReviewQueueGuard,
 } from "@/lib/persistence";
 import { notifyAgentInboxStatusChange } from "@/lib/agent-inbox/client";
 
@@ -73,6 +74,7 @@ export interface CreatePieceInput {
   priority?: Priority;
   scheduledAt?: number;
   agentMeta?: ContentPiece["agentMeta"];
+  reviewQueue?: ContentPiece["reviewQueue"];
   order?: number;
   /** Defaults to false (the unseen dot is for pieces that arrived on their
    * own). Pieces the user just created by hand start seen. */
@@ -175,6 +177,8 @@ interface ContentState {
   setPiecePriority: (id: string, priority: Priority) => void;
   cyclePiecePriority: (id: string) => void;
   rejectPiece: (id: string) => void;
+  /** The only lifecycle transition out of the extraction review queue. */
+  acceptExtractedPiece: (id: string) => void;
   undeletePiece: (id: string) => void;
   /** Put one fragment away. No cascade: a fragment owns nothing but its own
    * snips, and those are already scoped to it. */
@@ -500,10 +504,12 @@ export const useContentStore = create<ContentState>((set, get) => ({
       order: input.order ?? siblingMaxOrder + 1,
       scheduledAt: input.scheduledAt,
       agentMeta: input.agentMeta,
+      reviewQueue: input.reviewQueue,
       createdAt: now,
       updatedAt: now,
     };
     assertPublishGuard(piece);
+    assertReviewQueueGuard(piece);
     set((s) => ({ pieces: { ...s.pieces, [piece.id]: piece } }));
     persistPiece(piece);
     return piece.id;
@@ -536,6 +542,15 @@ export const useContentStore = create<ContentState>((set, get) => ({
     if (!get().hydrated) return;
     const piece = get().pieces[id];
     if (!piece) return;
+    // Queue membership is changed only by createPiece and
+    // acceptExtractedPiece. Generic edits cannot hide active work or smuggle
+    // review work into the normal lifecycle. Pending review may only be marked
+    // seen while the user inspects it.
+    if ("reviewQueue" in partial) return;
+    if (
+      piece.reviewQueue === "extraction" &&
+      Object.keys(partial).some((key) => key !== "seen")
+    ) return;
     const updated: ContentPiece = { ...piece, ...partial, updatedAt: Date.now() };
     // Publishing closes a piece's text, and "Edit anyway" reopens it. Every
     // body write in the app lands here (the editor, its auto-save, the card's
@@ -553,6 +568,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
       updated.editedAfterPublishAt = Date.now();
     }
     assertPublishGuard(updated);
+    assertReviewQueueGuard(updated);
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
   },
@@ -560,7 +576,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
   duplicatePiece: (id) => {
     if (!get().hydrated) return "";
     const source = get().pieces[id];
-    if (!source) return "";
+    if (!source || source.reviewQueue === "extraction") return "";
 
     // The copy lands beside the piece it came from, in the same idea and the
     // same format, because the reason to duplicate a published piece is to
@@ -611,7 +627,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
   setPieceStatus: (id, status, publish) => {
     if (!get().hydrated) return;
     const piece = get().pieces[id];
-    if (!piece) return;
+    if (!piece || piece.reviewQueue === "extraction") return;
     const updated: ContentPiece = {
       ...piece,
       status,
@@ -629,6 +645,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
       updatedAt: Date.now(),
     };
     assertPublishGuard(updated);
+    assertReviewQueueGuard(updated);
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
     // Best-effort — let any agent watching the inbox's .status.jsonl see
@@ -650,7 +667,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
   setPiecePriority: (id, priority) => {
     if (!get().hydrated) return;
     const piece = get().pieces[id];
-    if (!piece) return;
+    if (!piece || piece.reviewQueue === "extraction") return;
     const updated: ContentPiece = { ...piece, priority, updatedAt: Date.now() };
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
     persistPiece(updated);
@@ -672,6 +689,25 @@ export const useContentStore = create<ContentState>((set, get) => ({
     persistPiece(updated);
   },
 
+  acceptExtractedPiece: (id) => {
+    if (!get().hydrated) return;
+    const piece = get().pieces[id];
+    if (!piece || piece.reviewQueue !== "extraction") return;
+    const { reviewQueue: _reviewQueue, ...rest } = piece;
+    const updated: ContentPiece = {
+      ...rest,
+      // Defensive compatibility for any review item published by an older
+      // build before this queue's transition guards existed.
+      status: piece.publish ? "published" : "in-progress",
+      seen: true,
+      updatedAt: Date.now(),
+    };
+    assertPublishGuard(updated);
+    assertReviewQueueGuard(updated);
+    set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
+    persistPiece(updated);
+  },
+
   undeletePiece: (id) => {
     if (!get().hydrated) return;
     const piece = get().pieces[id];
@@ -685,7 +721,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
   archivePiece: (id) => {
     if (!get().hydrated) return;
     const piece = get().pieces[id];
-    if (!piece) return;
+    if (!piece || piece.reviewQueue === "extraction") return;
     const now = Date.now();
     const updated: ContentPiece = { ...piece, archivedAt: now, updatedAt: now };
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));
@@ -705,7 +741,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
   pinPiece: (id) => {
     if (!get().hydrated) return;
     const piece = get().pieces[id];
-    if (!piece) return;
+    if (!piece || piece.reviewQueue === "extraction") return;
     const now = Date.now();
     const updated: ContentPiece = { ...piece, pinnedAt: now, updatedAt: now };
     set((s) => ({ pieces: { ...s.pieces, [id]: updated } }));

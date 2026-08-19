@@ -55,6 +55,11 @@ describe("publishQueue", () => {
     expect(queue.map((p) => p.id)).toEqual(["a"]);
   });
 
+  it("never publishes an item still waiting in extraction review", () => {
+    const pieces = [makePiece({ id: "review", status: "ready", reviewQueue: "extraction" })];
+    expect(publishQueue(pieces)).toHaveLength(0);
+  });
+
   it("sorts priority-first: 1 urgent .. 4 low, then 0 none last", () => {
     const pieces = [
       makePiece({ id: "none", status: "ready", priority: 0, createdAt: 1 }),
@@ -105,6 +110,11 @@ describe("workingOn", () => {
 
   it("excludes deleted pieces", () => {
     const pieces = [makePiece({ id: "a", updatedAt: 9000, deletedAt: 9500 })];
+    expect(workingOn(pieces, 10_000, 5_000)).toHaveLength(0);
+  });
+
+  it("keeps extraction review out of recently active work", () => {
+    const pieces = [makePiece({ id: "review", updatedAt: 9000, reviewQueue: "extraction" })];
     expect(workingOn(pieces, 10_000, 5_000)).toHaveLength(0);
   });
 });
@@ -220,6 +230,7 @@ describe("pieceCountsForIdea", () => {
       makePiece({ id: "c", ideaId: "root", status: "ready" }),
       makePiece({ id: "d", ideaId: "other", status: "inbox" }),
       makePiece({ id: "e", ideaId: "root", status: "inbox", deletedAt: 1 }),
+      makePiece({ id: "review", ideaId: "root", status: "in-progress", reviewQueue: "extraction" }),
     ];
     expect(pieceCountsForIdea("root", pieces)).toEqual({
       inbox: 2,
