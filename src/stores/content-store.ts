@@ -114,6 +114,18 @@ interface ContentState {
       Pick<Idea, "title" | "summary" | "voiceId" | "goal" | "audience" | "tone" | "remember">
     >,
   ) => void;
+  /**
+   * Move an idea under a parent, or back out to the top with `null`.
+   *
+   * Separate from updateIdea because a parent is not an ordinary field: ideas
+   * nest exactly one level (see assertIdeaParentAllowed), so this is the one
+   * mutation that can put the tree in a shape the store cannot represent.
+   * Refuses the move rather than performing half of it: the parent has to be a
+   * live root idea, the idea may not be its own parent, and an idea that
+   * already has sub-ideas of its own cannot become one. Returns whether it
+   * moved, so a caller acting on several ideas can say how many it left alone.
+   */
+  reparentIdea: (id: string, parentId: string | null) => boolean;
   deleteIdea: (id: string) => void;
   undeleteIdea: (id: string) => void;
   /** Tombstone an idea together with everything only reachable through it: its
@@ -250,6 +262,28 @@ export const useContentStore = create<ContentState>((set, get) => ({
     const updated: Idea = { ...idea, ...partial, updatedAt: Date.now() };
     set((s) => ({ ideas: { ...s.ideas, [id]: updated } }));
     persistIdea(updated);
+  },
+
+  reparentIdea: (id, parentId) => {
+    if (!get().hydrated) return false;
+    const idea = get().ideas[id];
+    if (!idea || idea.deletedAt !== undefined) return false;
+    if (idea.parentId === parentId) return true;
+    if (parentId !== null) {
+      if (parentId === id) return false;
+      const parent = get().ideas[parentId];
+      if (!parent || parent.deletedAt !== undefined || parent.parentId !== null) return false;
+      // Depth is capped at 2, so an idea with children of its own has nowhere
+      // to go: moving it would push its children to a third level.
+      const hasChildren = Object.values(get().ideas).some(
+        (candidate) => candidate.parentId === id && candidate.deletedAt === undefined,
+      );
+      if (hasChildren) return false;
+    }
+    const updated: Idea = { ...idea, parentId, updatedAt: Date.now() };
+    set((s) => ({ ideas: { ...s.ideas, [id]: updated } }));
+    persistIdea(updated);
+    return true;
   },
 
   deleteIdea: (id) => {

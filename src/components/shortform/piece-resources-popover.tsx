@@ -2,7 +2,9 @@
 
 import { useMemo, useRef, useState, type RefObject } from "react";
 import { ExternalLink, Plus } from "lucide-react";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { useContentStore } from "@/stores/content-store";
 import { effectiveResourcesForPiece } from "@/stores/resources-selectors";
 
@@ -56,12 +58,13 @@ export function PieceResourcesPopover({ pieceId, onClose, anchorRef }: PieceReso
   }
 
   return (
+    <Portal>
     <div
       ref={popoverRef}
       onClick={(e) => e.stopPropagation()}
       onMouseLeave={onClose}
-      className={`absolute right-0 ${placement.className} z-20 w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl p-2.5 overflow-y-auto`}
-      style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
+      className={`fixed ${Z_FLOATING} w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl p-2.5 overflow-y-auto`}
+      style={{ animation: "fadeIn 0.12s ease-out", ...placement.style }}
     >
       <p className="text-[10px] uppercase tracking-wider text-text-faint px-0.5 pb-1.5">
         Resources — this piece&apos;s, plus what its idea shares down
@@ -151,5 +154,6 @@ export function PieceResourcesPopover({ pieceId, onClose, anchorRef }: PieceReso
         </button>
       )}
     </div>
+    </Portal>
   );
 }

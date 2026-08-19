@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { Flag, MoreHorizontal, Pin } from "lucide-react";
 import type { ContentFormat, ContentPiece } from "@/lib/content-engine";
 import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml } from "@/lib/publish";
@@ -33,7 +35,7 @@ import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
-import { PieceRefineMenu } from "./piece-refine-menu";
+import { isPieceRefineMenuTarget, PieceRefineMenu } from "./piece-refine-menu";
 import { PieceTriageBar } from "./piece-triage";
 import { PieceMenuItems } from "./piece-menu-items";
 import { ContextMenu, useContextMenu } from "@/components/common/context-menu";
@@ -212,6 +214,14 @@ export function PieceCard({
     if (locked) return;
     onEnterEdit();
   }, [piece.seen, piece.id, markPieceSeen, onEnterEdit, locked]);
+
+  const handleTextareaBlur = useCallback(
+    (event: React.FocusEvent<HTMLTextAreaElement>) => {
+      if (isPieceRefineMenuTarget(event.relatedTarget)) return;
+      onExitEdit();
+    },
+    [onExitEdit],
+  );
 
   // Focus is reading, not just a prelude to editing: now that a card shows
   // its formatted text, landing on one (click, J/K, or a jump from the idea
@@ -801,7 +811,7 @@ export function PieceCard({
               value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
               onChange={handleBodyChange}
               onFocus={enterEditing}
-              onBlur={onExitEdit}
+              onBlur={handleTextareaBlur}
               onKeyDown={handleTextareaKeyDown}
               readOnly={flowGenerating || locked}
               placeholder={slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
@@ -813,6 +823,7 @@ export function PieceCard({
                 onEdit={handleRefineEdit}
                 onSnip={handleRefineSnip}
                 onCapturePiece={handleCapturePiece}
+                onExitEdit={onExitEdit}
               />
             )}
           </>
@@ -875,21 +886,23 @@ export function PieceCard({
             </button>
 
             {menuOpen && (
-              <div
-                ref={overflowMenuRef}
-                className={`absolute right-0 ${menuPlacement.className} z-20 w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
-                style={{ maxHeight: menuPlacement.maxHeight || undefined }}
-                onMouseLeave={() => setMenuOpen(false)}
-              >
-                <PieceMenuItems
-                  piece={piece}
-                  onClose={() => setMenuOpen(false)}
-                  onDelete={onDelete}
-                  onWriteWithFlow={openFlowPrompt}
-                  flowDisabledReason={flowDisabledReason}
-                  onOpenResources={() => setResourcesOpen(true)}
-                />
-              </div>
+              <Portal>
+                <div
+                  ref={overflowMenuRef}
+                  className={`fixed ${Z_FLOATING} w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+                  style={menuPlacement.style}
+                  onMouseLeave={() => setMenuOpen(false)}
+                >
+                  <PieceMenuItems
+                    piece={piece}
+                    onClose={() => setMenuOpen(false)}
+                    onDelete={onDelete}
+                    onWriteWithFlow={openFlowPrompt}
+                    flowDisabledReason={flowDisabledReason}
+                    onOpenResources={() => setResourcesOpen(true)}
+                  />
+                </div>
+              </Portal>
             )}
 
             {resourcesOpen && (

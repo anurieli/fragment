@@ -6,6 +6,16 @@ import { estimateSelectionAnchor } from "@/lib/piece-ai";
 
 type Mode = "idle" | "loading" | "custom-input";
 
+const PIECE_REFINE_MENU_SELECTOR = "[data-piece-refine-menu]";
+
+/** Keep the card's textarea editing surface mounted while focus moves into
+ * the Refine prompt. Without this distinction, focusing the custom input
+ * triggers the textarea's normal blur-to-reading transition and immediately
+ * unmounts the prompt the writer just opened. */
+export function isPieceRefineMenuTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(PIECE_REFINE_MENU_SELECTOR) !== null;
+}
+
 interface PieceRefineMenuProps {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   /** The positioned ancestor (piece-card's root div) the menu's absolute
@@ -20,6 +30,7 @@ interface PieceRefineMenuProps {
   /** Lift the selection into a new piece in the same idea, leaving this one as
    * it is — the short-form twin of the editor's Piece button. */
   onCapturePiece?: (selectionStart: number, selectionEnd: number) => void;
+  onExitEdit: () => void;
 }
 
 /**
@@ -36,7 +47,14 @@ interface PieceRefineMenuProps {
  * selection untouched, and undo-friendly (setRangeText is a native editing
  * op the browser's own undo stack understands).
  */
-export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onCapturePiece }: PieceRefineMenuProps) {
+export function PieceRefineMenu({
+  textareaRef,
+  containerRef,
+  onEdit,
+  onSnip,
+  onCapturePiece,
+  onExitEdit,
+}: PieceRefineMenuProps) {
   const [mode, setMode] = useState<Mode>("idle");
   const [customPrompt, setCustomPrompt] = useState("");
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -101,6 +119,23 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onC
     if (mode === "custom-input") inputRef.current?.focus();
   }, [mode]);
 
+  const handleMenuBlur = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      const nextTarget = event.relatedTarget;
+      if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+      if (nextTarget === textareaRef.current) return;
+
+      setTimeout(() => {
+        if (menuRef.current?.contains(document.activeElement) || activeEditRef.current) return;
+        setAnchor(null);
+        setMode("idle");
+        setCustomPrompt("");
+        onExitEdit();
+      }, 0);
+    },
+    [onExitEdit, textareaRef],
+  );
+
   const handlePresetEdit = useCallback(async (instruction: string) => {
     const el = textareaRef.current;
     if (!el || el.selectionStart === el.selectionEnd) return;
@@ -111,9 +146,9 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onC
     activeEditRef.current = true;
     const result = await onEdit(instruction, start, end);
     activeEditRef.current = false;
+    el.focus();
 
     if (result !== null) {
-      el.focus();
       el.setRangeText(result, start, end, "end");
       el.dispatchEvent(new Event("input", { bubbles: true }));
     }
@@ -128,6 +163,12 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onC
     if (!trimmed) return;
     handlePresetEdit(trimmed);
   }, [customPrompt, handlePresetEdit]);
+
+  const handleCustomCancel = useCallback(() => {
+    setMode("idle");
+    setCustomPrompt("");
+    textareaRef.current?.focus();
+  }, [textareaRef]);
 
   const handleSnip = useCallback(() => {
     const el = textareaRef.current;
@@ -150,9 +191,11 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onC
   return (
     <div
       ref={menuRef}
+      data-piece-refine-menu
       className="absolute z-50 pointer-events-auto"
       style={{ top: anchor.top, left: anchor.left }}
       onMouseDown={(e) => e.preventDefault()}
+      onBlurCapture={handleMenuBlur}
     >
       <div
         className="flex items-center gap-0.5 bg-surface-2 border border-border-strong rounded-[var(--radius-default)] shadow-xl px-1 py-1"
@@ -166,7 +209,7 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onC
         ) : mode === "custom-input" ? (
           <div className="flex items-center gap-1">
             <button
-              onClick={() => { setMode("idle"); setCustomPrompt(""); }}
+              onClick={handleCustomCancel}
               className="p-1.5 rounded-[var(--radius-sm)] text-text-faint hover:text-text-muted transition-colors duration-100"
             >
               <X size={12} />
@@ -178,7 +221,7 @@ export function PieceRefineMenu({ textareaRef, containerRef, onEdit, onSnip, onC
               onChange={(e) => setCustomPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCustomSubmit();
-                if (e.key === "Escape") { setMode("idle"); setCustomPrompt(""); }
+                if (e.key === "Escape") handleCustomCancel();
               }}
               placeholder="Tell me how to edit this…"
               className="bg-transparent text-[12px] text-text-primary placeholder:text-text-faint outline-none w-[220px] font-[family-name:var(--font-body)]"
