@@ -179,6 +179,43 @@ Rules:
 - Keep every field within its limit. Omit nothing; use [] only if truly nothing applies.
 - Output the raw JSON object and nothing else.`;
 
+// The extractor's whole difficulty is in the word "atomic". Left looser, a
+// model returns an outline: five headings that only mean something read in
+// order, each depending on the one before it. The rules below are all aimed at
+// that single failure, which is why they are stated as tests a piece has to
+// pass rather than as style advice.
+export const DEFAULT_EXTRACT_PROMPT = `You are reading everything a writer has collected under one idea. Your job is to find the parts of it that already stand on their own, and to lift each one out as a separate finished piece.
+
+Here is everything in the idea:
+---
+{source}
+---
+
+Voice and audience to write in:
+Goal: "{goal}"
+Audience: "{audience}"
+Tone: "{tone}"
+Additional context to remember: "{remember}"
+
+Find every section, argument, observation or concept in the material above that is a complete idea by itself. For each one, write a piece.
+
+What makes a piece:
+- It contains exactly ONE idea. Not a theme with three examples under it, not a list of related points. One.
+- It carries the context needed to understand that idea. A reader who has never seen the rest of this material must be able to read the piece alone and get it. Bring across whatever setup, definition or example the idea depends on.
+- It contains nothing else. No lead-in to the next piece, no reference to "as mentioned above", no summary of the wider idea it came from.
+- It is written, not extracted verbatim. Use the writer's own words and framing where they are good, and write the connective tissue the piece needs to stand alone.
+- It sounds like the writer. Match the diction and rhythm of the material above.
+
+How many: as many as the material genuinely contains, and no more. Four strong pieces beat nine thin ones. If a section only makes sense as part of a larger argument, leave it out rather than padding it into a piece.
+
+Return ONLY a JSON array (no prose, no code fences), each entry:
+{
+  "title": "a short plain title for this one idea",
+  "body": "the piece itself, in markdown, with no title heading inside it"
+}
+
+Return the raw JSON array and nothing else.`;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   id: "default",
   providerCredentials: {
@@ -218,6 +255,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
     inlineEdit: {
       provider: "openrouter",
       model: "google/gemini-2.0-flash-001",
+      modelsByProvider: {
+        openrouter: "anthropic/claude-sonnet-4.6",
+        openai: "gpt-4o",
+        anthropic: "claude-sonnet-4-5",
+        perplexity: "sonar-pro",
+        codex: "gpt-5.4",
+        ollama: "llama3",
+      } satisfies Partial<Record<AIProvider, string>>,
+    },
+    // The extractor reads a whole idea and writes several pieces from it, which
+    // is the heaviest single call the app makes. It gets the stronger models by
+    // default rather than the cheap ones the labeler runs on.
+    ideaExtractor: {
+      provider: "openrouter",
+      model: "anthropic/claude-sonnet-4.6",
       modelsByProvider: {
         openrouter: "anthropic/claude-sonnet-4.6",
         openai: "gpt-4o",
@@ -271,5 +323,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     enabled: true,
     maxContextChars: 3000,
     promptTemplate: DEFAULT_INLINE_EDIT_PROMPT,
+  },
+  ideaExtractor: {
+    enabled: true,
+    promptTemplate: DEFAULT_EXTRACT_PROMPT,
   },
 };

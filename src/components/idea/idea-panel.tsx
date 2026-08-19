@@ -13,6 +13,7 @@ import {
   PanelLeftOpen,
   Pin,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
@@ -31,6 +32,9 @@ import {
   useContextMenu,
 } from "@/components/common/context-menu";
 import { PieceMenuItems, PieceShapeItems } from "@/components/shortform/piece-menu-items";
+import { MarkPublishedMenuSection } from "@/components/publish/mark-published-menu-section";
+import { MarkPublishedDialog } from "@/components/publish/mark-published-dialog";
+import { useExtractIdeas } from "@/hooks/use-extract-ideas";
 import { markdownToPlainText } from "@/lib/publish";
 import { moveToSection, type PanelSection } from "@/lib/piece-section";
 import { priorityMeta } from "@/lib/priority";
@@ -279,6 +283,10 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
   const setIdeaPanelOpen = useAppStore((s) => s.setIdeaPanelOpen);
   const revealPiece = useAppStore((s) => s.revealPiece);
   const showToast = useToastStore((s) => s.showToast);
+  // One controller owns every extraction surface in this panel. A draft's
+  // context menu disappears as soon as its action is chosen, so keeping the
+  // hook inside that menu used to throw away the only visible working state.
+  const extractor = useExtractIdeas();
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -566,6 +574,8 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
                   onOpen={() => openDraft(piece.id)}
                   onRename={(title) => handleRenamePiece(piece.id, title)}
                   onMove={(to) => handleMovePiece(piece.id, to)}
+                  onExtract={() => { void extractor.extract({ kind: "piece", pieceId: piece.id }); }}
+                  extractDisabled={extractor.isExtracting}
                   onArchive={() => handleArchiveDraft(piece.id)}
                   onDelete={() => handleDeleteDraft(piece.id)}
                 />
@@ -586,6 +596,11 @@ export function IdeaPanel({ ideaId }: IdeaPanelProps) {
           <p className="text-[10px] text-text-faint leading-relaxed mb-2">
             Short-form posts drawn from this idea. Click one to open the feed.
           </p>
+          <ExtractButton
+            onExtract={() => { void extractor.extract({ kind: "idea", ideaId }); }}
+            isExtracting={extractor.isExtracting}
+            activeLabel={extractor.activeLabel}
+          />
           {shortPieces.length === 0 ? (
             <p className="px-3 py-2 text-[11px] text-text-faint">
               Nothing yet. Snip from a draft, or let an agent drop one in.
@@ -806,12 +821,83 @@ export function IdeaPanelToggle() {
  * already listed oldest-first by hand; a pin would be ceremony over a list
  * short enough to read at a glance.
  */
+/**
+ * Extract from one draft, from that draft's own menu.
+ *
+ * The panel button reads the whole idea, which is the right default and the
+ * wrong answer when four drafts are open: pieces come back and you cannot tell
+ * which draft each one came out of. Pointing at a row removes the question.
+ */
+function ExtractMenuItem({
+  disabled,
+  onExtract,
+  onClose,
+}: {
+  disabled: boolean;
+  onExtract: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <ContextMenuItem
+      label="Extract pieces from this draft"
+      hint="Reads this draft only. What comes back waits in the inbox"
+      disabled={disabled}
+      onClick={() => {
+        onClose();
+        onExtract();
+      }}
+    />
+  );
+}
+
+/**
+ * Runs the idea extractor over everything in this idea.
+ *
+ * Sits above the pieces list rather than in a menu because it is the one
+ * action here that reads the whole idea at once, and because what it produces
+ * appears directly below it. The count of what came back is deliberately not
+ * promised up front: how many pieces an idea contains is the question being
+ * asked, not a setting.
+ */
+function ExtractButton({
+  onExtract,
+  isExtracting,
+  activeLabel,
+}: {
+  onExtract: () => void;
+  isExtracting: boolean;
+  activeLabel: string | null;
+}) {
+  // The tip sits beside the button rather than inside it: a button inside a
+  // button is invalid markup, and React says so at hydration.
+  return (
+    <div className="flex items-center gap-1.5 mb-2">
+      <button
+        onClick={onExtract}
+        disabled={isExtracting}
+        title="Read the brief, every draft and every source in this idea, and pull out the parts that stand on their own. To read one draft on its own, right-click that draft"
+        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)]
+          border border-border bg-surface-2 text-[10px] text-text-muted
+          hover:text-text-secondary hover:border-border-strong
+          disabled:opacity-50 disabled:pointer-events-none transition-all duration-150"
+      >
+        <Sparkles size={10} />
+        {isExtracting
+          ? `Extracting from ${activeLabel ?? "this idea"}…`
+          : "Extract from the whole idea"}
+      </button>
+    </div>
+  );
+}
+
 function DraftRow({
   piece,
   isActive,
   onOpen,
   onRename,
   onMove,
+  onExtract,
+  extractDisabled,
   onArchive,
   onDelete,
 }: {
@@ -820,11 +906,14 @@ function DraftRow({
   onOpen: () => void;
   onRename: (title: string) => void;
   onMove: (to: PanelSection) => void;
+  onExtract: () => void;
+  extractDisabled: boolean;
   onArchive: () => void;
   onDelete: () => void;
 }) {
   const { point, openAt, close } = useContextMenu();
   const [renaming, setRenaming] = useState(false);
+  const [marking, setMarking] = useState(false);
   const { onMouseDown, dragged } = useRowDrag(piece, "drafts", onMove);
 
   return (
@@ -896,6 +985,13 @@ function DraftRow({
             onClick={() => { close(); setRenaming(true); }}
           />
           <ContextMenuDivider />
+          <ExtractMenuItem disabled={extractDisabled} onExtract={onExtract} onClose={close} />
+          <ContextMenuDivider />
+          <MarkPublishedMenuSection
+            piece={piece}
+            onMark={() => { close(); setMarking(true); }}
+          />
+          <ContextMenuDivider />
           <PieceShapeItems piece={piece} onClose={close} />
           <ContextMenuDivider />
           <ContextMenuItem
@@ -909,6 +1005,10 @@ function DraftRow({
             onClick={() => { close(); onDelete(); }}
           />
         </ContextMenu>
+      )}
+
+      {marking && (
+        <MarkPublishedDialog piece={piece} onClose={() => setMarking(false)} />
       )}
     </div>
   );
@@ -949,6 +1049,7 @@ function PieceRow({
   const priority = priorityMeta(piece.priority);
   const { point, openAt, close } = useContextMenu();
   const [renaming, setRenaming] = useState(false);
+  const [marking, setMarking] = useState(false);
   const { onMouseDown, dragged } = useRowDrag(piece, "pieces", onMove);
 
   return (
@@ -1022,6 +1123,11 @@ function PieceRow({
         <ContextMenu point={point} onClose={close}>
           <ContextMenuItem label="Open in the feed" onClick={() => { close(); onOpen(); }} />
           <ContextMenuDivider />
+          <MarkPublishedMenuSection
+            piece={piece}
+            onMark={() => { close(); setMarking(true); }}
+          />
+          <ContextMenuDivider />
           <PieceMenuItems
             piece={piece}
             onClose={close}
@@ -1029,6 +1135,10 @@ function PieceRow({
             onDelete={onDelete}
           />
         </ContextMenu>
+      )}
+
+      {marking && (
+        <MarkPublishedDialog piece={piece} onClose={() => setMarking(false)} />
       )}
     </div>
   );

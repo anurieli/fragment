@@ -2,6 +2,55 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-19 - Right-click draft extraction stays visible (ARI-341)
+
+Choosing Extract pieces from this draft used a controller owned by the context-menu item. Closing the menu immediately unmounted that controller, so the extraction continued with no visible working state and another click could start the same paid request again. The idea panel now owns one controller for both extraction entry points, keeps the source draft named on the button until the run settles, and refuses overlapping runs even before React can render the disabled state.
+
+The predecessor extraction branch also carried an obsolete sidebar-menu component that referenced a hook it no longer imported. Removing that unreachable component restores production builds without changing the live context menu.
+
+**Files**: `src/components/idea/idea-panel.tsx`, `src/hooks/use-extract-ideas.ts`, `src/components/sidebar/sidebar.tsx`, `src/__tests__/use-extract-ideas.test.tsx`.
+
+**Verification**: Regression coverage opens a real draft context menu, starts extraction, confirms the closed menu leaves visible progress behind, and holds duplicate requests to one. All 892 tests, lint, TypeScript, and the production build pass.
+
+## 2026-08-13 - The extractor points at one draft, and says what it read
+
+Extract pieces sat above the pieces list and read everything in the idea. With one draft open that is obviously right. With four, it is a button that will not tell you what it just did: pieces come back and there is no way to trace any of them to the draft they came out of.
+
+The scope is explicit now, at both ends. Right-clicking a draft offers Extract pieces from this draft, which reads that draft alone. The panel button says Extract from the whole idea, because that is what it does. Every toast names what was read: "3 pieces from Draft one, in the inbox."
+
+Scoped to one draft, the other drafts are gone from the source entirely, and so is the idea's reference material. That second part matters as much as the first: sources attached to the idea belong to the idea, and folding them into one draft's extraction puts context into the pieces that never appeared in the draft being read. A draft's own attached sources still go.
+
+A test caught the failure that would have made the whole thing worthless: a scope naming a draft that is no longer there fell through to reading the whole idea. Silently widening a scope is the exact thing pointing at a row exists to prevent, so it now reads nothing and says there is not enough here.
+
+Files: src/lib/agents/extract.ts, src/hooks/use-extract-ideas.ts, src/components/idea/idea-panel.tsx, src/lib/agents/registry.ts, src/__tests__/idea-extract.test.ts.
+
+## 2026-08-13 - The idea extractor
+
+Fragment could write from a brief and rewrite what you selected. It had no way to answer the question you actually have about a full idea: which parts of this are already finished thoughts.
+
+Extract pieces, above the pieces list in an idea, reads everything in that idea at once: the brief, every draft, every piece already there, and the sources attached to it. What comes back is one piece per atomic idea. Each holds exactly one thought, carries the context that thought needs to be understood by someone who has not read the rest, and holds nothing else. How many you get depends on how much the material genuinely contains.
+
+Everything it writes lands in the idea's inbox, because several pieces written at once out of material you did not re-read first is exactly the work that should not skip a review.
+
+The prompt is the feature, so it is editable like every other agent's: the extractor is a registry entry, and Settings, then AI, then Agents opens it.
+
+Two halves carry the tests. Assembling the source, where the failure is quietly sending another idea's pieces or a deleted draft. And reading the answer, where the failure is one unusable response after a paid call: fences are stripped, prose around the array is tolerated, entries with a title and no words are dropped, and a run is capped at twelve. An empty array is kept distinct from an unreadable answer, because "nothing here stands alone yet" is a real answer and not a failure.
+
+Files: src/lib/agents/extract.ts, src/hooks/use-extract-ideas.ts, src/app/api/extract/route.ts, src/lib/ai-client.ts, src/lib/defaults.ts, src/lib/types.ts, src/stores/settings-store.ts, src/lib/ai/connection-status.ts, src/lib/agents/registry.ts, src/components/settings/agents/agent-writes.ts, src/components/idea/idea-panel.tsx, src/__tests__/idea-extract.test.ts.
+
+## 2026-08-13 - Agents you can read, a calendar of what went out, and publishing from the row
+
+**Every AI process is an agent now, with a job and a prompt you can read.** Fragment ran four of them and could not tell you what any one was doing. Each had a hand-built settings panel, so the answer to "what is the AI in here, and what is it told to do" lived in four components and nowhere a person could look. They come from one registry of plain data instead: name, the job in a sentence, where you meet it, what it reads, the prompt, and what fills every placeholder in that prompt. Settings, then AI, then Agents lists all six and opens any one of them; the three bespoke panels are gone and their controls are rebuilt generically, so a new agent arrives complete without a component being written for it.
+
+Two of the six are built in. The title writer and the draft writer assemble their prompt when they run, from choices made at that moment, so they are listed with the prompt shown read-only rather than left out: an AI process nobody can see is exactly what this exists to end. Both say which model they borrow instead of showing a picker that would silently steer three agents at once. A test holds the invariant that makes the variable lists worth reading, that a documented placeholder appears in the prompt receiving it.
+
+The empty demo-video box went with them. It told users to drop a screen recording at a path, which reads like a bug to anyone who is not us.
+
+**Saying a draft went live, from the row it is listed on.** Marking something published lived in two menus, both reached by opening the piece first, and the idea panel is where you are actually looking when the thought arrives. Right-clicking any draft or piece row now offers Mark as published; an already-published row shows where it went, as a link back to the post. The link is asked for in a dialog rather than inside the menu, because a menu pinned to a point closes on any scroll and focusing a field inside it was enough to dismiss it mid-word. The form is unchanged and still shared with the Share and publish dropdowns.
+
+**A calendar of what is going out and what went out**, from the sidebar. Scheduling a piece and recording that one went live both already worked, but the two facts only ever appeared on the piece itself, so the question a schedule exists to answer had nowhere to be asked. The calendar is a month of both, with four states per piece: still ahead, due today, past its time with nothing published, or published. Two decisions worth keeping. A published piece sits on the day it really went live rather than the day it was planned for, because a calendar that redraws the past to match the plan is worth less than none. And a booked slot with nothing written in it is marked, which is the other half of "did this work": an empty Thursday is a missed post you can still fix on Monday. Nothing here posts anything.
+
+Files: src/lib/agents/registry.ts, src/components/settings/agents/*, src/components/settings/ai-section.tsx, src/components/publish/mark-published-menu-section.tsx, src/components/publish/mark-published-dialog.tsx, src/components/publish/mark-published-form.tsx, src/components/idea/idea-panel.tsx, src/lib/calendar/schedule.ts, src/components/calendar/content-calendar.tsx, src/components/app-shell.tsx, src/components/sidebar/sidebar.tsx, src/__tests__/agent-registry.test.ts, src/__tests__/calendar-schedule.test.ts.
 ## 2026-08-13 - Menus that fit on the screen, and ideas you can act on in bulk
 
 **Every menu and tooltip now renders above the app rather than inside it.** They used to be positioned inside whichever panel opened them, which meant `overflow` on any ancestor cut them off no matter how high their z-index went. The idea row menu was the clearest case: it lived inside the sidebar's scroll container, so on an idea far enough down the list it was sliced off by the sidebar's own footer and Delete could not be reached at all. The same thing happened to the piece card and Share menus, the export menu, the resources popover, the snip preview, the publish "paste the link" form, and the settings model list, each clipped at whichever edge it reached first.
