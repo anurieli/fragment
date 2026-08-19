@@ -14,6 +14,7 @@ import type {
   SnippetLabelingSettings,
   SlashCommandSettings,
   InlineEditSettings,
+  IdeaExtractorSettings,
 } from "@/lib/types";
 import { DEFAULT_SETTINGS } from "@/lib/defaults";
 import { getProvider } from "@/lib/providers";
@@ -86,9 +87,11 @@ interface SettingsState {
   updateSnippetLabeling: (partial: Partial<SnippetLabelingSettings>) => void;
   updateSlashCommand: (partial: Partial<SlashCommandSettings>) => void;
   updateInlineEdit: (partial: Partial<InlineEditSettings>) => void;
+  updateIdeaExtractor: (partial: Partial<IdeaExtractorSettings>) => void;
   resetSnippetLabelingPrompt: () => void;
   resetSlashCommandPrompt: () => void;
   resetInlineEditPrompt: () => void;
+  resetIdeaExtractorPrompt: () => void;
 }
 
 type PersistedSettingsState = Pick<SettingsState, "settings">;
@@ -101,9 +104,11 @@ function mergePersistedSettings(persisted: unknown): AppSettings {
   const snippetPersisted = s.featureProviders?.snippetLabeling ?? {};
   const slashPersisted = s.featureProviders?.slashCommand ?? {};
   const inlineEditPersisted = s.featureProviders?.inlineEdit ?? {};
+  const extractorPersisted = s.featureProviders?.ideaExtractor ?? {};
   const snippetDefaults = DEFAULT_SETTINGS.featureProviders.snippetLabeling;
   const slashDefaults = DEFAULT_SETTINGS.featureProviders.slashCommand;
   const inlineEditDefaults = DEFAULT_SETTINGS.featureProviders.inlineEdit;
+  const extractorDefaults = DEFAULT_SETTINGS.featureProviders.ideaExtractor;
   const mergedSnippet = {
     ...snippetDefaults,
     ...snippetPersisted,
@@ -128,9 +133,17 @@ function mergePersistedSettings(persisted: unknown): AppSettings {
       ...(inlineEditPersisted.modelsByProvider ?? {}),
     },
   };
+  const mergedExtractor = {
+    ...extractorDefaults,
+    ...extractorPersisted,
+    modelsByProvider: {
+      ...(extractorDefaults.modelsByProvider ?? {}),
+      ...(extractorPersisted.modelsByProvider ?? {}),
+    },
+  };
   // Fix known-invalid model IDs that were persisted from bad defaults
   const INVALID_MODELS: Record<string, string> = { "google/gemini-3.0-flash": "google/gemini-2.0-flash-001" };
-  for (const fp of [mergedSnippet, mergedSlash, mergedInlineEdit]) {
+  for (const fp of [mergedSnippet, mergedSlash, mergedInlineEdit, mergedExtractor]) {
     if (INVALID_MODELS[fp.model]) fp.model = INVALID_MODELS[fp.model];
     if (fp.modelsByProvider) {
       for (const p of Object.keys(fp.modelsByProvider)) {
@@ -142,6 +155,7 @@ function mergePersistedSettings(persisted: unknown): AppSettings {
   mergedSnippet.modelsByProvider[mergedSnippet.provider] = mergedSnippet.model;
   mergedSlash.modelsByProvider[mergedSlash.provider] = mergedSlash.model;
   mergedInlineEdit.modelsByProvider[mergedInlineEdit.provider] = mergedInlineEdit.model;
+  mergedExtractor.modelsByProvider[mergedExtractor.provider] = mergedExtractor.model;
 
   return {
     ...DEFAULT_SETTINGS,
@@ -154,6 +168,7 @@ function mergePersistedSettings(persisted: unknown): AppSettings {
       snippetLabeling: mergedSnippet,
       slashCommand: mergedSlash,
       inlineEdit: mergedInlineEdit,
+      ideaExtractor: mergedExtractor,
     },
     userProfile: { ...DEFAULT_SETTINGS.userProfile, ...s.userProfile },
     writingStyle: { ...DEFAULT_SETTINGS.writingStyle, ...s.writingStyle },
@@ -162,6 +177,7 @@ function mergePersistedSettings(persisted: unknown): AppSettings {
     snippetLabeling: { ...DEFAULT_SETTINGS.snippetLabeling, ...s.snippetLabeling },
     slashCommand: { ...DEFAULT_SETTINGS.slashCommand, ...s.slashCommand },
     inlineEdit: { ...DEFAULT_SETTINGS.inlineEdit, ...s.inlineEdit },
+    ideaExtractor: { ...DEFAULT_SETTINGS.ideaExtractor, ...s.ideaExtractor },
   };
 }
 
@@ -522,6 +538,16 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
+      updateIdeaExtractor: (partial) => {
+        const current = get().settings;
+        set({
+          settings: {
+            ...current,
+            ideaExtractor: { ...current.ideaExtractor, ...partial },
+          },
+        });
+      },
+
       resetSnippetLabelingPrompt: () => {
         const current = get().settings;
         set({
@@ -556,6 +582,19 @@ export const useSettingsStore = create<SettingsState>()(
             inlineEdit: {
               ...current.inlineEdit,
               promptTemplate: DEFAULT_SETTINGS.inlineEdit.promptTemplate,
+            },
+          },
+        });
+      },
+
+      resetIdeaExtractorPrompt: () => {
+        const current = get().settings;
+        set({
+          settings: {
+            ...current,
+            ideaExtractor: {
+              ...current.ideaExtractor,
+              promptTemplate: DEFAULT_SETTINGS.ideaExtractor.promptTemplate,
             },
           },
         });
