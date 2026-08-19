@@ -89,6 +89,18 @@ export function useProviderModels(provider: AIProvider): ProviderModelsState {
     }
 
     async function load() {
+      // A key-based provider with no key has no catalogue to show. Asking
+      // anyway is how the picker used to fill with OpenRouter's public list
+      // for someone who had never connected OpenRouter.
+      if (isApiKeyProvider(provider) && !getProviderKey(provider, credentials).trim()) {
+        delete modelCache[provider];
+        credentialSnapshot[provider] = "";
+        setModels([]);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       const key = credKey(provider, credentials);
       if (credentialSnapshot[provider] !== undefined && credentialSnapshot[provider] !== key) {
         delete modelCache[provider];

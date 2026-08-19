@@ -562,6 +562,12 @@ export async function getModels(
     return jsonResponse({ models: [], _meta: { durationMs: 0, statusCode: 400, error: "Invalid provider" } }, 400);
   }
 
+  // No credential, no catalogue (mirrors /api/models).
+  if (isApiKeyProvider(provider) && !headers["x-api-key"]?.trim()) {
+    const error = "Missing API key";
+    return jsonResponse({ models: [], error, _meta: { durationMs: Date.now() - startTime, statusCode: 401, error } }, 401);
+  }
+
   const staticModels = getStaticModels(provider);
   if (staticModels) {
     return jsonResponse({ models: staticModels, _meta: { durationMs: Date.now() - startTime, statusCode: 200 } });

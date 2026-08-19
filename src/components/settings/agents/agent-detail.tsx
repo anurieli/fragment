@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { Toggle } from "@/components/ui/toggle";
 import { ProviderToggle } from "../provider-toggle";
 import { ModelSelector } from "../model-selector";
+import { useFeatureProvider } from "@/hooks/use-feature-provider";
 import { AgentDemo } from "./agent-demo";
 import { useAgentWriters } from "./agent-writes";
 import {
@@ -32,7 +33,10 @@ export function AgentDetail({
   const isCustom = agentPromptIsCustom(agent, settings);
   const enabled = agent.readEnabled?.(settings);
   const providerKey = agent.providerKey;
-  const featureConfig = providerKey ? settings.featureProviders[providerKey] : undefined;
+  // Called unconditionally (hook rules); the result is only read when the
+  // agent has a provider key of its own.
+  const effective = useFeatureProvider(providerKey ?? "slashCommand");
+  const featureConfig = providerKey ? effective : undefined;
   const setContextLimit = writers.setContextLimit;
   // A built-in agent has no picker of its own: it rides on the model chosen for
   // Flow. Saying so beats showing a control that silently steers three agents.
@@ -102,7 +106,9 @@ export function AgentDetail({
                 <ModelSelector
                   value={featureConfig.model}
                   provider={featureConfig.provider}
-                  onChange={(model) => updateFeatureProvider(providerKey, { model })}
+                  onChange={(model) =>
+                    updateFeatureProvider(providerKey, { provider: featureConfig.provider, model })
+                  }
                 />
               </>
             )}
