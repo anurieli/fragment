@@ -8,7 +8,7 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 **Files**: `src/components/shortform/shortform-view.tsx`, `src/__tests__/shortform-scroll-focus.test.tsx` (new).
 
-**Verification**: Regression coverage reproduces a manual snap followed by a concurrent piece update and verifies the newly landed page remains focused. It also proves a pending scroll settle cannot override a new edit intent. The full suite passes 649/649 tests; `npx tsc --noEmit`, `npm run lint` (32 pre-existing warnings, zero errors), and `npm run build` pass.
+**Verification**: Regression coverage reproduces a manual snap followed by a concurrent piece update and verifies the newly landed page remains focused. It also proves a pending scroll settle cannot override a new edit intent. After predecessor reconciliation, the full suite passes 916/916 tests; `npx tsc --noEmit`, `npm run lint` (30 pre-existing warnings, zero errors), and `npm run build` pass.
 
 ## 2026-08-19 - Inbox is external and extraction gets its own review queue (ARI-342)
 
