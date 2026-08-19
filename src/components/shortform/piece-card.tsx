@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { Flag, MoreHorizontal, Pin } from "lucide-react";
 import type { ContentFormat, ContentPiece } from "@/lib/content-engine";
 import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml } from "@/lib/publish";
@@ -884,21 +886,23 @@ export function PieceCard({
             </button>
 
             {menuOpen && (
-              <div
-                ref={overflowMenuRef}
-                className={`absolute right-0 ${menuPlacement.className} z-20 w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
-                style={{ maxHeight: menuPlacement.maxHeight || undefined }}
-                onMouseLeave={() => setMenuOpen(false)}
-              >
-                <PieceMenuItems
-                  piece={piece}
-                  onClose={() => setMenuOpen(false)}
-                  onDelete={onDelete}
-                  onWriteWithFlow={openFlowPrompt}
-                  flowDisabledReason={flowDisabledReason}
-                  onOpenResources={() => setResourcesOpen(true)}
-                />
-              </div>
+              <Portal>
+                <div
+                  ref={overflowMenuRef}
+                  className={`fixed ${Z_FLOATING} w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+                  style={menuPlacement.style}
+                  onMouseLeave={() => setMenuOpen(false)}
+                >
+                  <PieceMenuItems
+                    piece={piece}
+                    onClose={() => setMenuOpen(false)}
+                    onDelete={onDelete}
+                    onWriteWithFlow={openFlowPrompt}
+                    flowDisabledReason={flowDisabledReason}
+                    onOpenResources={() => setResourcesOpen(true)}
+                  />
+                </div>
+              </Portal>
             )}
 
             {resourcesOpen && (

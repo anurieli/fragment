@@ -75,6 +75,58 @@ describe("content-store — ideas", () => {
     ).toThrow(ContractError);
   });
 
+  // reparentIdea is what the sidebar's "Group under a new idea" bulk action
+  // runs on every ticked row, so the one-level nesting rule has to hold when
+  // ideas are moved, not just when they are created.
+  it("reparentIdea moves a root idea under another root", () => {
+    const parentId = useContentStore.getState().createIdea({ title: "Parent" });
+    const id = useContentStore.getState().createIdea({ title: "Loose" });
+
+    expect(useContentStore.getState().reparentIdea(id, parentId)).toBe(true);
+    expect(useContentStore.getState().ideas[id].parentId).toBe(parentId);
+  });
+
+  it("reparentIdea moves a child back out to the top level", () => {
+    const parentId = useContentStore.getState().createIdea({ title: "Parent" });
+    const id = useContentStore
+      .getState()
+      .createIdea({ title: "Child", parentId });
+
+    expect(useContentStore.getState().reparentIdea(id, null)).toBe(true);
+    expect(useContentStore.getState().ideas[id].parentId).toBeNull();
+  });
+
+  it("reparentIdea refuses to nest under a child idea (depth > 2)", () => {
+    const rootId = useContentStore.getState().createIdea({ title: "Root" });
+    const childId = useContentStore
+      .getState()
+      .createIdea({ title: "Child", parentId: rootId });
+    const id = useContentStore.getState().createIdea({ title: "Loose" });
+
+    expect(useContentStore.getState().reparentIdea(id, childId)).toBe(false);
+    expect(useContentStore.getState().ideas[id].parentId).toBeNull();
+  });
+
+  it("reparentIdea refuses to move an idea that has sub-ideas of its own", () => {
+    const parentId = useContentStore.getState().createIdea({ title: "Parent" });
+    const id = useContentStore.getState().createIdea({ title: "Has kids" });
+    useContentStore.getState().createIdea({ title: "Kid", parentId: id });
+
+    expect(useContentStore.getState().reparentIdea(id, parentId)).toBe(false);
+    expect(useContentStore.getState().ideas[id].parentId).toBeNull();
+  });
+
+  it("reparentIdea refuses an idea as its own parent, a missing parent, and a deleted one", () => {
+    const id = useContentStore.getState().createIdea({ title: "Loose" });
+    const goneId = useContentStore.getState().createIdea({ title: "Gone" });
+    useContentStore.getState().deleteIdea(goneId);
+
+    expect(useContentStore.getState().reparentIdea(id, id)).toBe(false);
+    expect(useContentStore.getState().reparentIdea(id, "missing")).toBe(false);
+    expect(useContentStore.getState().reparentIdea(id, goneId)).toBe(false);
+    expect(useContentStore.getState().ideas[id].parentId).toBeNull();
+  });
+
   it("updateIdea patches editable fields and bumps updatedAt", () => {
     const id = useContentStore.getState().createIdea({ title: "Draft" });
     const before = useContentStore.getState().ideas[id].updatedAt;

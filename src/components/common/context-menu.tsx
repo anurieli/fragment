@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { Portal } from "@/components/common/portal";
+import { Z_FLOATING, Z_FLOATING_BACKDROP } from "@/lib/z-layers";
+
 /** Breathing room kept between the menu and the edge of the window. Matches
  * use-menu-placement's margin, since these are the same menus in a different
  * position. */
@@ -39,6 +42,10 @@ export function useContextMenu() {
 interface ContextMenuProps {
   point: ContextMenuPoint;
   onClose: () => void;
+  /** Width class, for the rare menu whose labels need more room than w-48. */
+  width?: string;
+  /** Heading above the items, for a menu acting on more than one thing. */
+  header?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -50,8 +57,13 @@ interface ContextMenuProps {
  * (the same failure use-menu-placement exists to prevent for anchored menus).
  * A transparent backdrop catches the next click anywhere, including the next
  * right-click, so two of these can never be open at once.
+ *
+ * Rendered through `Portal`, so no scroller it was opened inside can clip it.
+ * `fixed` alone escapes `overflow` but not a transformed ancestor, and the
+ * panels here animate; leaving the tree entirely is the version that keeps
+ * working when someone adds a transition.
  */
-export function ContextMenu({ point, onClose, children }: ContextMenuProps) {
+export function ContextMenu({ point, onClose, width = "w-48", header, children }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<ContextMenuPoint>(point);
   const [maxHeight, setMaxHeight] = useState<number>(0);
@@ -92,9 +104,9 @@ export function ContextMenu({ point, onClose, children }: ContextMenuProps) {
   }, [onClose]);
 
   return (
-    <>
+    <Portal>
       <div
-        className="fixed inset-0 z-40"
+        className={`fixed inset-0 ${Z_FLOATING_BACKDROP}`}
         onClick={(e) => { e.stopPropagation(); onClose(); }}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
       />
@@ -103,11 +115,16 @@ export function ContextMenu({ point, onClose, children }: ContextMenuProps) {
         role="menu"
         onClick={(e) => e.stopPropagation()}
         style={{ left: position.x, top: position.y, maxHeight: maxHeight || undefined }}
-        className="fixed z-50 w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto"
+        className={`fixed ${Z_FLOATING} ${width} bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
       >
+        {header && (
+          <div className="px-3 pt-1 pb-1.5 mb-1 border-b border-border text-[10px] uppercase tracking-wider text-text-faint font-[family-name:var(--font-mono)]">
+            {header}
+          </div>
+        )}
         {children}
       </div>
-    </>
+    </Portal>
   );
 }
 

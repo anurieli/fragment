@@ -2,11 +2,18 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { ChevronDown, Loader2, Search } from "lucide-react";
+import { Portal } from "@/components/common/portal";
+import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { Z_FLOATING } from "@/lib/z-layers";
 import type { AIProvider } from "@/lib/providers";
 import type { ProviderModel } from "@/lib/types";
 import { useSettingsStore } from "@/stores/settings-store";
 import { getProviderKey, isApiKeyProvider } from "@/lib/ai/provider-runtime";
 import { useProviderModels } from "@/hooks/use-provider-models";
+
+/** The list's own height cap (the old max-h-64), now that an inline
+ * viewport-aware maxHeight is what actually lands on the element. */
+const MAX_LIST_HEIGHT = 256;
 
 interface ModelSelectorProps {
   value: string;
@@ -19,7 +26,12 @@ export function ModelSelector({ value, provider, onChange }: ModelSelectorProps)
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Settings panels scroll, so this list was cut off at the panel's edge on
+  // any field far enough down. Left-aligned and matched to the field's width,
+  // which is what `w-full` used to do before it left the container.
+  const placement = useMenuPlacement(open && !loading, containerRef, dropdownRef, "left");
   const credentials = useSettingsStore((s) => s.settings.providerCredentials);
   const codexEnabledModels = useSettingsStore((s) => s.settings.codexEnabledModels);
 
@@ -31,10 +43,14 @@ export function ModelSelector({ value, provider, onChange }: ModelSelectorProps)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearch("");
-      }
+      const target = e.target as Node;
+      // The list is portaled to <body> now, so it is no longer inside
+      // containerRef: without checking both, the first click on a model would
+      // close the list before the click could land on it.
+      if (containerRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+      setSearch("");
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -100,7 +116,19 @@ export function ModelSelector({ value, provider, onChange }: ModelSelectorProps)
       </button>
 
       {open && !loading && (
-        <div className="absolute z-50 mt-1 w-full max-h-64 bg-surface-2 border border-border-strong rounded-[var(--radius-sm)] shadow-xl overflow-hidden flex flex-col">
+        <Portal>
+        <div
+          ref={dropdownRef}
+          className={`fixed ${Z_FLOATING} bg-surface-2 border border-border-strong rounded-[var(--radius-sm)] shadow-xl overflow-hidden flex flex-col`}
+          style={{
+            ...placement.style,
+            width: placement.triggerWidth || undefined,
+            // The list's own 16rem cap, unless there is less room than that.
+            // placement.style carries the available room, which for a list
+            // this long is nearly always the taller of the two.
+            maxHeight: Math.min(placement.maxHeight || MAX_LIST_HEIGHT, MAX_LIST_HEIGHT),
+          }}
+        >
           {/* Search */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
             <Search size={12} className="text-text-muted shrink-0" />
@@ -149,6 +177,7 @@ export function ModelSelector({ value, provider, onChange }: ModelSelectorProps)
             )}
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

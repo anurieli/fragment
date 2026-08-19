@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ContentPiece } from "@/lib/content-engine";
+import { Portal } from "@/components/common/portal";
+import { useMenuPlacement } from "@/hooks/use-menu-placement";
 import { publishPendingState } from "@/lib/publish";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { MarkPublishedForm } from "./mark-published-form";
 
 interface PublishPendingPromptProps {
@@ -29,6 +32,12 @@ interface PublishPendingPromptProps {
  */
 export function PublishPendingPrompt({ piece, now }: PublishPendingPromptProps) {
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const formRef = useRef<HTMLSpanElement>(null);
+  // This badge sits in a piece card's footer, pinned to the bottom of a page
+  // inside a scroller, which is both reasons this has to leave the container:
+  // the form was clipped by the card and ran into the window's edge.
+  const placement = useMenuPlacement(open, anchorRef, formRef, "left");
   const pending = publishPendingState(piece.publishAttemptedAt, now);
 
   if (pending === "none") return null;
@@ -42,7 +51,7 @@ export function PublishPendingPrompt({ piece, now }: PublishPendingPromptProps) 
       : "Published it? Paste the link and Fragment will record where it went.";
 
   return (
-    <span className="relative inline-flex">
+    <span ref={anchorRef} className="inline-flex">
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -59,12 +68,15 @@ export function PublishPendingPrompt({ piece, now }: PublishPendingPromptProps) 
       </button>
 
       {open && (
-        <span
-          className="absolute left-0 top-full mt-1 z-30 w-60 block bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl"
-          style={{ animation: "fadeIn 0.12s ease-out" }}
-        >
-          <MarkPublishedForm piece={piece} onDone={() => setOpen(false)} />
-        </span>
+        <Portal>
+          <span
+            ref={formRef}
+            className={`fixed ${Z_FLOATING} w-60 block bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl`}
+            style={{ animation: "fadeIn 0.12s ease-out", ...placement.style }}
+          >
+            <MarkPublishedForm piece={piece} onDone={() => setOpen(false)} />
+          </span>
+        </Portal>
       )}
     </span>
   );

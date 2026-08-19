@@ -15,7 +15,9 @@ import {
 } from "@/lib/publish";
 import { canPublishToLinkedIn, publishLinkedInPost, ComposioApiError } from "@/lib/composio/linkedin";
 import { MarkPublishedForm } from "@/components/publish/mark-published-form";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { useContentStore } from "@/stores/content-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -112,11 +114,15 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setManualFormOpen(false);
-        setScheduleFormOpen(false);
-      }
+      const target = e.target as Node;
+      // The dropdown is portaled to <body>, so it is not inside menuRef any
+      // more. Both have to be checked or the first click on a menu item
+      // closes the menu out from under itself.
+      if (menuRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+      setManualFormOpen(false);
+      setScheduleFormOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -283,10 +289,11 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
       </button>
 
       {open && (
+        <Portal>
         <div
           ref={dropdownRef}
-          className={`absolute right-0 ${placement.className} z-20 w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
-          style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
+          className={`fixed ${Z_FLOATING} w-64 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+          style={{ animation: "fadeIn 0.12s ease-out", ...placement.style }}
         >
           {platform && (
             <MenuButton onClick={handleCopy}>
@@ -421,6 +428,7 @@ export function PieceShareMenu({ piece }: PieceShareMenuProps) {
             </div>
           )}
         </div>
+        </Portal>
       )}
     </div>
   );

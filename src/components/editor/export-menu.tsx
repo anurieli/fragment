@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
+import { Z_FLOATING } from "@/lib/z-layers";
 import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2, CheckCircle2 } from "lucide-react";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
@@ -78,10 +80,14 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setMarkFormOpen(false);
-      }
+      const target = e.target as Node;
+      // The dropdown is portaled to <body>, so it is not inside menuRef any
+      // more. Both have to be checked or the first click on a menu item
+      // closes the menu out from under itself.
+      if (menuRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+      setMarkFormOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -251,10 +257,11 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
       </button>
 
       {open && (
+        <Portal>
         <div
           ref={dropdownRef}
-          className={`absolute right-0 ${placement.className} w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl z-20 overflow-y-auto`}
-          style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
+          className={`fixed w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl ${Z_FLOATING} overflow-y-auto`}
+          style={{ animation: "fadeIn 0.12s ease-out", ...placement.style }}
         >
           {/* Where this already went, if anywhere. A draft that has been
               published had no way of saying so on this surface: the record was
@@ -420,6 +427,7 @@ export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
             </>
           )}
         </div>
+        </Portal>
       )}
 
       {reviewPanelOpen && (
