@@ -210,13 +210,15 @@ describe("shortformOnly", () => {
 });
 
 describe("draftsForIdea", () => {
-  it("returns only this idea's live long-form fragments, oldest first", () => {
+  it("returns only this idea's accepted live long-form fragments, oldest first", () => {
     const pieces = [
-      makePiece({ id: "b", ideaId: "root", format: "essay", createdAt: 2000 }),
-      makePiece({ id: "a", ideaId: "root", format: "substack", createdAt: 1000 }),
+      makePiece({ id: "b", ideaId: "root", format: "essay", status: "in-progress", createdAt: 2000 }),
+      makePiece({ id: "a", ideaId: "root", format: "substack", status: "in-progress", createdAt: 1000 }),
       makePiece({ id: "short", ideaId: "root", format: "tweet" }),
       makePiece({ id: "other", ideaId: "elsewhere", format: "essay" }),
       makePiece({ id: "gone", ideaId: "root", format: "essay", deletedAt: 5 }),
+      makePiece({ id: "pending", ideaId: "root", format: "essay", status: "inbox" }),
+      makePiece({ id: "extracted", ideaId: "root", format: "essay", status: "in-progress", reviewQueue: "extraction" }),
     ];
     expect(draftsForIdea("root", pieces).map((p) => p.id)).toEqual(["a", "b"]);
   });

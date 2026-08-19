@@ -258,14 +258,14 @@ describe("roving focus next/prev", () => {
 });
 
 describe("nextStatus — the 'S' key cycle", () => {
-  it("cycles inbox -> in-progress -> ready -> inbox, never landing on published", () => {
+  it("accepts Inbox work and toggles active work without sending it back to Inbox", () => {
     expect(nextStatus("inbox")).toBe("in-progress");
     expect(nextStatus("in-progress")).toBe("ready");
-    expect(nextStatus("ready")).toBe("inbox");
+    expect(nextStatus("ready")).toBe("in-progress");
   });
 
-  it("a published piece (reached only via the future Share flow) cycles back to inbox rather than erroring", () => {
-    expect(nextStatus("published")).toBe("inbox");
+  it("a published piece returns to active work rather than entering Inbox", () => {
+    expect(nextStatus("published")).toBe("in-progress");
   });
 });
 

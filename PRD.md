@@ -153,6 +153,13 @@ agent-pushed fragment lands with status `inbox` and unseen, regardless of what
 the agent asked for, so the first read of agent work is always the writer's own
 deliberate act.
 
+Inbox is reserved for that external boundary. Extract Ideas runs inside
+Fragment against the writer's own material, so its options enter a separate
+extraction review queue. The global Inbox in the sidebar opens external
+arrivals inside their idea; each idea repeats its own Inbox count in a collapsed
+section below accepted Pieces. Approve moves an arrival into active work and
+Toss removes it with Undo.
+
 ### 4.2 Capturing an idea from highlighted text, mid-draft
 
 The writer is in a draft. A tangent occurs to them, and they have already typed
@@ -268,8 +275,8 @@ Three panels, plus one column that appears when an idea is open.
 
 | Panel | Holds |
 |---|---|
-| Sidebar (left) | Ideas, nested one level. Search. Settings, help, feedback. |
-| Idea workspace | What is inside the open idea: its drafts and its fragments, with status and inbox counts. |
+| Sidebar (left) | Global Inbox, then ideas nested one level. Search. Settings, help, feedback. |
+| Idea workspace | Drafts and accepted Pieces, plus a separate collapsed Inbox for external arrivals owned by this idea. |
 | Center | Either the draft editor or the idea's fragment feed. `⌘1` / `⌘2` switch. |
 | Snip Bar (right) | Snips for what you are working on. Shares its slot with the version timeline. |
 
