@@ -2,6 +2,18 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-19 - Priority is one visible choice (ARI-343)
+
+Priority used to hide behind a second disclosure inside piece and idea menus. The menu now names Priority and shows every flag at once, from the neutral clearing action through low, medium, high, and urgent. Setting or clearing it takes one click, and the chosen flag remains visible as the current state.
+
+The same picker serves pieces, one idea, and a bulk idea selection, so labels and colors cannot drift between surfaces. Mixed bulk priorities deliberately leave every flag unselected instead of falsely presenting No priority as the current value.
+
+**Implementation commit**: `7421fd9` (Replace priority dropdowns with visible flags).
+
+**Files**: `src/components/shortform/piece-priority-picker.tsx`, `src/components/shortform/piece-menu-items.tsx`, `src/components/sidebar/sidebar.tsx`, `src/lib/priority.ts`, `src/__tests__/piece-priority-picker.test.tsx`, `src/__tests__/piece-menu-priority.test.tsx`.
+
+**Verification**: Component and menu integration coverage prove that all five flags are immediately visible, one click applies the value, clearing stays available, and mixed bulk selections remain indeterminate. All 896 tests, lint, TypeScript, and the production build pass.
+
 ## 2026-08-19 - Right-click draft extraction stays visible (ARI-341)
 
 Choosing Extract pieces from this draft used a controller owned by the context-menu item. Closing the menu immediately unmounted that controller, so the extraction continued with no visible working state and another click could start the same paid request again. The idea panel now owns one controller for both extraction entry points, keeps the source draft named on the button until the run settles, and refuses overlapping runs even before React can render the disabled state.
