@@ -7,7 +7,7 @@ interface LiveMarkdownTextareaProps {
   value: string;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onFocus?: () => void;
-  onBlur?: () => void;
+  onBlur?: React.FocusEventHandler<HTMLTextAreaElement>;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onMouseDown?: (e: React.MouseEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;

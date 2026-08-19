@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-14 - Keep the short-form Edit prompt open (ARI-335)
+
+Clicking Edit in a short-form piece's selection toolbar did create the custom-instruction input, but focusing that input blurred the piece textarea. The card treated every textarea blur as leaving edit mode, immediately switched to its read view, and unmounted the prompt before the writer could see or use it. Focus transfers into the Refine menu now keep the piece editing while ordinary blurs still return to reading. User-created pieces already bypass Inbox and start in progress, as verified by the existing store coverage.
+
+**Files**: `src/components/shortform/piece-card.tsx`, `src/components/shortform/piece-refine-menu.tsx`, `src/components/shortform/live-markdown-textarea.tsx`, `src/__tests__/piece-refine-menu.test.tsx`.
+
+**Verification**: Regression coverage follows the real textarea selection, Edit click, prompt focus, cancellation, and outside-focus exit paths. All 838 tests, lint, TypeScript, and the production build pass.
+
 ## 2026-08-13 - Publishing closes a piece, and says where it went
 
 Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.
