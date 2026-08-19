@@ -41,11 +41,12 @@ import { FloatingDragCard } from "./floating-drag-card";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
 import { MigrationFailed } from "@/components/migration/migration-failed";
 import { ConnectGate } from "./ai-connect/connect-gate";
+import { MobilePieceEditor } from "./mobile/mobile-piece-editor";
 import { useToastStore } from "@/hooks/use-toast";
 import { useHoverPeek } from "@/hooks/use-hover-peek";
 
 const COMPACT_BREAKPOINT = 960;
-const MIN_SUPPORTED_WIDTH = 768;
+const MOBILE_BREAKPOINT = 768;
 
 // Panel widths, in one place. The left column never collapses to nothing any
 // more: it becomes a rail, so there is always something to click back.
@@ -172,13 +173,13 @@ export function AppShell() {
     return localStorage.getItem("fragment:onboardingComplete") !== "true";
   });
   const [isCompact, setIsCompact] = useState(false);
-  const [isTooSmall, setIsTooSmall] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Compact + minimum-size detection — runs on mount and resize (avoids SSR mismatch)
+  // Compact + mobile detection runs on mount and resize (avoids SSR mismatch).
   useEffect(() => {
     const handleResize = () => {
       setIsCompact(window.innerWidth < COMPACT_BREAKPOINT);
-      setIsTooSmall(window.innerWidth < MIN_SUPPORTED_WIDTH);
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
@@ -433,21 +434,7 @@ export function AppShell() {
     );
   }
 
-  if (isTooSmall) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-bg px-8 text-center">
-        <h1 className="font-[family-name:var(--font-heading)] text-2xl text-text">
-          Fragment is designed for desktop
-        </h1>
-        <p className="max-w-sm text-sm text-text-muted leading-relaxed">
-          This app needs a wider screen to work properly. Please resize your browser window or switch to a desktop device.
-        </p>
-        <p className="font-[family-name:var(--font-mono)] text-[11px] text-text-faint tracking-wider">
-          Minimum width: {MIN_SUPPORTED_WIDTH}px
-        </p>
-      </div>
-    );
-  }
+  if (isMobile) return <MobilePieceEditor />;
 
   // The right panel takes width in the flex row only when it was opened
   // deliberately. A drag reveals it as an overlay instead (see below), so

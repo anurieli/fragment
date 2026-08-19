@@ -24,6 +24,16 @@ The same picker serves pieces, one idea, and a bulk idea selection, so labels an
 
 **Verification**: Component and menu integration coverage prove that all five flags are immediately visible, one click applies the value, clearing stays available, and mixed bulk selections remain indeterminate. All 896 tests, lint, TypeScript, and the production build pass.
 
+## 2026-08-19 - A bare mobile piece editor (ARI-346)
+
+Phone-width screens no longer stop at a desktop-only warning. They open a focused ideas list instead; choosing an idea replaces that list with its live, unarchived short-form pieces in one continuous main scroll. A sticky header names the idea, shows `Piece n of total`, and advances a progress bar as the nearest piece changes.
+
+Every visible piece is an always-available plain textarea backed by the same local content store as desktop, so edits and additions persist without routing through the desktop side panels. The mobile surface contains no Flow, Refine, generation, filtering, sharing, or other AI and desktop controls. Tablet and desktop layouts remain unchanged.
+
+**Files**: `src/components/mobile/mobile-piece-editor.tsx` (new), `src/components/app-shell.tsx`, `src/__tests__/mobile-piece-editor.test.tsx` (new).
+
+**Verification**: Mobile component coverage selects an idea, verifies the bare two-piece editor, persists an edit through the real content store, excludes AI controls, and advances the top position bar on scroll. A real Chromium probe at 390x844 confirmed idea selection, two editable pieces, an IndexedDB-persisted body edit, no AI controls, a sticky header fixed at `top: 0`, and progress advancing to piece 2; a 900px probe preserved the desktop sidebar and omitted the mobile editor. All 910 tests pass, ESLint exits with 0 errors and 30 existing warnings, `tsc --noEmit` is clean, and the production build passes.
+
 ## 2026-08-19 - Right-click draft extraction stays visible (ARI-341)
 
 Choosing Extract pieces from this draft used a controller owned by the context-menu item. Closing the menu immediately unmounted that controller, so the extraction continued with no visible working state and another click could start the same paid request again. The idea panel now owns one controller for both extraction entry points, keeps the source draft named on the button until the run settles, and refuses overlapping runs even before React can render the disabled state.
