@@ -1,16 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
 import type { ContentPiece } from "@/lib/content-engine";
 import { isLongformFormat } from "@/lib/content-engine";
 import { useContentStore } from "@/stores/content-store";
 import { useAppStore } from "@/stores/app-store";
 import { moveToSection } from "@/lib/piece-section";
-import { PRIORITY_OPTIONS } from "@/lib/priority";
 import { titleFromText } from "@/lib/derive-title";
 import { useToastStore } from "@/hooks/use-toast";
 import { ContextMenuDivider, ContextMenuItem } from "@/components/common/context-menu";
+import { PriorityFlagPicker } from "./piece-priority-picker";
 
 interface PieceMenuItemsProps {
   piece: ContentPiece;
@@ -52,8 +50,6 @@ export function PieceMenuItems({
   const archivePiece = useContentStore((s) => s.archivePiece);
   const unarchivePiece = useContentStore((s) => s.unarchivePiece);
   const showToast = useToastStore((s) => s.showToast);
-  const [priorityOpen, setPriorityOpen] = useState(false);
-
   const isPinned = piece.pinnedAt !== undefined;
   const isArchived = piece.archivedAt !== undefined;
 
@@ -95,31 +91,13 @@ export function PieceMenuItems({
         }}
       />
 
-      <button
-        role="menuitem"
-        onClick={(e) => { e.stopPropagation(); setPriorityOpen((v) => !v); }}
-        className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-      >
-        Set priority
-        <ChevronDown size={10} />
-      </button>
-      {priorityOpen && (
-        <div className="border-t border-border py-1">
-          {PRIORITY_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={(e) => {
-                e.stopPropagation();
-                setPiecePriority(piece.id, opt.value);
-                onClose();
-              }}
-              className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <PriorityFlagPicker
+        priority={piece.priority}
+        onSelect={(priority) => {
+          setPiecePriority(piece.id, priority);
+          onClose();
+        }}
+      />
 
       <PieceShapeItems piece={piece} onClose={onClose} />
 

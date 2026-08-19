@@ -38,7 +38,8 @@ import {
   ContextMenuItem,
   useContextMenu,
 } from "@/components/common/context-menu";
-import { PRIORITY_OPTIONS, priorityMeta } from "@/lib/priority";
+import { priorityMeta } from "@/lib/priority";
+import { PriorityFlagPicker } from "@/components/shortform/piece-priority-picker";
 import { useToastStore } from "@/hooks/use-toast";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useSyncStore } from "@/stores/sync-store";
@@ -163,9 +164,6 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
   // Ideas ticked for a bulk action, and the row a shift-click measures from.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
-  // Whether the open menu has its priority list expanded. Reset every time a
-  // menu opens, so one menu never inherits the last one's open submenu.
-  const [priorityOpen, setPriorityOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
@@ -490,14 +488,12 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
 
   function openMenuFor(ideaId: string, e: React.MouseEvent) {
     setMenuIdeaId(ideaId);
-    setPriorityOpen(false);
     openMenuAt(e);
   }
 
   function closeMenu() {
     closeMenuPoint();
     setMenuIdeaId(null);
-    setPriorityOpen(false);
   }
 
   // --- the bulk actions themselves ---
@@ -934,7 +930,6 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                 onClick={(e) => {
                   e.stopPropagation();
                   setMenuIdeaId(anchorId ?? selectedIdeas[0]?.id ?? null);
-                  setPriorityOpen(false);
                   openMenuAt(e);
                 }}
                 className="ml-auto flex items-center gap-1 rounded-[var(--radius-sm)] border border-border-strong bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-3 hover:text-text-primary transition-colors duration-150"
@@ -1111,29 +1106,17 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                     label={allTargetsPinned ? "Unpin all" : "Pin all"}
                     onClick={() => { closeMenu(); bulkSetPinned(menuTargets, !allTargetsPinned); }}
                   />
-                  <ContextMenuItem
-                    label="Set priority"
-                    hint="On every selected idea"
-                    onClick={() => setPriorityOpen((v) => !v)}
+                  <PriorityFlagPicker
+                    priority={menuTargets.every((idea) => idea.priority === menuTargets[0]?.priority)
+                      ? menuTargets[0].priority
+                      : null}
+                    hint="All selected ideas"
+                    onSelect={(priority) => {
+                      const targets = menuTargets;
+                      closeMenu();
+                      bulkSetPriority(targets, priority);
+                    }}
                   />
-                  {priorityOpen && (
-                    <div className="border-t border-border py-1">
-                      {PRIORITY_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const targets = menuTargets;
-                            closeMenu();
-                            bulkSetPriority(targets, opt.value);
-                          }}
-                          className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   <ContextMenuItem
                     label="Group under a new idea"
                     hint="Makes a parent and nests these inside it"
@@ -1184,28 +1167,14 @@ export function Sidebar({ onOpenSettings, onOpenAccount, onOpenAI, onOpenHelp, o
                         label={isPinned ? "Unpin" : "Pin"}
                         onClick={() => { closeMenu(); if (isPinned) unpinIdea(idea.id); else pinIdea(idea.id); }}
                       />
-                      <ContextMenuItem
-                        label="Set priority"
-                        hint={ideaPriority ? ideaPriority.label : "None"}
-                        onClick={() => setPriorityOpen((v) => !v)}
+                      <PriorityFlagPicker
+                        priority={idea.priority}
+                        hint={ideaPriority?.label ?? "None"}
+                        onSelect={(priority) => {
+                          closeMenu();
+                          setIdeaPriority(idea.id, priority);
+                        }}
                       />
-                      {priorityOpen && (
-                        <div className="border-t border-border py-1">
-                          {PRIORITY_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                closeMenu();
-                                setIdeaPriority(idea.id, opt.value);
-                              }}
-                              className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
 
                       <ContextMenuDivider />
 
