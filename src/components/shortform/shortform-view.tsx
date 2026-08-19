@@ -44,6 +44,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   const pieces = useContentStore((s) => s.pieces);
   const createPiece = useContentStore((s) => s.createPiece);
   const setPieceStatus = useContentStore((s) => s.setPieceStatus);
+  const acceptExtractedPiece = useContentStore((s) => s.acceptExtractedPiece);
   const cyclePiecePriority = useContentStore((s) => s.cyclePiecePriority);
   const rejectPiece = useContentStore((s) => s.rejectPiece);
   const undeletePiece = useContentStore((s) => s.undeletePiece);
@@ -91,8 +92,9 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   useEffect(() => {
     if (filterInitialisedFor.current === ideaId) return;
     filterInitialisedFor.current = ideaId;
-    if (counts.inbox > 0) setFilter("inbox");
-  }, [ideaId, counts.inbox, setFilter]);
+    if (counts.extracted > 0) setFilter("extracted");
+    else if (counts.inbox > 0) setFilter("inbox");
+  }, [ideaId, counts.extracted, counts.inbox, setFilter]);
 
   // Keep roving focus in range as the list changes (delete, filter, sort).
   useEffect(() => {
@@ -140,7 +142,9 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     if (!revealPieceId) return;
     const idx = visible.findIndex((p) => p.id === revealPieceId);
     if (idx === -1) {
-      if (filter !== "all") setFilter("all");
+      const target = rollup.find((piece) => piece.id === revealPieceId);
+      if (target?.reviewQueue === "extraction" && filter !== "extracted") setFilter("extracted");
+      else if (filter !== "all") setFilter("all");
       else clearRevealPiece();
       return;
     }
@@ -151,7 +155,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
       .querySelector(`[data-piece-card][data-piece-id="${revealPieceId}"]`)
       ?.closest("[data-piece-page]")
       ?.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, [revealPieceId, visible, filter, setFilter, clearRevealPiece]);
+  }, [revealPieceId, visible, rollup, filter, setFilter, clearRevealPiece]);
 
   const handleNewPiece = useCallback(() => {
     const id = createPiece({
@@ -179,7 +183,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
   );
 
   // Keyboard model: J/K or arrows rove focus, Enter/Esc toggle edit mode, S/P
-  // cycle status/priority, C copies exact text, N creates a piece, 1-4 jump
+  // cycle status/priority, C copies exact text, N creates a piece, 1-6 jump
   // filters, Backspace deletes with an undo toast. Textareas stay out of the
   // tab order (tabIndex={-1} in piece-card.tsx) — this listener is the only
   // way to reach them via keyboard, by design.
@@ -208,11 +212,18 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
           return;
         case "s":
         case "S":
-          if (focusedPiece) { e.preventDefault(); setPieceStatus(focusedPiece.id, nextStatus(focusedPiece.status)); }
+          if (focusedPiece) {
+            e.preventDefault();
+            if (focusedPiece.reviewQueue === "extraction") acceptExtractedPiece(focusedPiece.id);
+            else setPieceStatus(focusedPiece.id, nextStatus(focusedPiece.status));
+          }
           return;
         case "p":
         case "P":
-          if (focusedPiece) { e.preventDefault(); cyclePiecePriority(focusedPiece.id); }
+          if (focusedPiece && focusedPiece.reviewQueue === undefined) {
+            e.preventDefault();
+            cyclePiecePriority(focusedPiece.id);
+          }
           return;
         case "c":
         case "C":
@@ -230,7 +241,8 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
         case "2":
         case "3":
         case "4":
-        case "5": {
+        case "5":
+        case "6": {
           e.preventDefault();
           const next = PIECE_FILTERS[Number(e.key) - 1];
           if (next) setFilter(next);
@@ -245,7 +257,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mode, focusedIndex, visible, setPieceStatus, cyclePiecePriority, handleNewPiece, handleDelete, setFilter]);
+  }, [mode, focusedIndex, visible, setPieceStatus, acceptExtractedPiece, cyclePiecePriority, handleNewPiece, handleDelete, setFilter]);
 
   return (
     <div data-shortform-view className="flex-1 min-w-0 flex flex-col min-h-0">

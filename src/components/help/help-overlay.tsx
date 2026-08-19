@@ -76,7 +76,7 @@ const FEATURES = [
       { name: "Roving Focus", desc: "J/K or the arrow keys move focus between piece cards. Enter opens the textarea, Esc exits back to roving." },
       { name: "Status & Priority", desc: "With a card focused: S cycles status (inbox → in progress → ready), P cycles priority." },
       { name: "Copy & Delete", desc: "C copies a piece's exact text. Backspace deletes it, with an Undo toast." },
-      { name: "New Piece & Filters", desc: "N creates a new piece. Number keys 1-4 jump between the All / Inbox / In progress / Ready filters." },
+      { name: "New Piece & Filters", desc: "N creates a new piece. Number keys 1-6 jump between All / Inbox / Extracted / In progress / Ready / Archived." },
       { name: "Drag Bridge", desc: "Drag a Snip Bar snippet onto the gold line between pieces to drop it in as a new piece." },
       { name: "Agent Inbox", desc: "Agents can drop pieces straight into an idea's inbox: connect fragment-mcp and see them land here." },
     ],

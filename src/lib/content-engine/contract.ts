@@ -40,6 +40,9 @@ export type PieceStatus = (typeof PIECE_STATUSES)[number];
 export const PIECE_ORIGINS = ["agent", "user"] as const;
 export type PieceOrigin = (typeof PIECE_ORIGINS)[number];
 
+export const PIECE_REVIEW_QUEUES = ["extraction"] as const;
+export type PieceReviewQueue = (typeof PIECE_REVIEW_QUEUES)[number];
+
 // 0 = none, 1 = urgent, 2 = high, 3 = medium, 4 = low (Linear convention).
 export type Priority = 0 | 1 | 2 | 3 | 4;
 
@@ -113,6 +116,10 @@ export interface ContentPiece {
   format: ContentFormat;
   status: PieceStatus;
   origin: PieceOrigin;
+  // Internal generation never enters Inbox. It waits here until the writer
+  // accepts it into active work or tosses it. Inbox stays reserved for
+  // external arrivals such as MCP/API handoffs.
+  reviewQueue?: PieceReviewQueue;
   title?: string;
   // A fragment's text, and the only place it ever lives. Required rather than
   // optional so "no words yet" is an empty string and never a missing field:
@@ -438,6 +445,7 @@ export const contentPieceSchema = z.object({
   format: z.enum(CONTENT_FORMATS),
   status: z.enum(PIECE_STATUSES),
   origin: z.enum(PIECE_ORIGINS),
+  reviewQueue: z.enum(PIECE_REVIEW_QUEUES).optional(),
   title: z.string().optional(),
   body: z.string(),
   subtitle: z.string().optional(),
@@ -475,6 +483,20 @@ export const contentPieceSchema = z.object({
   updatedAt: z.number(),
   archivedAt: z.number().optional(),
   deletedAt: z.number().optional(),
+}).superRefine((piece, ctx) => {
+  if (piece.reviewQueue !== "extraction") return;
+  if (piece.status !== "in-progress") {
+    ctx.addIssue({ code: "custom", path: ["status"], message: "extraction review must stay in progress until accepted" });
+  }
+  if (piece.origin !== "user") {
+    ctx.addIssue({ code: "custom", path: ["origin"], message: "extraction review is internal user-initiated work" });
+  }
+  if (isLongformFormat(piece.format)) {
+    ctx.addIssue({ code: "custom", path: ["format"], message: "extraction review belongs in the short-form review feed" });
+  }
+  if (piece.publish !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["publish"], message: "extraction review cannot be published before acceptance" });
+  }
 });
 
 // Max depth 2: a parent must itself be a root idea. Call before persisting any

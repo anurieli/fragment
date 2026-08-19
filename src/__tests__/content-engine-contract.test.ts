@@ -113,6 +113,31 @@ describe("content-engine — stored piece rules", () => {
     expect(contentPieceSchema.safeParse({ ...basePiece, body: "" }).success).toBe(true);
   });
 
+  it("stores extracted results in the internal review queue", () => {
+    expect(
+      contentPieceSchema.safeParse({
+        ...basePiece,
+        status: "in-progress",
+        origin: "user",
+        reviewQueue: "extraction",
+      }).success,
+    ).toBe(true);
+    expect(
+      contentPieceSchema.safeParse({ ...basePiece, reviewQueue: "external-inbox" }).success,
+    ).toBe(false);
+    expect(
+      contentPieceSchema.safeParse({
+        ...basePiece,
+        reviewQueue: "extraction",
+        status: "published",
+        publish: { platform: "linkedin", method: "manual", publishedAt: 1, verified: true },
+      }).success,
+    ).toBe(false);
+    expect(
+      contentPieceSchema.safeParse({ ...basePiece, reviewQueue: "extraction", format: "essay" }).success,
+    ).toBe(false);
+  });
+
   it("keeps the note a migrated fragment absorbed, so old links still resolve", () => {
     const migrated = { ...basePiece, legacyNoteId: "n1" };
     const parsed = contentPieceSchema.safeParse(migrated);

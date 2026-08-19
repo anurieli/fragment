@@ -30,7 +30,7 @@ export function SpaceToggle({ ideaId }: SpaceToggleProps) {
     const rolled = shortformOnly(
       hierarchyRollup(ideaId, Object.values(ideas), Object.values(pieces)),
     );
-    return rolled.some((p) => !p.seen);
+    return rolled.some((p) => p.reviewQueue === undefined && !p.seen);
   }, [ideaId, ideas, pieces]);
 
   return (

@@ -7,6 +7,7 @@ import { PIECE_FILTERS } from "./feed-logic";
 const FILTER_LABELS: Record<PieceFilter, string> = {
   all: "All",
   inbox: "Inbox",
+  extracted: "Extracted",
   "in-progress": "In progress",
   ready: "Ready",
   archived: "Archived",
@@ -32,7 +33,7 @@ interface PieceFilterBarProps {
 
 /**
  * Instant client-side filter chips over one list of pieces, plus a sort
- * control and "+ New piece". Numbers 1-5 (see shortform-view.tsx's keydown
+ * control and "+ New piece". Numbers 1-6 (see shortform-view.tsx's keydown
  * handler) jump straight to a filter, in this same left-to-right order.
  *
  * Archived is the one chip that comes and goes: an idea nobody has archived
@@ -52,9 +53,11 @@ export function PieceFilterBar({
   return (
     <div className="flex items-center gap-2 px-8 pt-2 pb-3 shrink-0">
       <div className="flex items-center gap-1">
-        {PIECE_FILTERS.filter(
-          (f) => f !== "archived" || counts.archived > 0 || filter === "archived",
-        ).map((f) => (
+        {PIECE_FILTERS.filter((f) => {
+          if (f === "archived") return counts.archived > 0 || filter === "archived";
+          if (f === "extracted") return counts.extracted > 0 || filter === "extracted";
+          return true;
+        }).map((f) => (
           <button
             key={f}
             onClick={() => onFilterChange(f)}

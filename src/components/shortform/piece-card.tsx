@@ -180,6 +180,13 @@ export function PieceCard({
   // closed and reading a different piece does not change that.
   const [unlockedPieceId, setUnlockedPieceId] = useState<string | null>(null);
   const locked = isPieceLocked(piece, unlockedPieceId === piece.id);
+  const reviewingExtraction = piece.reviewQueue === "extraction";
+  const statusMeta = piece.reviewQueue === "extraction"
+    ? { label: "Extracted", dotClass: "bg-gold" }
+    : STATUS_META[piece.status];
+  const statusAge = piece.reviewQueue === "extraction"
+    ? "awaiting review"
+    : STATUS_LABELS[piece.status];
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -211,9 +218,9 @@ export function PieceCard({
     // A published card is read-only, so clicking its text marks it seen and
     // then does nothing else. The notice above it says why, and offers the two
     // ways forward, rather than a click silently failing to put a caret in.
-    if (locked) return;
+    if (locked || reviewingExtraction) return;
     onEnterEdit();
-  }, [piece.seen, piece.id, markPieceSeen, onEnterEdit, locked]);
+  }, [piece.seen, piece.id, markPieceSeen, onEnterEdit, locked, reviewingExtraction]);
 
   const handleTextareaBlur = useCallback(
     (event: React.FocusEvent<HTMLTextAreaElement>) => {
@@ -244,7 +251,7 @@ export function PieceCard({
   // the ⋯ menu's "Draft with Flow" item.
   /** Open the prompt line. Flow never starts from a keystroke alone. */
   const openFlowPrompt = useCallback(() => {
-    if (flowGenerating) return;
+    if (flowGenerating || reviewingExtraction) return;
     // Silence was the worst answer here: ⌘⏎ with Flow switched off did
     // nothing at all, which reads as a broken feature rather than an off one.
     if (!slashEnabled) {
@@ -253,10 +260,10 @@ export function PieceCard({
     }
     setFlowPrompt("");
     requestAnimationFrame(() => flowPromptRef.current?.focus());
-  }, [flowGenerating, slashEnabled, showToast]);
+  }, [flowGenerating, reviewingExtraction, slashEnabled, showToast]);
 
   const handleFlowGenerate = useCallback((instruction: string) => {
-    if (flowGenerating) return;
+    if (flowGenerating || reviewingExtraction) return;
     if (!slashEnabled) return;
     if (!instruction.trim()) return;
     setFlowPrompt(null);
@@ -315,6 +322,7 @@ export function PieceCard({
   }, [
     slashEnabled,
     flowGenerating,
+    reviewingExtraction,
     piece,
     allPieces,
     allIdeas,
@@ -685,8 +693,8 @@ export function PieceCard({
         </span>
 
         <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
-          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_META[piece.status].dotClass}`} />
-          {STATUS_META[piece.status].label}
+          <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
+          {statusMeta.label}
         </span>
 
         {/* Where it went and when, linked when a URL is on file. "Published" on
@@ -699,7 +707,7 @@ export function PieceCard({
             PublishPendingPrompt. */}
         <PublishPendingPrompt piece={piece} now={now} />
 
-        {piece.priority !== 0 && (
+        {piece.reviewQueue === undefined && piece.priority !== 0 && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -745,7 +753,7 @@ export function PieceCard({
               style={{ animation: "pulse-gold 2s ease-in-out infinite" }}
             />
           )}
-          {STATUS_LABELS[piece.status]} {ageLabel(piece, now)}
+          {statusAge} {ageLabel(piece, now)}
         </span>
       </div>
 
@@ -813,10 +821,10 @@ export function PieceCard({
               onFocus={enterEditing}
               onBlur={handleTextareaBlur}
               onKeyDown={handleTextareaKeyDown}
-              readOnly={flowGenerating || locked}
-              placeholder={slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
+              readOnly={flowGenerating || locked || reviewingExtraction}
+              placeholder={reviewingExtraction ? "Review, then accept or toss" : slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
             />
-            {inlineEditEnabled && !flowGenerating && (
+            {inlineEditEnabled && !flowGenerating && !reviewingExtraction && (
               <PieceRefineMenu
                 textareaRef={textareaRef}
                 containerRef={cardRef}
@@ -847,8 +855,8 @@ export function PieceCard({
         )}
       </div>
 
-      {/* Triage — only while the piece is still sitting in the inbox. */}
-      {piece.status === "inbox" && !flowGenerating && (
+      {/* External arrivals and internal extracted results each need a decision. */}
+      {(piece.status === "inbox" || piece.reviewQueue === "extraction") && !flowGenerating && (
         <div className="shrink-0">
           <PieceTriageBar piece={piece} onDismiss={onDelete} />
         </div>
@@ -872,7 +880,7 @@ export function PieceCard({
         )}
 
         <div className="ml-auto flex items-center gap-1.5">
-          <PieceShareMenu piece={piece} />
+          {piece.reviewQueue === undefined && <PieceShareMenu piece={piece} />}
 
           <div ref={overflowAnchorRef} className="relative">
             <button

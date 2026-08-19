@@ -24,6 +24,7 @@ export function publishQueue(pieces: readonly ContentPiece[]): ContentPiece[] {
     .filter(
       (piece) =>
         piece.status === "ready" &&
+        piece.reviewQueue === undefined &&
         piece.deletedAt === undefined &&
         piece.archivedAt === undefined,
     )
@@ -60,6 +61,7 @@ export function workingOn(
       (piece) =>
         piece.deletedAt === undefined &&
         piece.archivedAt === undefined &&
+        piece.reviewQueue === undefined &&
         now - piece.updatedAt <= windowMs,
     )
     .slice()
@@ -223,6 +225,7 @@ export function pieceCountsForIdea(
   for (const piece of pieces) {
     if (piece.deletedAt !== undefined || piece.archivedAt !== undefined) continue;
     if (piece.ideaId !== ideaId) continue;
+    if (piece.reviewQueue !== undefined) continue;
     counts[piece.status] += 1;
   }
   return counts;
