@@ -4,11 +4,17 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 ## 2026-08-20 03:57 - Empty new work disappears when abandoned (ARI-353)
 
-**Summary**: New notes, ideas, and short-form pieces were persisted as soon as their creation controls were clicked, with no distinction between an untouched placeholder and deliberate work. Fragment now tracks only blank entities created during the current browser session and removes them when navigation or editor blur leaves them. Existing blank records are never swept, and any title, body, writing context, metadata, child, piece, or resource keeps the new entity.
+**Summary**: New ideas and long- or short-form pieces were persisted as soon as their creation controls were clicked, with no distinction between an untouched placeholder and deliberate work. Fragment now tracks only blank entities created during the current browser session and removes them when navigation or editor blur leaves them. Existing blank records are never swept, and any title, body, writing context, metadata, child, piece, or resource keeps the new entity.
 
-**Files**: `src/lib/empty-creations.ts`, `src/hooks/use-empty-creation-cleanup.ts`, `src/stores/data-store.ts`, `src/stores/content-store.ts`, `src/components/app-shell.tsx`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/shortform-view.tsx`, `src/__tests__/empty-creations.test.ts`, `src/__tests__/empty-creation-cleanup.test.tsx`
+**Details**:
+- Centralized conservative emptiness rules for ideas and pieces, including the current unified long-form/short-form piece model.
+- Registered blank candidates at the store creation boundary, then discarded them when active navigation, editor-card focus, or the browser session moved away.
+- Preserved live editor text that has not reached the content store yet, and kept edit mode active while focus moves to controls inside a piece card.
+- Updated the stale generation-prompt regression test encountered while reconciling with current `main`, whose API now uses the draft-writer registry and `buildNoteCreationPrompt`.
 
-**Verification**: 660 tests passed across 46 files; `npx tsc --noEmit` is clean; `npm run lint` exits with 0 errors and 32 existing warnings.
+**Files**: `src/lib/empty-creations.ts`, `src/hooks/use-empty-creation-cleanup.ts`, `src/stores/content-store.ts`, `src/components/app-shell.tsx`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/shortform-view.tsx`, `src/__tests__/empty-creations.test.ts`, `src/__tests__/empty-creation-cleanup.test.tsx`, `src/__tests__/content-generation-prompt.test.ts`
+
+**Verification**: 935 tests passed across 76 files; `npx tsc --noEmit` is clean; `npm run lint` exits with 0 errors and 30 existing warnings.
 
 ## 2026-08-19 - Only connected providers appear in the model picker, and Content generation is editable
 
