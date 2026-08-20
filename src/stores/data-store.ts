@@ -16,6 +16,7 @@ import {
 } from "@/lib/persistence";
 import { useToastStore } from "@/hooks/use-toast";
 import { captureEvent } from "@/lib/posthog";
+import { isEmptyNote, trackEmptyCreation } from "@/lib/empty-creations";
 
 /** Fire-and-forget save with user-visible error on IndexedDB failure. */
 function persistNote(note: Note): void {
@@ -133,6 +134,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       updatedAt: now,
     };
     set((s) => ({ notes: { ...s.notes, [id]: note } }));
+    if (isEmptyNote(note)) trackEmptyCreation("note", id);
     persistNote(note);
     captureEvent("note_created");
     return id;

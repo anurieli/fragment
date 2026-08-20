@@ -533,6 +533,12 @@ export function PieceCard({
       data-piece-card
       data-piece-id={piece.id}
       onClick={onFocusCard}
+      onBlurCapture={(event) => {
+        if (!isEditing) return;
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        onExitEdit();
+      }}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
       className={`relative flex flex-col h-full min-h-0 pl-5 pr-2 py-4 transition-colors duration-150 rounded-[var(--radius-default)] ${
@@ -647,7 +653,6 @@ export function PieceCard({
               value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
               onChange={handleBodyChange}
               onFocus={enterEditing}
-              onBlur={onExitEdit}
               onKeyDown={handleTextareaKeyDown}
               readOnly={flowGenerating}
               placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}

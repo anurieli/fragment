@@ -24,6 +24,7 @@ import {
   assertPublishGuard,
 } from "@/lib/persistence";
 import { notifyAgentInboxStatusChange } from "@/lib/agent-inbox/client";
+import { isEmptyIdea, isEmptyPiece, trackEmptyCreation } from "@/lib/empty-creations";
 
 // This is a deliberate deviation from the ticket's "likely extend
 // data-store.ts" suggestion: ideas + pieces get their own store file so the
@@ -205,6 +206,9 @@ export const useContentStore = create<ContentState>((set, get) => ({
       updatedAt: now,
     };
     set((s) => ({ ideas: { ...s.ideas, [idea.id]: idea } }));
+    if (isEmptyIdea(idea, { hasChildren: false, hasPieces: false, hasResources: false })) {
+      trackEmptyCreation("idea", idea.id);
+    }
     persistIdea(idea);
     return idea.id;
   },
@@ -363,6 +367,7 @@ export const useContentStore = create<ContentState>((set, get) => ({
     pieceContentHome(piece);
     assertPublishGuard(piece);
     set((s) => ({ pieces: { ...s.pieces, [piece.id]: piece } }));
+    if (isEmptyPiece(piece, { hasResources: false })) trackEmptyCreation("piece", piece.id);
     persistPiece(piece);
     return piece.id;
   },

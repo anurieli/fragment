@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-20 03:57 - Empty new work disappears when abandoned (ARI-353)
+
+**Summary**: New notes, ideas, and short-form pieces were persisted as soon as their creation controls were clicked, with no distinction between an untouched placeholder and deliberate work. Fragment now tracks only blank entities created during the current browser session and removes them when navigation or editor blur leaves them. Existing blank records are never swept, and any title, body, writing context, metadata, child, piece, or resource keeps the new entity.
+
+**Files**: `src/lib/empty-creations.ts`, `src/hooks/use-empty-creation-cleanup.ts`, `src/stores/data-store.ts`, `src/stores/content-store.ts`, `src/components/app-shell.tsx`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/shortform-view.tsx`, `src/__tests__/empty-creations.test.ts`, `src/__tests__/empty-creation-cleanup.test.tsx`
+
+**Verification**: 660 tests passed across 46 files; `npx tsc --noEmit` is clean; `npm run lint` exits with 0 errors and 32 existing warnings.
+
 ## 2026-08-03 05:35 - Fixed eslint linting agent worktrees' full .next builds as source (68cd16e)
 
 **Commit**: `68cd16e` on `agent/offline-cloud-accounts`, pushed for PR #9
