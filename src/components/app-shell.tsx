@@ -14,6 +14,7 @@ import { useCodexConnection } from "@/hooks/use-codex-connection";
 import { useCloudSync } from "@/hooks/use-cloud-sync";
 import { useAgentInbox } from "@/hooks/use-agent-inbox";
 import { usePublishVerification } from "@/hooks/use-publish-verification";
+import { useEmptyCreationCleanup } from "@/hooks/use-empty-creation-cleanup";
 import { identify } from "@/lib/cloud-client";
 import { initPostHog } from "@/lib/posthog";
 import { initSentry, setSentryUser } from "@/lib/sentry";
@@ -75,6 +76,7 @@ export function AppShell() {
   // Polls the user's Substack RSS feed while any fragment is awaiting
   // publish confirmation (see src/lib/publish/substack-verify.ts).
   usePublishVerification();
+  useEmptyCreationCleanup();
   const hydrated = useDataStore((s) => s.hydrated);
   const [loadingStuck, setLoadingStuck] = useState(false);
 

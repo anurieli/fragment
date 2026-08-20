@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
 import { hierarchyRollup, shortformOnly } from "@/stores/content-selectors";
 import { useToastStore } from "@/hooks/use-toast";
+import { discardPendingEmptyPiece } from "@/hooks/use-empty-creation-cleanup";
 import { IdeaPanelToggle } from "@/components/idea/idea-panel";
 import { SpaceToggle } from "./space-toggle";
 import { PieceFilterBar } from "./piece-filter-bar";
@@ -229,6 +230,12 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
     [rejectPiece, showToast, undeletePiece],
   );
 
+  const handleExitEdit = useCallback(() => {
+    const focusedPiece = focusedIndex >= 0 ? visible[focusedIndex] : undefined;
+    if (focusedPiece) discardPendingEmptyPiece(focusedPiece.id);
+    setMode("roving");
+  }, [focusedIndex, visible]);
+
   // Keyboard model: J/K or arrows rove focus, Enter/Esc toggle edit mode, S/P
   // cycle status/priority, C copies exact text, N creates a piece, 1-6 jump
   // filters, Backspace deletes with an undo toast. Textareas stay out of the
@@ -353,7 +360,7 @@ export function ShortformView({ ideaId }: ShortformViewProps) {
             editing={mode === "editing"}
             onFocusCard={(index) => setFocusedIndex(index)}
             onEnterEdit={() => setMode("editing")}
-            onExitEdit={() => setMode("roving")}
+            onExitEdit={handleExitEdit}
             onDelete={handleDelete}
           />
         )}

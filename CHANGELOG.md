@@ -2,6 +2,14 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-20 03:57 - Empty new work disappears when abandoned (ARI-353)
+
+**Summary**: New notes, ideas, and short-form pieces were persisted as soon as their creation controls were clicked, with no distinction between an untouched placeholder and deliberate work. Fragment now tracks only blank entities created during the current browser session and removes them when navigation or editor blur leaves them. Existing blank records are never swept, and any title, body, writing context, metadata, child, piece, or resource keeps the new entity.
+
+**Files**: `src/lib/empty-creations.ts`, `src/hooks/use-empty-creation-cleanup.ts`, `src/stores/data-store.ts`, `src/stores/content-store.ts`, `src/components/app-shell.tsx`, `src/components/shortform/piece-card.tsx`, `src/components/shortform/shortform-view.tsx`, `src/__tests__/empty-creations.test.ts`, `src/__tests__/empty-creation-cleanup.test.tsx`
+
+**Verification**: 660 tests passed across 46 files; `npx tsc --noEmit` is clean; `npm run lint` exits with 0 errors and 32 existing warnings.
+
 ## 2026-08-19 - Only connected providers appear in the model picker, and Content generation is editable
 
 **Summary**: The model dropdown was listing hundreds of models from providers you had never connected. OpenRouter's model endpoint is public, so a request with no key still came back with the whole catalogue; a key-based provider with no key now returns no list at all, and the picker says "Add your API key in Providers first" instead. The panel also read the stored provider, which defaults to OpenRouter on a fresh install, while generation itself falls back to whichever provider you actually connected, so the picker could name one provider while the request went to another. Both now resolve the same way, and choosing a model saves it under the provider that will answer. Connecting a provider repoints the idea extractor too, which had been left out of that list.

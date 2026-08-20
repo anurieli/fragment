@@ -224,7 +224,9 @@ export function PieceCard({
 
   const handleTextareaBlur = useCallback(
     (event: React.FocusEvent<HTMLTextAreaElement>) => {
-      if (isPieceRefineMenuTarget(event.relatedTarget)) return;
+      const next = event.relatedTarget;
+      if (next instanceof Node && cardRef.current?.contains(next)) return;
+      if (isPieceRefineMenuTarget(next)) return;
       onExitEdit();
     },
     [onExitEdit],
@@ -638,6 +640,13 @@ export function PieceCard({
       data-piece-card
       data-piece-id={piece.id}
       onClick={onFocusCard}
+      onBlurCapture={(event) => {
+        if (!isEditing) return;
+        const next = event.relatedTarget;
+        if (isPieceRefineMenuTarget(next)) return;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        onExitEdit();
+      }}
       onContextMenu={(e) => {
         // Text fields keep the browser's menu: inside the textarea a
         // right-click is about the words (paste, spellcheck), not the piece.
