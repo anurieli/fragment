@@ -14,7 +14,17 @@ rather than reimplements.
 Not published to npm yet. Until it is, register it from a local path:
 
 ```bash
-claude mcp add fragment-mcp -- node /absolute/path/to/fragment/packages/fragment-mcp/dist/packages/fragment-mcp/src/bin.js
+claude mcp add fragment-mcp -- node /absolute/path/to/fragment/packages/fragment-mcp/dist/bin.js
+```
+
+To connect it to a hosted Fragment **account** instead of the local inbox, add the two env vars
+(see "Hosted transport" below):
+
+```bash
+claude mcp add fragment \
+  --env FRAGMENT_API_URL=https://your-fragment-domain.example \
+  --env FRAGMENT_API_TOKEN=frg_agent_... \
+  -- node /absolute/path/to/fragment/packages/fragment-mcp/dist/bin.js
 ```
 
 (Build first: `npm install && npm run build` inside this directory.) Once published, the same thing becomes:
@@ -83,12 +93,57 @@ the inbox exactly like `add_piece` would. Prints:
 queued 1 piece(s); open Fragment to import.
 ```
 
-## Hosted transport (M2 seam)
+## Rescuing pieces written in local mode: `fragment-mcp drain`
 
-`src/http-transport.ts` implements the same `Transport` interface against a `{ baseUrl, apiKey }` config.
-Every method currently rejects with a clear "not implemented" error — it exists to mark the exact seam
-where the hosted Fragment API (M2) plugs in, so the MCP tools and CLI never have to change, only which
-`Transport` gets constructed at startup.
+The local transport writes to a folder and trusts a running Fragment app to import it. When there is no
+such app, which is the normal case once someone uses hosted Fragment, those files are not lost, they are
+invisible: real drafts on a disk nobody reads. Both the CLI and the MCP tools now say so after a write
+whose folder has never been imported from, because an agent that is told is an agent that can tell the
+user, and the alternative is a folder filling quietly for weeks.
+
+`drain` is the way back. With hosted mode configured, it moves everything stranded locally into the
+account:
+
+```bash
+FRAGMENT_API_URL=https://your-fragment-domain.example \
+FRAGMENT_API_TOKEN=frg_agent_... \
+  fragment-mcp drain --dry-run   # preview; nothing is sent or moved
+```
+
+Drop `--dry-run` to do it. What it does, and why:
+
+- **Ideas are matched by normalized title**, not by id: local ids were minted offline and mean nothing to
+  the account. Matching is what stops a drain from cloning an idea you already have; minting the ones it
+  cannot find is what stops it from dropping one.
+- **Pieces travel with the resolved idea id**, and are pushed **oldest first**, so a re-draft carrying
+  `supersedes` still retires the piece it replaced. Newest-first would deliver the revision, find nothing
+  to supersede, then deliver the draft it was meant to retire, leaving two near-identical pieces and no
+  way to tell which is live.
+- A `supersedes` pointing at something outside this drain is dropped rather than sent dangling.
+- **Drained files move to `.imported/`**, the same acknowledgement the running app performs, so running it
+  twice is a no-op rather than a duplicate.
+- An unparseable file is reported and **left in place**, so a corrected file can be re-run.
+
+## Hosted transport (connect to a Fragment account)
+
+`src/http-transport.ts` implements the same `Transport` interface against a Fragment server's
+`/api/v1/agent/*` routes, authenticated by a per-account agent token (minted in the app under
+**Settings → Account & Sync → Agent access**; shown once, revocable there any time). Configure it with
+two environment variables on the process that runs fragment-mcp:
+
+| Var | Meaning |
+|---|---|
+| `FRAGMENT_API_URL` | The Fragment server, e.g. `https://your-fragment-domain.example`. |
+| `FRAGMENT_API_TOKEN` | An agent token for the account (`frg_agent_…`). |
+
+Both set → hosted mode: every tool call is an HTTPS request scoped to that account, durable on
+response, delivered to the user's devices by cloud sync (no running local app required). Neither set →
+the local file transport below. Exactly one set → a loud startup error, never a silent fallback to
+writing files nobody imports.
+
+`fragment-mcp doctor` in hosted mode probes `GET /api/v1/agent/ping` and reports the token's name,
+scopes, and account. There is no deliverability preflight in hosted mode because the HTTP response is
+the delivery verdict.
 
 ## Package build (why the tsconfig looks the way it does)
 

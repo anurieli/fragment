@@ -4,25 +4,10 @@ import { useEffect, useRef } from "react";
 import {
   consumeEmptyCreation,
   isEmptyIdea,
-  isEmptyNote,
   isEmptyPiece,
 } from "@/lib/empty-creations";
 import { useAppStore } from "@/stores/app-store";
 import { useContentStore } from "@/stores/content-store";
-import { useDataStore } from "@/stores/data-store";
-
-export function discardPendingEmptyNote(id: string): boolean {
-  if (!consumeEmptyCreation("note", id)) return false;
-  const note = useDataStore.getState().notes[id];
-  if (!note || !isEmptyNote(note)) return false;
-  const appState = useAppStore.getState();
-  if (appState.liveEditorNoteId === id && appState.liveEditorContent?.trim()) {
-    useDataStore.getState().updateNoteContent(id, appState.liveEditorContent);
-    return false;
-  }
-  useDataStore.getState().deleteNote(id);
-  return true;
-}
 
 export function discardPendingEmptyIdea(id: string): boolean {
   if (!consumeEmptyCreation("idea", id)) return false;
@@ -50,6 +35,11 @@ export function discardPendingEmptyPiece(id: string): boolean {
   const state = useContentStore.getState();
   const piece = state.pieces[id];
   if (!piece || piece.deletedAt !== undefined) return false;
+  const appState = useAppStore.getState();
+  if (appState.liveEditorPieceId === id && appState.liveEditorContent?.trim()) {
+    state.updatePiece(id, { body: appState.liveEditorContent });
+    return false;
+  }
   const hasResources = Object.values(state.resources).some(
     (resource) => resource.ownerType === "piece" && resource.ownerId === id,
   );
@@ -59,27 +49,27 @@ export function discardPendingEmptyPiece(id: string): boolean {
 }
 
 /**
- * Removes only blank entities created in this browser session, at the moment
- * navigation leaves them. Existing blank records are never swept merely
- * because the user opened and closed them.
+ * Removes only blank entities created in this browser session when navigation
+ * leaves them. Existing blank records are never swept merely because the user
+ * opened and closed them.
  */
 export function useEmptyCreationCleanup(): void {
-  const activeNoteId = useAppStore((state) => state.activeNoteId);
-  const activeIdeaId = useAppStore((state) => state.activeIdeaId);
+  const activePieceId = useAppStore((state) => state.activePieceId);
   const focusedPieceId = useAppStore((state) => state.focusedPieceId);
-  const previousNoteId = useRef<string | null>(null);
+  const activeIdeaId = useAppStore((state) => state.activeIdeaId);
+  const previousActivePieceId = useRef<string | null>(null);
+  const previousFocusedPieceId = useRef<string | null>(null);
   const previousIdeaId = useRef<string | null>(null);
-  const previousPieceId = useRef<string | null>(null);
 
   useEffect(() => {
-    const previous = previousNoteId.current;
-    previousNoteId.current = activeNoteId;
-    if (previous && previous !== activeNoteId) discardPendingEmptyNote(previous);
-  }, [activeNoteId]);
+    const previous = previousActivePieceId.current;
+    previousActivePieceId.current = activePieceId;
+    if (previous && previous !== activePieceId) discardPendingEmptyPiece(previous);
+  }, [activePieceId]);
 
   useEffect(() => {
-    const previous = previousPieceId.current;
-    previousPieceId.current = focusedPieceId;
+    const previous = previousFocusedPieceId.current;
+    previousFocusedPieceId.current = focusedPieceId;
     if (previous && previous !== focusedPieceId) discardPendingEmptyPiece(previous);
   }, [focusedPieceId]);
 
@@ -92,7 +82,7 @@ export function useEmptyCreationCleanup(): void {
   useEffect(() => {
     const discardCurrentCreations = () => {
       const state = useAppStore.getState();
-      if (state.activeNoteId) discardPendingEmptyNote(state.activeNoteId);
+      if (state.activePieceId) discardPendingEmptyPiece(state.activePieceId);
       if (state.focusedPieceId) discardPendingEmptyPiece(state.focusedPieceId);
       if (state.activeIdeaId) discardPendingEmptyIdea(state.activeIdeaId);
     };

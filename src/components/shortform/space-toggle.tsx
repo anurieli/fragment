@@ -13,6 +13,7 @@ interface SpaceToggleProps {
 /**
  * Segmented "Write | Pieces" control. Write = the existing long-form editor,
  * Pieces = the short-form feed for this idea (and its rolled-up children).
+ * The stored space value stays "pieces": it is an identifier, not copy.
  * Lives at the left of the center-panel toolbar whenever an idea is active —
  * mirrors the showSettings center-swap precedent in app-shell.tsx, just one
  * level down (idea-scoped instead of app-scoped). ⌘1/⌘2 switch (wired in
@@ -29,7 +30,7 @@ export function SpaceToggle({ ideaId }: SpaceToggleProps) {
     const rolled = shortformOnly(
       hierarchyRollup(ideaId, Object.values(ideas), Object.values(pieces)),
     );
-    return rolled.some((p) => !p.seen);
+    return rolled.some((p) => p.reviewQueue === undefined && !p.seen);
   }, [ideaId, ideas, pieces]);
 
   return (

@@ -5,14 +5,16 @@
  * src/components/shortform/feed-logic.ts, so this stays deterministic and
  * unit-testable without mocking the DOM or the AI hooks.
  *
- * Voice resolution note: a ContentPiece has no voiceId field of its own.
- * The chain is idea.voiceId -> default voice, i.e. exactly what
- * resolveVoice(voices, defaultVoiceId, idea?.voiceId) already does — so
- * callers just pass idea?.voiceId as the voiceId argument to
- * useInlineEdit/useSlashCommand and the existing hook resolves it. No new
- * resolution logic is needed here beyond picking that field off the idea.
+ * Voice resolution note: these helpers carry one voice id through to
+ * useInlineEdit/useSlashCommand, which resolve it against the default voice
+ * via resolveVoice(voices, defaultVoiceId, voiceId). The idea's voice is what
+ * callers normally pass. A fragment also carries a voiceId of its own (three
+ * states, see the content contract), so a caller that wants the fragment's
+ * choice to win passes that instead; there is deliberately no second
+ * resolution path in here to disagree with the hook's.
  */
 
+import type { Brief } from "@/lib/brief-context";
 import type { ContentFormat } from "@/lib/content-engine";
 import type { PublishPlatform } from "@/lib/publish";
 import { PLATFORM_CHAR_LIMITS, charCount } from "@/lib/publish";
@@ -70,12 +72,16 @@ export interface RefineContextInput {
   selectionStart: number;
   selectionEnd: number;
   idea?: PieceIdeaContext;
+  /** Resolved fragment → idea → voice brief (see lib/brief-context.ts). */
+  brief?: Brief;
 }
 
 export interface RefineContext {
   contextBefore: string;
   contextAfter: string;
   goal: string;
+  audience: string;
+  tone: string;
   remember: string;
   voiceId: string | undefined;
 }
@@ -89,15 +95,21 @@ export interface RefineContext {
  * keep in mind" — a natural home for a hard limit the model must respect).
  */
 export function buildRefineContext(input: RefineContextInput): RefineContext {
-  const { format, body, selectionStart, selectionEnd, idea } = input;
+  const { format, body, selectionStart, selectionEnd, idea, brief } = input;
   const start = Math.max(0, Math.min(selectionStart, body.length));
   const end = Math.max(start, Math.min(selectionEnd, body.length));
   const hint = platformContextHint(format, body);
-  const remember = [idea?.summary, hint].filter((v): v is string => !!v).join("\n\n");
+  const remember = [brief?.remember, idea?.summary, hint]
+    .filter((v): v is string => !!v)
+    .join("\n\n");
   return {
     contextBefore: body.slice(0, start),
     contextAfter: body.slice(end),
-    goal: idea?.title ?? "",
+    // The idea's title is the fallback goal it always was; a real goal set on
+    // the fragment or the idea now takes precedence over it.
+    goal: brief?.goal || idea?.title || "",
+    audience: brief?.audience ?? "",
+    tone: brief?.tone ?? "",
     remember,
     voiceId: idea?.voiceId,
   };
@@ -110,14 +122,32 @@ export function buildRefineContext(input: RefineContextInput): RefineContext {
 export interface FlowContextInput {
   format: ContentFormat;
   idea?: PieceIdeaContext;
-  /** The idea's linked long-form note content, if one exists — see
-   * findLinkedNoteContent below. */
-  linkedNoteContent?: string | null;
+  /**
+   * Everything the idea holds, from buildIdeaBrief in lib/ai-context.
+   *
+   * This used to be the text of "the idea's long-form draft", singular, found
+   * by taking the oldest long-form piece. That assumed every idea has exactly
+   * one long piece that counts as its draft, which is not how anyone works: an
+   * idea can hold three short pieces and no long one, or two long ones with
+   * equal claim. The brief describes what is actually there.
+   */
+  ideaBrief: string;
+  /**
+   * What the writer typed into the Flow prompt. Required, and there is no
+   * default, because Flow used to run with a canned instruction the moment a
+   * key was pressed: no prompt, no confirmation, just a page of text nobody
+   * asked for. Generating is now something you ask for in words.
+   */
+  instruction: string;
+  /** Resolved fragment → idea → voice brief (see lib/brief-context.ts). */
+  brief?: Brief;
 }
 
 export interface FlowContext {
   contextAbove: string;
   goal: string;
+  audience: string;
+  tone: string;
   remember: string;
   instruction: string;
   voiceId: string | undefined;
@@ -134,58 +164,32 @@ const FLOW_DRAFT_NOUN: Record<ContentFormat, string> = {
 
 /**
  * Assembles the useSlashCommand().generateStream() call arguments for
- * drafting a piece from scratch (⌘⏎ / "Draft with Flow"): the idea's linked
- * long-form note stands in for "context above" (there's no mid-document
- * split for a short-form piece — Flow here always drafts from the top), the
- * idea's title/summary plus the platform hint feed goal/remember exactly as
- * in buildRefineContext, and a default instruction names the target format
- * since there's no typed prompt for the ⌘⏎ path.
+ * drafting a piece with Flow.
+ *
+ * The idea's brief stands in for "context above" (there is no mid-document
+ * split when drafting a piece from the top), and the idea's title plus the
+ * platform hint feed goal/remember exactly as in buildRefineContext. The
+ * writer's own words lead the instruction; the format noun trails it, so
+ * "make it angrier about the pricing" still comes out shaped like a tweet
+ * without the format overriding what was asked for.
  */
 export function buildFlowContext(input: FlowContextInput): FlowContext {
-  const { format, idea, linkedNoteContent } = input;
+  const { format, idea, ideaBrief, instruction, brief } = input;
   const hint = platformContextHint(format, "");
-  const remember = [idea?.summary, hint].filter((v): v is string => !!v).join("\n\n");
+  const remember = [brief?.remember, idea?.summary, hint]
+    .filter((v): v is string => !!v)
+    .join("\n\n");
   return {
-    contextAbove: linkedNoteContent ?? "",
-    goal: idea?.title ?? "",
+    contextAbove: ideaBrief,
+    // The idea's title is the fallback goal it always was; a real goal set on
+    // the fragment or the idea now takes precedence over it.
+    goal: brief?.goal || idea?.title || "",
+    audience: brief?.audience ?? "",
+    tone: brief?.tone ?? "",
     remember,
-    instruction: `Draft this as a ${FLOW_DRAFT_NOUN[format]} based on the idea above.`,
+    instruction: `${instruction.trim()}\n\nWrite it as a ${FLOW_DRAFT_NOUN[format]}, and use the context above so it belongs to this idea rather than restating it.`,
     voiceId: idea?.voiceId,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Linked long-form note lookup (for Flow context + Snip-out destination)
-// ---------------------------------------------------------------------------
-
-export interface PieceLike {
-  id: string;
-  ideaId: string;
-  noteId?: string;
-  deletedAt?: number;
-  updatedAt: number;
-}
-
-/** The idea's own long-form sibling piece (noteId set), most-recently-updated
- * first — an idea can have at most one content home per format, but nothing
- * stops multiple long-form pieces (essay + script) sharing an idea, so this
- * picks the freshest. Returns null when the idea has no long-form piece. */
-export function findLinkedNoteId(ideaId: string, pieces: readonly PieceLike[]): string | null {
-  const longForm = pieces
-    .filter((p) => p.ideaId === ideaId && p.deletedAt === undefined && p.noteId !== undefined)
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-  return longForm?.noteId ?? null;
-}
-
-/** Resolves findLinkedNoteId to the note's actual content via the notes map. */
-export function findLinkedNoteContent(
-  ideaId: string,
-  pieces: readonly PieceLike[],
-  notes: Record<string, { content: string } | undefined>,
-): string | null {
-  const noteId = findLinkedNoteId(ideaId, pieces);
-  if (!noteId) return null;
-  return notes[noteId]?.content ?? null;
 }
 
 // A "Snip out" from a piece used to route through resolveSnipTargetNoteId,

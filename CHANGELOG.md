@@ -10,6 +10,228 @@ This changelog starts at the initial public release. Earlier history lives in th
 
 **Verification**: 660 tests passed across 46 files; `npx tsc --noEmit` is clean; `npm run lint` exits with 0 errors and 32 existing warnings.
 
+## 2026-08-19 - Only connected providers appear in the model picker, and Content generation is editable
+
+**Summary**: The model dropdown was listing hundreds of models from providers you had never connected. OpenRouter's model endpoint is public, so a request with no key still came back with the whole catalogue; a key-based provider with no key now returns no list at all, and the picker says "Add your API key in Providers first" instead. The panel also read the stored provider, which defaults to OpenRouter on a fresh install, while generation itself falls back to whichever provider you actually connected, so the picker could name one provider while the request went to another. Both now resolve the same way, and choosing a model saves it under the provider that will answer. Connecting a provider repoints the idea extractor too, which had been left out of that list.
+
+The draft writer is now **Content generation**, and its prompt is editable like every other agent's. It was read-only because the prompt was assembled from the format and length you pick at the moment you press Generate; those two are now placeholders inside a template you can edit, filled in when it runs, so an edited prompt still respects the choices. The model is chosen in Settings, then AI, and nowhere else: the Generate panel names the model that will answer and links there rather than carrying a second dropdown that silently changed Flow's model as well. Every model list ends with a line saying only connected providers are shown, and in AI settings that line takes you to Providers.
+
+**Files**: `src/lib/ai/provider-runtime.ts`, `src/lib/ai-client.ts`, `src/app/api/models/route.ts`, `src/hooks/use-provider-models.ts`, `src/hooks/use-feature-provider.ts`, `src/hooks/use-provider-connect.ts`, `src/hooks/use-stream-generation.ts`, `src/lib/agents/registry.ts`, `src/lib/defaults.ts`, `src/lib/types.ts`, `src/stores/settings-store.ts`, `src/components/settings/{ai-section,ai-nav,model-selector}.tsx`, `src/components/settings/agents/{agent-detail.tsx,agent-writes.ts}`, `src/components/editor/generate-panel.tsx`, `src/components/onboarding/onboarding-flow.tsx`, `src/__tests__/{models-gating,content-generation-prompt,agent-registry}.test.ts`.
+
+## 2026-08-19 - Keep the manually snapped piece in place (ARI-345)
+
+**Summary**: The Pieces deck tracked keyboard and click focus, but CSS scroll snap moved only the viewport. The old focused index stayed behind, and any piece update rebuilt the visible list and re-ran `scrollIntoView` for that stale piece, pulling the deck back after it had appeared to land. Settled manual scrolling now promotes the page nearest the feed top to roving focus, exits edit mode when the page changes, and focused scrolling depends on the focused piece id rather than the whole mutable list. A content update during the snap can no longer pull the deck back.
+
+**Files**: `src/components/shortform/shortform-view.tsx`, `src/__tests__/shortform-scroll-focus.test.tsx` (new).
+
+**Verification**: Regression coverage reproduces a manual snap followed by a concurrent piece update and verifies the newly landed page remains focused. It also proves a pending scroll settle cannot override a new edit intent. After predecessor reconciliation, the full suite passes 916/916 tests; `npx tsc --noEmit`, `npm run lint` (30 pre-existing warnings, zero errors), and `npm run build` pass.
+
+## 2026-08-19 - Inbox is external and extraction gets its own review queue (ARI-342)
+
+Inbox now has one meaning: work that arrived from outside Fragment through MCP or another ingress path. The sidebar has one global Inbox entry; opening it lands on the oldest pending arrival inside its idea and advances across ideas as decisions clear the queue.
+
+Each idea keeps its own Inbox collapsed below Pieces with a separate count. Approve moves an arrival into active work, Toss removes it with Undo, and clicking the idea row's Inbox badge opens that exact queue. Pending arrivals and internally extracted options no longer inflate the idea's finished Pieces count.
+
+Extract Ideas is internal work against the writer's own material. Its results now land in a separate extraction review queue and filter with `origin: user`, where Accept or Toss resolves each option without presenting it as external Inbox work. Stored lifecycle guards keep review work out of editing, publishing, prioritizing, archiving, duplication, sharing, and active-work signals until acceptance. The status shortcut accepts Inbox work into `in-progress` but never cycles internal work back into Inbox.
+
+**Files**: `src/lib/content-engine/contract.ts`, `src/lib/persistence.ts`, `src/hooks/use-extract-ideas.ts`, `src/components/idea/idea-panel.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/shortform/*`, `src/stores/app-store.ts`, `src/stores/content-store.ts`, `src/stores/content-selectors.ts`, `src/components/help/help-overlay.tsx`, `docs/FEATURES.md`, `docs/AGENT-API.md`, `PRD.md`, and tests.
+
+**Verification**: Regression coverage proves internal extraction stays in its own guarded review queue and external Inbox review starts collapsed, opens from the global or per-idea entry, approves into active work, tosses with Undo, and advances across ideas. All 914 app tests and 48 MCP tests pass; TypeScript and the production build are clean; lint reports zero errors and 30 pre-existing warnings.
+
+## 2026-08-19 - Priority is one visible choice (ARI-343)
+
+Priority used to hide behind a second disclosure inside piece and idea menus. The menu now names Priority and shows every flag at once, from the neutral clearing action through low, medium, high, and urgent. Setting or clearing it takes one click, and the chosen flag remains visible as the current state.
+
+The same picker serves pieces, one idea, and a bulk idea selection, so labels and colors cannot drift between surfaces. Mixed bulk priorities deliberately leave every flag unselected instead of falsely presenting No priority as the current value.
+
+**Implementation commit**: `7421fd9` (Replace priority dropdowns with visible flags).
+
+**Files**: `src/components/shortform/piece-priority-picker.tsx`, `src/components/shortform/piece-menu-items.tsx`, `src/components/sidebar/sidebar.tsx`, `src/lib/priority.ts`, `src/__tests__/piece-priority-picker.test.tsx`, `src/__tests__/piece-menu-priority.test.tsx`.
+
+**Verification**: Component and menu integration coverage prove that all five flags are immediately visible, one click applies the value, clearing stays available, and mixed bulk selections remain indeterminate. All 896 tests, lint, TypeScript, and the production build pass.
+
+## 2026-08-19 - A bare mobile piece editor (ARI-346)
+
+Phone-width screens no longer stop at a desktop-only warning. They open a focused ideas list instead; choosing an idea replaces that list with its live, unarchived short-form pieces in one continuous main scroll. A sticky header names the idea, shows `Piece n of total`, and advances a progress bar as the nearest piece changes.
+
+Every visible piece is an always-available plain textarea backed by the same local content store as desktop, so edits and additions persist without routing through the desktop side panels. The mobile surface contains no Flow, Refine, generation, filtering, sharing, or other AI and desktop controls. Tablet and desktop layouts remain unchanged.
+
+**Files**: `src/components/mobile/mobile-piece-editor.tsx` (new), `src/components/app-shell.tsx`, `src/__tests__/mobile-piece-editor.test.tsx` (new).
+
+**Verification**: Mobile component coverage selects an idea, verifies the bare two-piece editor, persists an edit through the real content store, excludes AI controls, and advances the top position bar on scroll. A real Chromium probe at 390x844 confirmed idea selection, two editable pieces, an IndexedDB-persisted body edit, no AI controls, a sticky header fixed at `top: 0`, and progress advancing to piece 2; a 900px probe preserved the desktop sidebar and omitted the mobile editor. All 910 tests pass, ESLint exits with 0 errors and 30 existing warnings, `tsc --noEmit` is clean, and the production build passes.
+
+## 2026-08-19 - Right-click draft extraction stays visible (ARI-341)
+
+Choosing Extract pieces from this draft used a controller owned by the context-menu item. Closing the menu immediately unmounted that controller, so the extraction continued with no visible working state and another click could start the same paid request again. The idea panel now owns one controller for both extraction entry points, keeps the source draft named on the button until the run settles, and refuses overlapping runs even before React can render the disabled state.
+
+The predecessor extraction branch also carried an obsolete sidebar-menu component that referenced a hook it no longer imported. Removing that unreachable component restores production builds without changing the live context menu.
+
+**Files**: `src/components/idea/idea-panel.tsx`, `src/hooks/use-extract-ideas.ts`, `src/components/sidebar/sidebar.tsx`, `src/__tests__/use-extract-ideas.test.tsx`.
+
+**Verification**: Regression coverage opens a real draft context menu, starts extraction, confirms the closed menu leaves visible progress behind, and holds duplicate requests to one. All 892 tests, lint, TypeScript, and the production build pass.
+
+## 2026-08-13 - The extractor points at one draft, and says what it read
+
+Extract pieces sat above the pieces list and read everything in the idea. With one draft open that is obviously right. With four, it is a button that will not tell you what it just did: pieces come back and there is no way to trace any of them to the draft they came out of.
+
+The scope is explicit now, at both ends. Right-clicking a draft offers Extract pieces from this draft, which reads that draft alone. The panel button says Extract from the whole idea, because that is what it does. Every toast names what was read: "3 pieces from Draft one, in the inbox."
+
+Scoped to one draft, the other drafts are gone from the source entirely, and so is the idea's reference material. That second part matters as much as the first: sources attached to the idea belong to the idea, and folding them into one draft's extraction puts context into the pieces that never appeared in the draft being read. A draft's own attached sources still go.
+
+A test caught the failure that would have made the whole thing worthless: a scope naming a draft that is no longer there fell through to reading the whole idea. Silently widening a scope is the exact thing pointing at a row exists to prevent, so it now reads nothing and says there is not enough here.
+
+Files: src/lib/agents/extract.ts, src/hooks/use-extract-ideas.ts, src/components/idea/idea-panel.tsx, src/lib/agents/registry.ts, src/__tests__/idea-extract.test.ts.
+
+## 2026-08-13 - The idea extractor
+
+Fragment could write from a brief and rewrite what you selected. It had no way to answer the question you actually have about a full idea: which parts of this are already finished thoughts.
+
+Extract pieces, above the pieces list in an idea, reads everything in that idea at once: the brief, every draft, every piece already there, and the sources attached to it. What comes back is one piece per atomic idea. Each holds exactly one thought, carries the context that thought needs to be understood by someone who has not read the rest, and holds nothing else. How many you get depends on how much the material genuinely contains.
+
+Everything it writes lands in the idea's inbox, because several pieces written at once out of material you did not re-read first is exactly the work that should not skip a review.
+
+The prompt is the feature, so it is editable like every other agent's: the extractor is a registry entry, and Settings, then AI, then Agents opens it.
+
+Two halves carry the tests. Assembling the source, where the failure is quietly sending another idea's pieces or a deleted draft. And reading the answer, where the failure is one unusable response after a paid call: fences are stripped, prose around the array is tolerated, entries with a title and no words are dropped, and a run is capped at twelve. An empty array is kept distinct from an unreadable answer, because "nothing here stands alone yet" is a real answer and not a failure.
+
+Files: src/lib/agents/extract.ts, src/hooks/use-extract-ideas.ts, src/app/api/extract/route.ts, src/lib/ai-client.ts, src/lib/defaults.ts, src/lib/types.ts, src/stores/settings-store.ts, src/lib/ai/connection-status.ts, src/lib/agents/registry.ts, src/components/settings/agents/agent-writes.ts, src/components/idea/idea-panel.tsx, src/__tests__/idea-extract.test.ts.
+
+## 2026-08-13 - Agents you can read, a calendar of what went out, and publishing from the row
+
+**Every AI process is an agent now, with a job and a prompt you can read.** Fragment ran four of them and could not tell you what any one was doing. Each had a hand-built settings panel, so the answer to "what is the AI in here, and what is it told to do" lived in four components and nowhere a person could look. They come from one registry of plain data instead: name, the job in a sentence, where you meet it, what it reads, the prompt, and what fills every placeholder in that prompt. Settings, then AI, then Agents lists all six and opens any one of them; the three bespoke panels are gone and their controls are rebuilt generically, so a new agent arrives complete without a component being written for it.
+
+Two of the six are built in. The title writer and the draft writer assemble their prompt when they run, from choices made at that moment, so they are listed with the prompt shown read-only rather than left out: an AI process nobody can see is exactly what this exists to end. Both say which model they borrow instead of showing a picker that would silently steer three agents at once. A test holds the invariant that makes the variable lists worth reading, that a documented placeholder appears in the prompt receiving it.
+
+The empty demo-video box went with them. It told users to drop a screen recording at a path, which reads like a bug to anyone who is not us.
+
+**Saying a draft went live, from the row it is listed on.** Marking something published lived in two menus, both reached by opening the piece first, and the idea panel is where you are actually looking when the thought arrives. Right-clicking any draft or piece row now offers Mark as published; an already-published row shows where it went, as a link back to the post. The link is asked for in a dialog rather than inside the menu, because a menu pinned to a point closes on any scroll and focusing a field inside it was enough to dismiss it mid-word. The form is unchanged and still shared with the Share and publish dropdowns.
+
+**A calendar of what is going out and what went out**, from the sidebar. Scheduling a piece and recording that one went live both already worked, but the two facts only ever appeared on the piece itself, so the question a schedule exists to answer had nowhere to be asked. The calendar is a month of both, with four states per piece: still ahead, due today, past its time with nothing published, or published. Two decisions worth keeping. A published piece sits on the day it really went live rather than the day it was planned for, because a calendar that redraws the past to match the plan is worth less than none. And a booked slot with nothing written in it is marked, which is the other half of "did this work": an empty Thursday is a missed post you can still fix on Monday. Nothing here posts anything.
+
+Files: src/lib/agents/registry.ts, src/components/settings/agents/*, src/components/settings/ai-section.tsx, src/components/publish/mark-published-menu-section.tsx, src/components/publish/mark-published-dialog.tsx, src/components/publish/mark-published-form.tsx, src/components/idea/idea-panel.tsx, src/lib/calendar/schedule.ts, src/components/calendar/content-calendar.tsx, src/components/app-shell.tsx, src/components/sidebar/sidebar.tsx, src/__tests__/agent-registry.test.ts, src/__tests__/calendar-schedule.test.ts.
+## 2026-08-13 - Menus that fit on the screen, and ideas you can act on in bulk
+
+**Every menu and tooltip now renders above the app rather than inside it.** They used to be positioned inside whichever panel opened them, which meant `overflow` on any ancestor cut them off no matter how high their z-index went. The idea row menu was the clearest case: it lived inside the sidebar's scroll container, so on an idea far enough down the list it was sliced off by the sidebar's own footer and Delete could not be reached at all. The same thing happened to the piece card and Share menus, the export menu, the resources popover, the snip preview, the publish "paste the link" form, and the settings model list, each clipped at whichever edge it reached first.
+
+There is now one `Portal` that renders to the end of the document, one layer scale in `src/lib/z-layers.ts` with menus and tooltips at the top of it, and `useMenuPlacement` returns viewport coordinates instead of positioning classes. Every menu listed above went through it, so each one flips, clamps and caps its height against the window rather than against the panel it was born in.
+
+**Sidebar ideas can be selected and acted on together.** Hold ⌘ (Ctrl on Windows) and click rows to tick more than one, shift-click for a run of them, or use the checkbox that appears when you hover a row. A bar above the list then pins, sets priority on, archives, deletes or groups the whole selection in one action, and each of those is a single Undo rather than one per idea. Right-clicking a ticked row offers the same actions; right-clicking any other row still acts on that row alone and leaves your selection where it is. Esc clears the ticks.
+
+**Grouping makes a parent idea.** Fragment has no folders and no tags, because an idea holding sub-ideas already is the grouping. So "Group under a new idea" creates an idea, moves everything you ticked inside it, and opens it for naming. Ideas nest exactly one level deep, which the store now enforces when ideas are moved and not only when they are created: an idea that already has sub-ideas of its own stays where it is, and the toast says how many were left alone rather than the action half-working in silence.
+## 2026-08-14 - Keep the short-form Edit prompt open (ARI-335)
+
+Clicking Edit in a short-form piece's selection toolbar did create the custom-instruction input, but focusing that input blurred the piece textarea. The card treated every textarea blur as leaving edit mode, immediately switched to its read view, and unmounted the prompt before the writer could see or use it. Focus transfers into the Refine menu now keep the piece editing while ordinary blurs still return to reading. User-created pieces already bypass Inbox and start in progress, as verified by the existing store coverage.
+
+**Files**: `src/components/shortform/piece-card.tsx`, `src/components/shortform/piece-refine-menu.tsx`, `src/components/shortform/live-markdown-textarea.tsx`, `src/__tests__/piece-refine-menu.test.tsx`.
+
+**Verification**: Regression coverage follows the real textarea selection, Edit click, prompt focus, cancellation, and outside-focus exit paths. All 838 tests, lint, TypeScript, and the production build pass.
+
+## 2026-08-13 - Publishing closes a piece, and says where it went
+
+Publishing worked and then went quiet. You could copy a piece for a platform, open a composer, publish to LinkedIn or Kit in one click, and let Fragment watch your Substack feed to confirm a post went live. Afterwards the app could not tell you what had actually shipped, or where any of it lived.
+
+**A draft published to Substack is now recorded.** It never was. Publishing a draft from the editor put it in a pending state that the Substack feed check could see, and when the check found your post it said so in a toast and then dropped it. The piece stayed at "ready" forever, and reloading lost even the pending state. A draft published from the editor and a piece published from the feed now travel the same path, so a confirmed post becomes published, with the live URL taken off your feed.
+
+**Any piece can be marked published by hand, including a draft.** "Mark as published", with an optional URL, was only on feed cards. Drafts open in the editor, which had no such action, so the piece most likely to be published manually on Substack was the one piece you could not mark.
+
+**A published piece shows where it went and when.** Fragment was already recording the URL and the date and showing neither. Published pieces now carry a green badge naming the platform and the date, linking straight to the post when a URL is on file. It appears on the card and at the top of the editor's publish menu. Pieces marked published without a URL say so plainly rather than looking broken.
+
+**Ideas show what came of them.** An idea in the sidebar gave no sign of having produced anything. Ideas with published work now carry a green marker and the date they last shipped, and the row's summary counts them. This counts long-form drafts as well as short-form pieces, which matters because a published Substack draft was exactly the thing the old counts could not see.
+
+Pieces that are archived stay out of an idea's published count, so the marker always points at work you can still open.
+
+**Published text is closed.** Once a piece is published, the editor and the feed card go read-only and say so: "This is published. Its words are closed." What shipped is a fact, and quietly rewriting it turns the publish record into a claim about text that no longer exists.
+
+There are two ways forward, because they answer different questions. **Duplicate** is for when the next version is a new piece: it copies the words and the brief into a fresh in-progress piece in the same idea, and inherits none of the publish history. **Edit anyway** is for a typo, where making a whole second piece would split one piece's history over a comma.
+
+Taking that second route is recorded rather than hidden. The first change stamps the piece, and the notice starts reading "Published, edited since <date>. What is here no longer matches what went out." The unlock lasts only as long as you are looking at that piece: reopen it later and it is closed again, because publishing is why it was closed.
+
+**Finishing a publish now asks for the link.** Publishing somewhere without an API, a Substack post or note, an X intent, happens in another tab, so Fragment cannot see it land. It used to guess by watching your Substack feed for a matching title, which works for posts and never fires for notes, since notes are not in the feed. The pending badge now opens a field for the published link, which works for anywhere you publish and gives you the real URL immediately. The feed check still runs and still resolves the badge on its own when it can.
+
+An idea's rows show this too: a published draft's line reads "this is published" with the date instead of a word count and a last-edited time, and a published short-form row gets a padlock beside its status dot.
+
+The receipt names a place rather than a format. A long-form draft published to Substack used to read "Published to Essay", which names nowhere you can go; it reads the URL now, so it says Substack, LinkedIn, X, or the site's own domain.
+## 2026-08-13 14:20 - Drafts written to a folder nobody reads can be rescued, and now they announce themselves
+The local file transport writes pieces to `~/.fragment/inbox` and trusts a running Fragment app to import them. If no such app is running, every push succeeds, reports cleanly, and delivers nothing: real drafts sitting on a disk nobody reads. `fragment-mcp drain` is the way back. With hosted mode configured it moves everything stranded locally into the account, matching ideas by normalized title rather than id (local ids were minted offline and mean nothing to the account, so matching stops a drain from cloning an idea you already have and minting the rest stops it dropping one). Pieces travel with the resolved idea id and go oldest first, so a re-draft carrying `supersedes` still retires the piece it replaced instead of leaving two near-identical pieces with no way to tell which is live. Drained files move to `.imported/` so a second run is a no-op, an unparseable file is reported and left in place for a retry, and `--dry-run` previews the whole thing. Separately, a file-mode write whose folder has never been imported from now returns a warning in the tool result the calling model reads, naming the two environment variables that fix it and pointing at `drain` for whatever is already stranded. A warning on stderr is a warning nobody in the loop sees.
+Files: packages/fragment-mcp/src/drain.ts, packages/fragment-mcp/src/bin.ts, packages/fragment-mcp/src/file-transport.ts, packages/fragment-mcp/src/transport.ts, packages/fragment-mcp/src/tools.ts, packages/fragment-mcp/src/__tests__/drain.test.ts, packages/fragment-mcp/README.md.
+
+## 2026-08-13 03:41 - fragment-mcp can connect to a hosted Fragment account
+The MCP server previously only wrote to the local inbox directory, which meant the agent and the Fragment app had to share a machine. Setting FRAGMENT_API_URL and FRAGMENT_API_TOKEN now switches fragment-mcp to a hosted transport: the same six tools, spoken over HTTPS to a Fragment server that supports agent tokens, scoped to that one account. Pushes are durable on response and reach every signed-in device through sync, no local app required. `fragment-mcp doctor` in hosted mode reports which account and scopes the token resolves to; setting exactly one of the two variables errors loudly instead of silently falling back to local files. The deliverability preflight moved onto the Transport interface because only the file transport needs one, and the HTTP transport gained unit tests for its error mapping.
+Files: packages/fragment-mcp/src/http-transport.ts, packages/fragment-mcp/src/file-transport.ts, packages/fragment-mcp/src/transport.ts, packages/fragment-mcp/src/tools.ts, packages/fragment-mcp/src/bin.ts, packages/fragment-mcp/src/index.ts, packages/fragment-mcp/src/__tests__/http-transport.test.ts, packages/fragment-mcp/README.md, docs/AGENT-API.md.
+
+## 2026-08-10 - The one-entity model, plus everything the hosted edition had gained since 3 August
+
+**Summary**: The open-source client had drifted eight days behind the hosted edition. This closes the gap in one pass and changes how Fragment stores what you write.
+
+### Everything you write is a piece, inside an idea
+
+A piece now holds its own text. Before, a long-form draft was two objects, a note holding the words and a piece pointing at it, and short-form cards were a third kind of thing. That distinction is gone: a draft and a card are the same object at different sizes, so nothing has to be converted into anything else to move between them.
+
+Your existing library migrates on first open. The migration snapshots the database, does a dry run, and verifies the result before it commits; if any of that fails, Fragment opens a repair screen rather than a half-moved library. Schema version 20 is untouched, and the new shape lands as version 21, so an existing library upgrades in place.
+
+### Writing
+
+- **Author spacing is preserved.** Blank lines and runs of spaces survive saving, reopening, sharing, publishing, and export. Empty lines render at full height in the read view instead of collapsing.
+- **Drag a passage to a new place in the draft.** Select text and move it, in the long-form editor and in short-form cards.
+- **The selection toolbar stays with the selection**, including when the text scrolls out of view and back, and it appears immediately over a selection that is already standing.
+- **Turn a highlighted passage into a piece of its own**, in the idea you are already writing in, without losing your place in what you were writing. Works in the long-form editor and inside a short-form piece. What you highlighted is left exactly where it was.
+- **Right-click menus** in the editor and the sidebar.
+
+### AI
+
+- **Generate with AI is one panel everywhere.** Format chips (freeform, essay, blog post, newsletter, script), length chips (auto, short, medium, long), the full context fields with a voice picker, and a model picker inline in the panel. A request typed into your own description beats the chips.
+- **Dictation.** Talk your prompt instead of typing it, using the browser's own speech recognition, with no round trip to a provider. Hidden where the browser does not support it.
+- **Flow asks before it writes**, and knows which idea it is standing in, so generated text arrives with the idea's context behind it. `/` works inside a short-form piece too.
+- **Audience and tone are inherited from the voice** you picked, so they stop being retyped per piece. Goal stays the piece's own.
+
+### Organising
+
+- **The sidebar collapses to a rail that grows back on hover.** It never collapses to nothing: a narrow strip stays at the left edge previewing what the library holds, and reaching for it expands the strip into the panel in place, over the writing rather than pushing it sideways. Click the pin in the panel's header, or ⌘\, to keep it open.
+- **Search collapses into a button** and expands in place of the create buttons.
+- **Archive instead of delete.** Put work away and reach it again, from a right-click menu, rather than choosing between keeping clutter and destroying it.
+- **Pin and priority flags** show in the list.
+- **Move a draft or a piece into the other list**, by dragging its row between Drafts and Pieces in the idea panel, or by right-clicking it. Nothing is copied and no words move: a draft and a piece are the same thing in a different shape, so the move keeps its text, its brief, its snips and its history. A piece waiting in the inbox stops waiting when you drag it into Drafts, because that drag is the decision it was waiting for. The same menu promotes either into an idea of its own, nested under the one it came from. Everything here undoes from the toast.
+- **Rename a draft or a piece from its row** in the idea panel: double-click it, or right-click and choose Rename. The box opens with the name the row is showing, and clearing it hands the label back to the writing, so the row follows the first line again.
+- **Drop a snip into the idea panel** and it becomes a draft or a piece there, named from the label the AI wrote for it, and leaves the bar. A snip is something set aside to be placed, so once it has been placed it stops sitting in the list of things still waiting. Undo puts it back exactly.
+- **Edit a snip where it sits.** Double-click one and the card becomes a text box holding the whole snip instead of the trimmed preview; click anywhere outside and it saves. Escape leaves it alone, and emptying the box is not a way to delete it. Edited words earn a fresh label, since the old one described text that no longer exists.
+- **Right-click a snip** for the same edit, a copy, a fresh label, insertion into the draft at your cursor, either of the two moves above, or delete.
+- **The snip bar expands, marks what landed**, and holds the idea's other pieces alongside its snips, so the LinkedIn version or last week's paragraph is a panel switch away while you write. Pulling words out of a piece copies them; the piece stays where it is.
+- **The inbox holds only work that arrived from elsewhere**, not your own writing.
+- **Comments moved onto pieces.** Comments used to be anchored to notes, which no longer exist, so they now live on the piece or idea they were left against, including the "started from a comment" backlink on an idea.
+
+### Also
+
+Vocabulary is consistent across the interface: idea, draft, piece, snip. The word "note" is retired from anything you read, enforced by a test. The Substack and sharing paths keep the spacing you wrote.
+
+**Not included**: accounts, sync, sharing, and the server code behind them, which belong to the hosted edition and are not part of this repo.
+
+**Verification**: 803 tests passing across 58 files, typecheck and production build clean.
+
+## 2026-08-07 - Prove a full library survives export, profile wipe, and restore (ARI-186)
+
+**Summary**: Added the missing end-to-end data-safety test for Fragment's full-library JSON backup. The test seeds every synced Dexie collection with linked legacy notes, snippets, note and piece versions, parent and child ideas, long-form and short-form pieces, idea-owned and piece-owned resources, reviews, comments, voices, samples, and settings. It exports through the production backup code, serializes and parses the file, deletes and recreates the real fake-IndexedDB database, imports through the production restore code, and compares the complete restored collection state with the export. Explicit assertions pin IDs, parent and owner relationships, piece statuses, tombstones, and created, updated, deleted, received, published, and pushed timestamps.
+
+**Files**: `src/__tests__/library-backup.test.ts` (new)
+
+**Verification**: 804 of 804 tests pass, `npx tsc --noEmit` is clean, and `npm run lint` exits 0 with 38 existing warnings and none in the backup test.
+
+## 2026-08-06 12:11 - Add comments: note/idea commentary that can be turned into ideas (2908316)
+
+**Commit**: `2908316`
+
+**Summary**: A new Dexie `comments` table (`id, noteId, ideaId, promotedIdeaId, createdAt`, DB version 20) backs note-first commentary units — exactly one of `noteId`/`ideaId` set, whichever surface was active when the comment was written (`commentHome` in the new `src/lib/comment-scope.ts`, mirroring but simplifying `Snippet`'s two-home pattern: a comment has one home for its whole life, not a dual carry). A bottom Comments panel (`src/components/comments/comments-panel.tsx`) pops up over the editor — toggled by a new "Comments" button in the sidebar's bottom button stack, independent of the Snip Bar / Timeline side panels — listing the active note/idea's comments oldest-first with a textarea to add new ones. Each comment carries a "Turn into an idea" button that calls content-store's existing `createIdea` seeded from the comment's body, stamps the comment's `promotedIdeaId`, and swaps the button for an "Ideized — open idea" link. The idea view (`idea-panel.tsx`) looks up its originating comment via a new indexed query (`findOriginComment`, keyed on `promotedIdeaId`) and shows a "Started from a comment" backlink that jumps back to the source note/idea and opens the panel. `comments` is registered in the sync protocol's `SYNCED_COLLECTIONS` list so outbox hooks and cloud-sync typing stay consistent with `notes`/`snippets`/etc — no server-side sync logic added here (that lives in the private `fragment-cloud` repo).
+
+**Files**: `src/lib/types.ts`, `src/lib/db.ts`, `src/lib/persistence.ts`, `src/lib/sync/protocol.ts`, `src/lib/comment-scope.ts` (new), `src/stores/data-store.ts`, `src/stores/app-store.ts`, `src/hooks/use-persistence.ts`, `src/components/comments/comments-panel.tsx` (new), `src/components/app-shell.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/idea/idea-panel.tsx`, `src/__tests__/comment-scope.test.ts` (new), `src/__tests__/data-store.test.ts`.
+
+**Verification**: `npx tsc --noEmit` clean; `npm run lint` exits 0 errors (32 pre-existing warnings, unchanged by this diff); `npx vitest run` — 47 files, 670 tests passing; `npm run build` succeeds.
+
+## 2026-08-03 12:33 - Preserve valid mixed-block editor reorders (ARI-274)
+
+**Summary**: Follow-up validation of same-editor selection reordering found that deleting a raw ProseMirror range could leave a moved heading and adjacent paragraph with the wrong destination block type. Reorders now require the editor's live selection to match the captured drag range, copy that selection's native slice, and remove it through ProseMirror's selection-replacement semantics before mapping the drop point. Moving a whole heading through the start of the following paragraph into paragraph text therefore produces a valid paragraph structure instead of promoting the destination to a heading, while stale selection changes cancel safely.
+
+**Files**: `src/lib/textarea-selection.ts`, `src/__tests__/textarea-selection.test.ts`, `docs/FEATURES.md`
+
+**Verification**: 690 tests pass with 17 opt-in integration tests skipped, including focused coverage for mixed heading-to-paragraph movement and stale selection rejection; `npm run lint` exits with 0 errors and 31 existing warnings; `npx tsc --noEmit` and the production build are clean.
 ## 2026-08-03 05:35 - Fixed eslint linting agent worktrees' full .next builds as source (68cd16e)
 
 **Commit**: `68cd16e` on `agent/offline-cloud-accounts`, pushed for PR #9
@@ -31,6 +253,15 @@ While closing this out, also fixed a real bug the split surfaced: `buildChatRequ
 **Files**: `src/lib/session-cookie.ts`, `src/lib/library-backup.ts`, `src/hooks/use-cloud-session.ts`, `src/components/settings/account-section.tsx` (new); `src/app/api/{generate,edit,analyze-voice,label}/route.ts`, `src/lib/ai/provider-runtime.ts` (auth-status fix); `README.md`, `.env.example`, `package.json`, `src/components/app-shell.tsx`, `src/components/settings/settings-nav.tsx`, `src/components/sidebar/sidebar.tsx`, plus deletion of `src/lib/server/*`, the DB-backed `src/app/api/v1/*` routes and `src/app/r/*`, `db/migrations/*`, `scripts/db-migrate.mjs`, `scripts/verify-sync.mjs`, and related tests.
 
 **Verification**: `tsc --noEmit` clean, 628/628 tests passing (this includes fixing the 2 that were failing from the status-code mismatch above). Production endpoints on thinkinginpieces.com verified live after redeploying from fragment-cloud: landing page 200, `/api/v1/auth/google/start` 307 to Google with correct client_id/redirect_uri/PKCE, `/api/v1/auth/session` returns `{"user":null}`. Olympus's own instance (`https://olympus.tailf278e9.ts.net:8444/`) rebuilt from fragment-cloud and verified against the same production Neon DB.
+## 2026-08-03 05:18 - Add Fragment context menus and restore selection actions (c61fbd1)
+
+**Commit**: `c61fbd1`
+
+**Summary**: Editor selections, Snip Bar cards, and standalone sidebar notes now expose warm dark Fragment context menus instead of relying on generic browser actions. Selected editor text offers cut, copy, paste, Snip Bar movement, AI generation, the upcoming image-generation affordance, and Settings while right-clicks outside a Fragment-specific target remain native. Clipboard actions use ProseMirror's rich serializer and paste parser so marks, links, and block structure survive. Snippet cards can insert at the current editor selection, copy, re-label, or delete; when no draft is open, insertion leaves the snippet intact and explains what is needed. Note cards can open, export Markdown from the latest per-keystroke editor snapshot, or delete. The inline Snip, Concise, Elaborate, and Edit toolbar now checks an existing focused selection immediately and follows mouse, keyboard, and editor-focus selection paths without regressing its viewport-aware placement.
+
+**Files**: `src/components/ui/context-menu.tsx` (new), `src/components/editor/editor.tsx`, `src/components/editor/inline-edit-menu.tsx`, `src/components/helper-bar/snippet-card.tsx`, `src/components/sidebar/sidebar.tsx`, `src/components/app-shell.tsx`, `src/stores/app-store.ts`, `src/lib/editor/context-menu-clipboard.ts` (new), `src/lib/export.ts`, `src/__tests__/context-menu.test.tsx` (new), `src/__tests__/context-menu-actions.test.ts` (new), `src/__tests__/inline-edit-menu.test.tsx`, `src/__tests__/editor-snippet-movement-history.test.tsx`
+
+**Verification**: 688 tests pass with 17 opt-in integration tests skipped; `npm run lint` exits with 0 errors and 31 existing warnings; `npx tsc --noEmit` is clean.
 
 ## 2026-08-03 - Add privacy policy and terms of service pages (5d4c4eb)
 

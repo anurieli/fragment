@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2 } from "lucide-react";
+import { Z_FLOATING } from "@/lib/z-layers";
+import { Share2, FileText, Code, Download, Printer, MessageSquare, Upload, Rss, FileCode2, Mail, Link2, CheckCircle2 } from "lucide-react";
+import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
@@ -13,6 +16,7 @@ import {
   createKitBroadcast,
   deriveKitSubject,
   markdownToCleanHtml,
+  preserveEmptyParagraphs,
 } from "@/lib/publish";
 import {
   copyAsMarkdown,
@@ -25,11 +29,13 @@ import {
 import { buildReviewFile, reviewFileName, parseReviewReturn } from "@/lib/review";
 import { ReviewPanel } from "@/components/review/review-panel";
 import { ShareDialog } from "@/components/review/share-dialog";
+import { MarkPublishedForm } from "@/components/publish/mark-published-form";
+import { PublishReceipt } from "@/components/publish/publish-receipt";
 import { isHosted } from "@/lib/edition";
 import type { Editor } from "@tiptap/react";
 
 interface ExportMenuProps {
-  noteId: string;
+  pieceId: string;
   editor: Editor;
 }
 
@@ -45,19 +51,20 @@ function triggerHtmlDownload(html: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ExportMenu({ noteId, editor }: ExportMenuProps) {
+export function ExportMenu({ pieceId, editor }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const [reviewPanelOpen, setReviewPanelOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [kitDraftBusy, setKitDraftBusy] = useState(false);
+  const [markFormOpen, setMarkFormOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   // This menu hangs off a toolbar that can sit low in the window, and it's
   // long enough (publish, copy, download, review) to run off the bottom.
   const placement = useMenuPlacement(open, menuRef, dropdownRef);
-  const { notes, createVersion } = useDataStore();
-  const markNotePublishPending = useDataStore((s) => s.markNotePublishPending);
+  const createVersion = useDataStore((s) => s.createVersion);
+  const updatePiece = useContentStore((s) => s.updatePiece);
   const userProfile = useSettingsStore((s) => s.settings.userProfile);
   const showToast = useToastStore((s) => s.showToast);
   const substackPublicationUrl = userProfile.substackPublicationUrl;
@@ -65,7 +72,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   const kitApiKey = userProfile.kitApiKey;
   const hasKitKey = Boolean(kitApiKey?.trim());
   const saveReviewReturn = useReviewStore((s) => s.saveReviewReturn);
-  const note = notes[noteId];
+  const piece = useContentStore((s) => s.pieces[pieceId]);
   // Link sharing needs a server to point the link at. The self-hosted and
   // desktop builds keep the emailed-file route, which needs nothing.
   const canShareLink = isHosted();
@@ -73,17 +80,24 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      // The dropdown is portaled to <body>, so it is not inside menuRef any
+      // more. Both have to be checked or the first click on a menu item
+      // closes the menu out from under itself.
+      if (menuRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+      setMarkFormOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
   const getMarkdown = useCallback((): string => {
+    // Same NBSP-sentinel pass the editor applies at save time: without it,
+    // empty paragraphs collapse to nothing in every copy/share/download.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (editor.storage as any).markdown.getMarkdown() as string;
+    return preserveEmptyParagraphs((editor.storage as any).markdown.getMarkdown() as string);
   }, [editor]);
 
   const getHtml = useCallback((): string => {
@@ -94,17 +108,21 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     return editor.getJSON();
   }, [editor]);
 
-  if (!note) return null;
+  if (!piece) return null;
+
+  // A fragment's title is optional; the download, review-file and share
+  // helpers all already turn an empty one into "Untitled".
+  const title = piece.title ?? "";
 
   async function handleCopyMarkdown() {
-    createVersion(noteId, "Copied as Markdown", "export-md");
+    createVersion(pieceId, "Copied as Markdown", "export-md");
     await copyAsMarkdown(getMarkdown());
     showToast("Copied as Markdown");
     setOpen(false);
   }
 
   async function handleCopyHtml() {
-    createVersion(noteId, "Copied as HTML", "export-html");
+    createVersion(pieceId, "Copied as HTML", "export-html");
     await copyAsHtml(getHtml());
     showToast("Copied as HTML");
     setOpen(false);
@@ -115,7 +133,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   // Tiptap editor markup — which is what pastes cleanly into Substack's
   // rich-text composer. Distinct from "Copy as HTML" above (editor.getHTML()).
   async function handleCopyCleanHtml() {
-    createVersion(noteId, "Copied as clean HTML", "export-html");
+    createVersion(pieceId, "Copied as clean HTML", "export-html");
     await copyForPlatform(getMarkdown(), "html");
     showToast("Copied as clean HTML");
     setOpen(false);
@@ -128,17 +146,25 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     // user-gesture timing for why the ordering matters here.
     openComposer("substack", { publicationUrl: substackPublicationUrl });
     void copyForPlatform(getMarkdown(), "substack");
-    markNotePublishPending(noteId);
+    // Stamps the same persisted field the feed's publish path stamps, so the
+    // RSS verification loop treats a draft published from the editor exactly
+    // like one published from a card: a feed match flips it to "published"
+    // with a verified publish record. This used to write to an in-memory map
+    // whose match branch only fired a toast, so a draft confirmed live on
+    // Substack never actually recorded the publish (and lost even the pending
+    // state on reload).
+    updatePiece(pieceId, { publishAttemptedAt: Date.now() });
     showToast("Copied. Opening Substack — Fragment will confirm once it's live.");
     setOpen(false);
   }
 
-  // ARI-164: a Kit draft is not "published" — notes have no status field to
-  // begin with, so unlike the piece-share-menu's "Schedule on Kit" (which
-  // does flip a piece to "published"), this action is toast-only. Nothing
-  // is stamped: `markNotePublishPending` is reserved for the Substack RSS
-  // verified-publish loop (use-publish-verification.ts polls the Substack
-  // feed specifically), which a Kit draft has no bearing on.
+  // ARI-164: a Kit draft is not "published", it is a draft sitting in someone
+  // else's editor, so unlike the piece-share-menu's "Schedule on Kit" (which
+  // does flip a fragment to "published") this action is toast-only and leaves
+  // the fragment's status alone. Nothing is stamped either: `publishAttemptedAt`
+  // is reserved for the Substack RSS verified-publish loop
+  // (use-publish-verification.ts polls the Substack feed specifically), which a
+  // Kit draft has no bearing on.
   async function handleSendToKitDraft() {
     if (!hasKitKey || kitDraftBusy) return;
     setKitDraftBusy(true);
@@ -146,7 +172,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
       const markdown = getMarkdown();
       const result = await createKitBroadcast({
         apiKey: kitApiKey,
-        subject: deriveKitSubject(note.title, markdown),
+        subject: deriveKitSubject(title, markdown),
         contentHtml: markdownToCleanHtml(markdown),
       });
       showToast(`Draft created in Kit — finish it there: ${result.url}`);
@@ -159,40 +185,40 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
   }
 
   function handleDownloadMd() {
-    createVersion(noteId, "Downloaded as .md", "download-md");
-    const filename = downloadAsMarkdown(getMarkdown(), note.title);
+    createVersion(pieceId, "Downloaded as .md", "download-md");
+    const filename = downloadAsMarkdown(getMarkdown(), title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   function handleDownloadHtml() {
-    createVersion(noteId, "Downloaded as .html", "download-html");
-    const filename = downloadAsHtml(getHtml(), note.title);
+    createVersion(pieceId, "Downloaded as .html", "download-html");
+    const filename = downloadAsHtml(getHtml(), title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   async function handleDownloadPdf() {
-    createVersion(noteId, "Downloaded as PDF", "download-pdf");
-    const filename = await downloadAsPdf(getHtml(), note.title);
+    createVersion(pieceId, "Downloaded as PDF", "download-pdf");
+    const filename = await downloadAsPdf(getHtml(), title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   async function handleDownloadDocx() {
-    createVersion(noteId, "Downloaded as .docx", "download-docx");
+    createVersion(pieceId, "Downloaded as .docx", "download-docx");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filename = await downloadAsDocx(getJson() as any, note.title);
+    const filename = await downloadAsDocx(getJson() as any, title);
     showToast(`Downloaded ${filename}`);
     setOpen(false);
   }
 
   function handleSendForReview() {
     const html = buildReviewFile(
-      { title: note.title, markdown: getMarkdown() },
+      { title, markdown: getMarkdown() },
       { authorName: userProfile.displayName, authorEmail: userProfile.email }
     );
-    triggerHtmlDownload(html, reviewFileName(note.title));
+    triggerHtmlDownload(html, reviewFileName(title));
     showToast("Review file downloaded — email it to your reviewer");
     setOpen(false);
   }
@@ -210,7 +236,7 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
     try {
       const text = await file.text();
       const review = parseReviewReturn(text);
-      await saveReviewReturn(noteId, review);
+      await saveReviewReturn(pieceId, review);
       showToast(
         `Imported ${review.comments.length} comment${review.comments.length === 1 ? "" : "s"} from ${review.reviewerName || "reviewer"}`
       );
@@ -231,11 +257,22 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
       </button>
 
       {open && (
+        <Portal>
         <div
           ref={dropdownRef}
-          className={`absolute right-0 ${placement.className} w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl z-20 overflow-y-auto`}
-          style={{ animation: "fadeIn 0.12s ease-out", maxHeight: placement.maxHeight || undefined }}
+          className={`fixed w-[220px] bg-surface border border-border-strong rounded-[var(--radius-lg)] shadow-2xl ${Z_FLOATING} overflow-y-auto`}
+          style={{ animation: "fadeIn 0.12s ease-out", ...placement.style }}
         >
+          {/* Where this already went, if anywhere. A draft that has been
+              published had no way of saying so on this surface: the record was
+              written and then never read. */}
+          {piece.publish && (
+            <>
+              <PublishReceipt publish={piece.publish} variant="line" />
+              <div className="mx-3 border-t border-border" />
+            </>
+          )}
+
           <button
             onClick={handlePublishToSubstack}
             disabled={!hasSubstackPub}
@@ -264,6 +301,23 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
               {kitDraftBusy ? "Sending…" : "Send to Kit as draft"}
             </span>
           </button>
+          <button
+            onClick={() => setMarkFormOpen((v) => !v)}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
+            title="Record that this went live somewhere, with its URL"
+          >
+            <CheckCircle2 size={13} className="shrink-0" />
+            <span className="flex-1 text-left">Mark as published…</span>
+          </button>
+          {markFormOpen && (
+            <MarkPublishedForm
+              piece={piece}
+              onDone={() => {
+                setMarkFormOpen(false);
+                setOpen(false);
+              }}
+            />
+          )}
           <button
             onClick={handleCopyCleanHtml}
             className="flex items-center gap-3 w-full px-4 py-2.5 text-[12px] text-text-secondary hover:bg-surface-2 hover:text-text-primary transition-all duration-150"
@@ -373,16 +427,17 @@ export function ExportMenu({ noteId, editor }: ExportMenuProps) {
             </>
           )}
         </div>
+        </Portal>
       )}
 
       {reviewPanelOpen && (
-        <ReviewPanel noteId={noteId} editor={editor} onClose={() => setReviewPanelOpen(false)} />
+        <ReviewPanel pieceId={pieceId} editor={editor} onClose={() => setReviewPanelOpen(false)} />
       )}
 
       {shareDialogOpen && (
         <ShareDialog
-          noteId={noteId}
-          title={note.title}
+          piece={piece}
+          title={title}
           // Read at click time, not render time, so the frozen copy reviewers
           // see is what was on screen when the link was made.
           getMarkdown={getMarkdown}

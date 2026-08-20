@@ -1,90 +1,119 @@
-# Fragment — Quick Start
+# Fragment: Quick Start
 
-## What is this?
+Fragment is a place to put thoughts before you know what they are. You write
+something down, it gets kept, and later it turns into a post, an essay, or
+nothing at all. You never have to decide up front.
 
-Fragment is a writing tool where you treat your essay like a puzzle. Write freely, pull out pieces you want to move, and drop them back in where they belong. Three core features: **Snip**, **Flow**, and **Refine**.
+Four words cover everything:
+
+- **Idea** is a container. It holds one line of thinking.
+- **Fragment** is a single piece of writing inside an idea. Three words or three
+  thousand, it is the same thing.
+- **Draft** is a fragment that grew long. Same object, bigger.
+- **Snip** is a passage you cut out to move around while you write.
 
 ## The three panels
 
 ```
-[ Sidebar ]  [ Editor ]  [ Snip Bar ]
-  Your         Where       Your snippet
-  notes        you write   staging area
+[ Sidebar ]      [ Center ]                [ Snip Bar ]
+  Your ideas       Where you write           Passages you
+                   (draft or fragments)      pulled out
 ```
 
-- **Sidebar** (left): All your notes. Click one to open it.
-- **Editor** (center): Your writing surface. Markdown renders live.
-- **Snip Bar** (right): Holds text fragments you've pulled out.
+- **Sidebar** (left). Your ideas, and nothing else. Ideas can hold sub-ideas one
+  level down. Search is at the top; settings, help, and feedback at the bottom.
+  `⌘\` hides it.
+- **Center**. Either the editor, for a draft, or the fragment feed, for
+  everything short. `⌘1` and `⌘2` switch between the two.
+- **Snip Bar** (right). Cards holding passages you snipped out. It also hosts
+  your version timeline. `⌘H` toggles it, and it slides open when you hover the
+  tab at the right edge.
 
-## First steps
+Open an idea and a fourth column appears between the sidebar and the center,
+listing that idea's drafts and fragments.
 
-1. **Create a note**: Click "New note" in the sidebar
-2. **Set note context**: Fill in the "GOAL" field above the editor (and include audience/theme as needed) — e.g., "Argue that remote work is better"
-3. **Generate a title**: Add a clear working title so the note has direction from the start
-4. **Write**: Just type. Markdown works live — `## Heading`, `**bold**`, `> quote`, etc.
+## Step 1: Write a thought
 
-## Onboarding discussion checklist
+Click **New idea** in the sidebar. Fragment makes the idea and your first
+fragment together, and puts the cursor in it. Start typing.
 
-- How to edit model configuration
-- How to choose the model for the task
-- What each side panel does (sidebar, editor, Snip Bar)
-- How **Snip** works end-to-end (create, label, stage, and reinsert)
-- How **Flow** works (slash commands for inline generation)
-- How **Refine** works (highlight → concise, elaborate, or custom edit)
-- How to add strong note context (goal, audience, theme)
-- How to generate and refine titles
-- Where image generation settings and themes live in Settings
+That is the whole capture step. No format to pick, no title required, no folder.
+Your text is a fragment, it lives in an idea, and it saves as you type. The short
+ones stay short. The ones with more in them grow.
 
-## Snip — Moving text around
+## Step 2: Catch a tangent without leaving the page
 
-This is the core of Fragment. When a sentence or paragraph feels out of place:
+You are writing, and a different thought shows up in the middle of a sentence.
+Type it out, then select it and press **Idea** in the little toolbar that appears
+over your selection.
 
-1. **Select** the text in the editor
-2. **Snip it**: Click "Snip" in the floating toolbar (or drag the selection to the Snip Bar)
-3. The text stays in your essay AND appears as a card in the Snip Bar
-4. AI automatically labels it so you can remember what it is
-5. **Drag it back** wherever it belongs — a gold line shows exactly where it'll go
+Fragment files it as a new idea of its own, with your selected text as its first
+fragment, and offers to take you there. Take it or ignore it. Either way, what
+you were writing is untouched, you have not moved, and you never had to say what
+the tangent was.
 
-You can drag snippets to reorder them in the Snip Bar too.
+This is different from **Snip**, right next to it. Snip parks a passage in the
+Snip Bar so you can move it somewhere else in the same piece. Idea files a
+tangent as something to write later.
 
-## Flow — AI generation
+## Step 3: Let a fragment grow into a draft
 
-On an empty line, type `/` then your instruction:
-- `/write a transition between these paragraphs`
-- `/expand on the argument above`
-- `/summarize the key points`
+Short fragments live as cards in the idea's feed. One card fills the screen; `J`
+and `K` move between them, `Enter` opens one for editing, `Esc` closes it. What
+you type is exactly what gets published, spacing and all.
 
-Press Enter — AI generates content that fits between what's above and below, matching your writing style.
+When a fragment turns out to have an essay in it, change its format to a
+long-form one (essay, Substack, or script) and it opens in the editor instead:
+live markdown, the Snip Bar, and version history.
 
-## Refine — Inline editing
+Nothing moves and nothing is copied. It is the same fragment, still in the same
+idea, keeping its text, its snips, and its history. While you are in a draft:
 
-Highlight any text in the editor and a floating toolbar appears:
+- Select text for **Concise**, **Elaborate**, or **Edit** with your own
+  instruction.
+- Type `/` on an empty line to have Fragment write the next bit. You see it
+  before it goes in.
+- Select a passage and hit **Snip** to park it in the Snip Bar. It stays in your
+  document too. Drag it back in anywhere; a gold line shows where it will land.
+- `⌘S` saves a named snapshot, `⌘T` opens the timeline to browse and restore
+  them.
 
-- **Snip** — Add the selection as a snippet
-- **Concise** — AI makes it tighter
-- **Elaborate** — AI adds more detail
-- **Edit** — Type your own instruction (e.g., "make this funnier", "rewrite as a question")
+Add a goal, audience, and tone from the toolbar when you have them. Every AI
+action reads them, along with the brand voice you set in Settings.
 
-The toolbar stays beside the highlighted text and flips above or below it as needed to remain inside the visible editor.
+## Step 4: Publish it, or send it to someone
 
-All edits are context-aware — the AI sees the surrounding text and your note's goal/audience/tone. Undo with `Cmd+Z` if you don't like the result.
+From a fragment's share menu you can copy it formatted for X, LinkedIn, or
+Substack (byte for byte, nothing reflowed), open that platform's composer, or
+publish straight to Substack, Kit, or LinkedIn if you have connected them in
+Settings.
 
-## Keyboard shortcuts
+To get feedback first, use the editor's share menu:
 
-| Key | Action |
-|-----|--------|
-| `Cmd+H` | Toggle Snip Bar |
-| `Cmd+\` | Toggle sidebar |
-| `Cmd+Shift+F` | Search all notes |
-| `/` (empty line) | Flow — AI generation |
+- **Get a link** for a reader to open and comment on. They need no account.
+- **Send for review** downloads a single self-contained file you can email. It
+  works offline, and they still need no account.
 
-## Settings
+Their comments come back into a review panel. Click one and Fragment finds that
+passage in your current draft and jumps you to it, even if you have edited
+around it since.
 
-Click the gear icon at the bottom of the sidebar. You can:
-- Enter your Gemini API key
-- Toggle AI features on/off (Snip labeling, Flow, Refine)
-- Change/select the AI model per feature
-- Edit model configuration
-- Edit the prompt templates
-- Configure image generation settings
-- Choose app themes
+## Shortcuts worth knowing
+
+| Key | Does |
+|---|---|
+| `⌘\` | Show or hide the sidebar |
+| `⌘H` | Show or hide the Snip Bar |
+| `⌘1` / `⌘2` | Switch between the draft and the fragment feed |
+| `⌘T` | Version timeline |
+| `⌘S` | Save a snapshot |
+| `⌘⇧F` | Search everything |
+| `⌘/` | Help |
+| `/` on an empty line | Write the next bit with AI |
+
+## Before AI does anything
+
+Open Settings (the gear at the bottom of the sidebar) and connect a provider
+under AI. Until you do, writing works normally and the AI actions stay quiet.
+While you are there, set up a **brand voice**: describe how you write, paste in a
+few samples, and Fragment learns the shape of it.

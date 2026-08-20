@@ -68,9 +68,47 @@ Rewrite the selected text according to the instruction. Your result must:
 
 Return ONLY the edited text — no explanations, no markdown code fences, no quotes, just the replacement text.`;
 
-export const DEFAULT_NOTE_CREATION_PROMPT = `You are a writing assistant. The user wants to create a new document from scratch.
+/** Document shape for note generation. Deliberately document-shaped only:
+ * short-form platform content (LinkedIn posts, tweets) belongs to pieces,
+ * not notes, so it is not offered here. */
+export type GenerateFormat = "freeform" | "essay" | "blog" | "newsletter" | "script";
+export type GenerateLength = "auto" | "short" | "medium" | "long";
 
-Essay goal: "{goal}"
+const FORMAT_INSTRUCTIONS: Record<GenerateFormat, string> = {
+  freeform: "Use whatever structure fits the content best",
+  essay: "Shape it as an essay: one clear through-line from opening to conclusion, built from paragraphs rather than bullet points, with headings only if the piece is long enough to need them",
+  blog: "Shape it as a blog post: a hook up top, scannable sections with headings, short paragraphs",
+  newsletter: "Shape it as a newsletter issue: address the reader directly, open strong, and separate the segments clearly",
+  script: "Shape it as a spoken script: conversational sentences meant to be read aloud, clear beats, minimal formatting",
+};
+
+const LENGTH_INSTRUCTIONS: Record<GenerateLength, string> = {
+  auto: "Choose a length that fits the subject and format",
+  short: "Keep it short: roughly 150-300 words",
+  medium: "Aim for roughly 500-800 words",
+  long: "Write a full-length piece: roughly 1,200-2,000 words",
+};
+
+/** Compose the note-creation prompt template for the chosen format and length.
+ * Format/length are baked into the template client-side (they come from fixed
+ * enums, never user text); {goal}, {audience}, {tone}, {remember} and
+ * {userInstruction} stay as placeholders for /api/generate to substitute. */
+export function buildNoteCreationPrompt(
+  format: GenerateFormat = "freeform",
+  length: GenerateLength = "auto",
+): string {
+  return `You are a writing assistant. The user wants to create a new document from scratch.
+
+The document belongs to an idea the user is developing. Here is what is
+already in that idea, including anything they have written on it and the
+sources they attached:
+---
+{contextAbove}
+---
+Use this to stay on their specific argument rather than writing a generic
+treatment of the topic, and do not restate what they have already written.
+
+Document goal: "{goal}"
 Target audience: "{audience}"
 Tone: "{tone}"
 Additional context to remember: "{remember}"
@@ -80,11 +118,17 @@ The user described what they want to write:
 
 Write a first draft based on their description. The draft should:
 1. Start with a clear, compelling title as an H1 heading
-2. Be well-structured with appropriate headings and paragraphs
-3. Serve as a solid starting point that the user can refine
-4. Be written in a natural, engaging tone
+2. ${FORMAT_INSTRUCTIONS[format]}
+3. ${LENGTH_INSTRUCTIONS[length]}
+4. Serve as a solid starting point that the user can refine
+5. Be written in a natural, engaging tone
 
-Return ONLY the draft content in markdown — no explanations, no code fences, just the document.`;
+If the user's own description asks for a specific format or length, follow their description over the guidance above.
+
+Return ONLY the draft content in markdown: no explanations, no code fences, just the document.`;
+}
+
+export const DEFAULT_NOTE_CREATION_PROMPT = buildNoteCreationPrompt();
 
 // Sent through the same /api/generate substitution as Flow, so it may only use
 // the placeholders that route knows: {goal}, {audience}, {tone}, {remember},
@@ -135,6 +179,43 @@ Rules:
 - Keep every field within its limit. Omit nothing; use [] only if truly nothing applies.
 - Output the raw JSON object and nothing else.`;
 
+// The extractor's whole difficulty is in the word "atomic". Left looser, a
+// model returns an outline: five headings that only mean something read in
+// order, each depending on the one before it. The rules below are all aimed at
+// that single failure, which is why they are stated as tests a piece has to
+// pass rather than as style advice.
+export const DEFAULT_EXTRACT_PROMPT = `You are reading everything a writer has collected under one idea. Your job is to find the parts of it that already stand on their own, and to lift each one out as a separate finished piece.
+
+Here is everything in the idea:
+---
+{source}
+---
+
+Voice and audience to write in:
+Goal: "{goal}"
+Audience: "{audience}"
+Tone: "{tone}"
+Additional context to remember: "{remember}"
+
+Find every section, argument, observation or concept in the material above that is a complete idea by itself. For each one, write a piece.
+
+What makes a piece:
+- It contains exactly ONE idea. Not a theme with three examples under it, not a list of related points. One.
+- It carries the context needed to understand that idea. A reader who has never seen the rest of this material must be able to read the piece alone and get it. Bring across whatever setup, definition or example the idea depends on.
+- It contains nothing else. No lead-in to the next piece, no reference to "as mentioned above", no summary of the wider idea it came from.
+- It is written, not extracted verbatim. Use the writer's own words and framing where they are good, and write the connective tissue the piece needs to stand alone.
+- It sounds like the writer. Match the diction and rhythm of the material above.
+
+How many: as many as the material genuinely contains, and no more. Four strong pieces beat nine thin ones. If a section only makes sense as part of a larger argument, leave it out rather than padding it into a piece.
+
+Return ONLY a JSON array (no prose, no code fences), each entry:
+{
+  "title": "a short plain title for this one idea",
+  "body": "the piece itself, in markdown, with no title heading inside it"
+}
+
+Return the raw JSON array and nothing else.`;
+
 export const DEFAULT_SETTINGS: AppSettings = {
   id: "default",
   providerCredentials: {
@@ -174,6 +255,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
     inlineEdit: {
       provider: "openrouter",
       model: "google/gemini-2.0-flash-001",
+      modelsByProvider: {
+        openrouter: "anthropic/claude-sonnet-4.6",
+        openai: "gpt-4o",
+        anthropic: "claude-sonnet-4-5",
+        perplexity: "sonar-pro",
+        codex: "gpt-5.4",
+        ollama: "llama3",
+      } satisfies Partial<Record<AIProvider, string>>,
+    },
+    // The extractor reads a whole idea and writes several pieces from it, which
+    // is the heaviest single call the app makes. It gets the stronger models by
+    // default rather than the cheap ones the labeler runs on.
+    ideaExtractor: {
+      provider: "openrouter",
+      model: "anthropic/claude-sonnet-4.6",
       modelsByProvider: {
         openrouter: "anthropic/claude-sonnet-4.6",
         openai: "gpt-4o",
@@ -227,5 +323,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     enabled: true,
     maxContextChars: 3000,
     promptTemplate: DEFAULT_INLINE_EDIT_PROMPT,
+  },
+  ideaExtractor: {
+    enabled: true,
+    promptTemplate: DEFAULT_EXTRACT_PROMPT,
   },
 };

@@ -1,10 +1,8 @@
 import type { ContentPiece, Idea } from "@/lib/content-engine";
-import type { Note } from "@/lib/types";
 
-export type EmptyCreationKind = "note" | "idea" | "piece";
+export type EmptyCreationKind = "idea" | "piece";
 
 const pendingEmptyCreations: Record<EmptyCreationKind, Set<string>> = {
-  note: new Set(),
   idea: new Set(),
   piece: new Set(),
 };
@@ -18,26 +16,12 @@ export function consumeEmptyCreation(kind: EmptyCreationKind, id: string): boole
 }
 
 export function resetEmptyCreations(): void {
-  pendingEmptyCreations.note.clear();
   pendingEmptyCreations.idea.clear();
   pendingEmptyCreations.piece.clear();
 }
 
 function blank(value: string | undefined): boolean {
   return !value?.trim();
-}
-
-export function isEmptyNote(note: Note): boolean {
-  return (
-    blank(note.title) &&
-    blank(note.subtitle) &&
-    blank(note.content) &&
-    blank(note.goal) &&
-    blank(note.audience) &&
-    blank(note.tone) &&
-    blank(note.remember) &&
-    note.voiceId === undefined
-  );
 }
 
 interface IdeaUsage {
@@ -52,9 +36,15 @@ export function isEmptyIdea(idea: Idea, usage: IdeaUsage): boolean {
     idea.origin === "user" &&
     defaultTitle &&
     blank(idea.summary) &&
+    blank(idea.goal) &&
+    blank(idea.audience) &&
+    blank(idea.tone) &&
+    blank(idea.remember) &&
     idea.priority === 0 &&
     idea.pinnedAt === undefined &&
     idea.voiceId === undefined &&
+    idea.archivedAt === undefined &&
+    idea.deletedAt === undefined &&
     !usage.hasChildren &&
     !usage.hasPieces &&
     !usage.hasResources
@@ -68,16 +58,26 @@ interface PieceUsage {
 export function isEmptyPiece(piece: ContentPiece, usage: PieceUsage): boolean {
   return (
     piece.origin === "user" &&
-    piece.noteId === undefined &&
-    piece.format === "other" &&
-    piece.status === "inbox" &&
+    piece.status === "in-progress" &&
+    piece.reviewQueue === undefined &&
     blank(piece.title) &&
     blank(piece.body) &&
+    blank(piece.subtitle) &&
+    blank(piece.goal) &&
+    blank(piece.audience) &&
+    blank(piece.tone) &&
+    blank(piece.remember) &&
+    piece.voiceId === undefined &&
+    piece.legacyNoteId === undefined &&
     piece.priority === 0 &&
+    piece.pinnedAt === undefined &&
     piece.scheduledAt === undefined &&
     piece.publish === undefined &&
     piece.publishAttemptedAt === undefined &&
+    piece.editedAfterPublishAt === undefined &&
     piece.agentMeta === undefined &&
+    piece.archivedAt === undefined &&
+    piece.deletedAt === undefined &&
     !usage.hasResources
   );
 }

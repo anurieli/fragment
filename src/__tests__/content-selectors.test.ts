@@ -7,6 +7,7 @@ import {
   pieceCountsForIdea,
   pinnedFirst,
   publishQueue,
+  publishRollupForIdea,
   shortformOnly,
   staleness,
   workingOn,
@@ -52,6 +53,11 @@ describe("publishQueue", () => {
     ];
     const queue = publishQueue(pieces);
     expect(queue.map((p) => p.id)).toEqual(["a"]);
+  });
+
+  it("never publishes an item still waiting in extraction review", () => {
+    const pieces = [makePiece({ id: "review", status: "ready", reviewQueue: "extraction" })];
+    expect(publishQueue(pieces)).toHaveLength(0);
   });
 
   it("sorts priority-first: 1 urgent .. 4 low, then 0 none last", () => {
@@ -104,6 +110,11 @@ describe("workingOn", () => {
 
   it("excludes deleted pieces", () => {
     const pieces = [makePiece({ id: "a", updatedAt: 9000, deletedAt: 9500 })];
+    expect(workingOn(pieces, 10_000, 5_000)).toHaveLength(0);
+  });
+
+  it("keeps extraction review out of recently active work", () => {
+    const pieces = [makePiece({ id: "review", updatedAt: 9000, reviewQueue: "extraction" })];
     expect(workingOn(pieces, 10_000, 5_000)).toHaveLength(0);
   });
 });
@@ -184,23 +195,30 @@ describe("hierarchyRollup", () => {
 });
 
 describe("shortformOnly", () => {
-  it("drops long-form pieces, which live in the Write space", () => {
+  it("drops long-form fragments, which live in the Write space", () => {
     const pieces = [
-      makePiece({ id: "short", body: "inline" }),
-      makePiece({ id: "long", body: undefined, noteId: "note-1" }),
+      makePiece({ id: "short", format: "tweet" }),
+      makePiece({ id: "long", format: "essay" }),
     ];
     expect(shortformOnly(pieces).map((p) => p.id)).toEqual(["short"]);
+  });
+
+  it("keeps a fragment whose text is still empty", () => {
+    const pieces = [makePiece({ id: "blank", format: "tweet", body: "" })];
+    expect(shortformOnly(pieces).map((p) => p.id)).toEqual(["blank"]);
   });
 });
 
 describe("draftsForIdea", () => {
-  it("returns only this idea's live note-backed pieces, oldest first", () => {
+  it("returns only this idea's accepted live long-form fragments, oldest first", () => {
     const pieces = [
-      makePiece({ id: "b", ideaId: "root", body: undefined, noteId: "n2", createdAt: 2000 }),
-      makePiece({ id: "a", ideaId: "root", body: undefined, noteId: "n1", createdAt: 1000 }),
-      makePiece({ id: "short", ideaId: "root", body: "inline" }),
-      makePiece({ id: "other", ideaId: "elsewhere", body: undefined, noteId: "n3" }),
-      makePiece({ id: "gone", ideaId: "root", body: undefined, noteId: "n4", deletedAt: 5 }),
+      makePiece({ id: "b", ideaId: "root", format: "essay", status: "in-progress", createdAt: 2000 }),
+      makePiece({ id: "a", ideaId: "root", format: "substack", status: "in-progress", createdAt: 1000 }),
+      makePiece({ id: "short", ideaId: "root", format: "tweet" }),
+      makePiece({ id: "other", ideaId: "elsewhere", format: "essay" }),
+      makePiece({ id: "gone", ideaId: "root", format: "essay", deletedAt: 5 }),
+      makePiece({ id: "pending", ideaId: "root", format: "essay", status: "inbox" }),
+      makePiece({ id: "extracted", ideaId: "root", format: "essay", status: "in-progress", reviewQueue: "extraction" }),
     ];
     expect(draftsForIdea("root", pieces).map((p) => p.id)).toEqual(["a", "b"]);
   });
@@ -214,6 +232,7 @@ describe("pieceCountsForIdea", () => {
       makePiece({ id: "c", ideaId: "root", status: "ready" }),
       makePiece({ id: "d", ideaId: "other", status: "inbox" }),
       makePiece({ id: "e", ideaId: "root", status: "inbox", deletedAt: 1 }),
+      makePiece({ id: "review", ideaId: "root", status: "in-progress", reviewQueue: "extraction" }),
     ];
     expect(pieceCountsForIdea("root", pieces)).toEqual({
       inbox: 2,
@@ -221,5 +240,62 @@ describe("pieceCountsForIdea", () => {
       ready: 1,
       published: 0,
     });
+  });
+});
+
+describe("publishRollupForIdea", () => {
+  function published(overrides: Partial<ContentPiece> = {}, publishedAt = 5000): ContentPiece {
+    return makePiece({
+      status: "published",
+      publish: { platform: "substack", method: "manual", publishedAt, verified: true },
+      ...overrides,
+    });
+  }
+
+  it("reports nothing shipped when nothing is published", () => {
+    const pieces = [makePiece({ id: "a", status: "ready" }), makePiece({ id: "b", status: "inbox" })];
+    expect(publishRollupForIdea("idea-1", pieces)).toEqual({ count: 0, latestAt: null });
+  });
+
+  it("counts published pieces for the given idea only", () => {
+    const pieces = [
+      published({ id: "a", ideaId: "root" }),
+      published({ id: "b", ideaId: "root" }),
+      published({ id: "c", ideaId: "other" }),
+      makePiece({ id: "d", ideaId: "root", status: "ready" }),
+    ];
+    expect(publishRollupForIdea("root", pieces).count).toBe(2);
+  });
+
+  // The whole point of the rollup: a long-form draft published to Substack is
+  // the case the sidebar's short-form-only counts could never see.
+  it("counts published long-form drafts, not just short-form pieces", () => {
+    const pieces = [published({ id: "draft", ideaId: "root", format: "substack" })];
+    expect(publishRollupForIdea("root", pieces).count).toBe(1);
+  });
+
+  it("takes the most recent publishedAt as latestAt", () => {
+    const pieces = [
+      published({ id: "old", ideaId: "root" }, 1000),
+      published({ id: "new", ideaId: "root" }, 9000),
+      published({ id: "mid", ideaId: "root" }, 4000),
+    ];
+    expect(publishRollupForIdea("root", pieces).latestAt).toBe(9000);
+  });
+
+  it("excludes deleted and archived pieces", () => {
+    const pieces = [
+      published({ id: "gone", ideaId: "root", deletedAt: 1 }),
+      published({ id: "put-away", ideaId: "root", archivedAt: 1 }),
+    ];
+    expect(publishRollupForIdea("root", pieces)).toEqual({ count: 0, latestAt: null });
+  });
+
+  // status "published" with no publish record cannot reach the store
+  // (assertPublishGuard rejects it), but the rollup should not invent a date if
+  // it ever sees one.
+  it("counts a published piece with no record but leaves latestAt null", () => {
+    const pieces = [makePiece({ id: "a", ideaId: "root", status: "published" })];
+    expect(publishRollupForIdea("root", pieces)).toEqual({ count: 1, latestAt: null });
   });
 });

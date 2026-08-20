@@ -1,153 +1,87 @@
+/**
+ * The data store holds a fragment's satellites, not the fragment: the snips cut
+ * out of it, the versions snapshotted from it, and the transient "awaiting
+ * Substack confirmation" flag. The words themselves live in the content store,
+ * so anything about creating or editing them is covered in
+ * content-store.test.ts instead.
+ */
+
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
+import type { ContentFormat } from "@/lib/content-engine";
+import type { PieceVersion } from "@/lib/types";
 
-// Mock the persistence layer — stores call these on every mutation
-vi.mock("@/lib/persistence", () => ({
-  saveNote: vi.fn().mockResolvedValue(undefined),
-  deleteNoteAndSnippets: vi.fn(),
-  saveSnippet: vi.fn(),
-  deleteSnippet: vi.fn(),
-  saveVersion: vi.fn(),
-  deleteVersion: vi.fn(),
-}));
+// Mock the writes, keep the real guards: the stores call persistence on every
+// mutation, and assertPublishGuard has to behave exactly as it does in prod.
+vi.mock("@/lib/persistence", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/persistence")>(
+    "@/lib/persistence",
+  );
+  return {
+    ...actual,
+    saveIdea: vi.fn().mockResolvedValue(undefined),
+    savePiece: vi.fn().mockResolvedValue(undefined),
+    saveSnippet: vi.fn(),
+    deleteSnippet: vi.fn(),
+    savePieceVersion: vi.fn(),
+    deletePieceVersion: vi.fn(),
+  };
+});
 
-function resetStore() {
+function resetStores() {
   useDataStore.setState({
-    notes: {},
     snippets: {},
     versions: {},
     hydrated: true,
   });
+  useContentStore.setState({
+    ideas: {},
+    pieces: {},
+    resources: {},
+    hydrated: true,
+  });
   useAppStore.setState({
-    activeNoteId: null,
-    liveEditorNoteId: null,
+    activePieceId: null,
+    liveEditorPieceId: null,
     liveEditorContent: null,
     timelinePreviewVersionId: null,
   });
 }
 
-describe("data-store — notes", () => {
-  beforeEach(resetStore);
-
-  it("createNote adds a note and returns its id", () => {
-    const id = useDataStore.getState().createNote();
-    const note = useDataStore.getState().notes[id];
-
-    expect(note).toBeDefined();
-    expect(note.title).toBe("");
-    expect(note.content).toBe("");
-    expect(note.goal).toBe("");
-    expect(note.id).toBe(id);
+/** An idea with one fragment in it, which is the only shape a fragment has. */
+function seedFragment(format: ContentFormat = "essay"): { ideaId: string; pieceId: string } {
+  const ideaId = useContentStore.getState().createIdea({ title: "Idea" });
+  const pieceId = useContentStore.getState().createPiece({
+    ideaId,
+    format,
+    origin: "user",
+    status: "in-progress",
   });
+  return { ideaId, pieceId };
+}
 
-  it("updateNoteContent updates content and bumps updatedAt", () => {
-    const id = useDataStore.getState().createNote();
-    const before = useDataStore.getState().notes[id].updatedAt;
-
-    // Small delay to ensure timestamp changes
-    useDataStore.getState().updateNoteContent(id, "hello world");
-    const after = useDataStore.getState().notes[id];
-
-    expect(after.content).toBe("hello world");
-    expect(after.updatedAt).toBeGreaterThanOrEqual(before);
-  });
-
-  it("updateNoteTitle updates title", () => {
-    const id = useDataStore.getState().createNote();
-    useDataStore.getState().updateNoteTitle(id, "My Essay");
-    expect(useDataStore.getState().notes[id].title).toBe("My Essay");
-  });
-
-  it("updateNoteGoal updates goal", () => {
-    const id = useDataStore.getState().createNote();
-    useDataStore.getState().updateNoteGoal(id, "Convince the reader");
-    expect(useDataStore.getState().notes[id].goal).toBe("Convince the reader");
-  });
-
-  it("updateNoteContent on non-existent id is a no-op", () => {
-    useDataStore.getState().updateNoteContent("fake-id", "x");
-    expect(Object.keys(useDataStore.getState().notes)).toHaveLength(0);
-  });
-
-  it("deleteNote removes the note and its snippets", () => {
-    const id = useDataStore.getState().createNote();
-    useDataStore.getState().addSnippet(id, "snippet text");
-
-    useDataStore.getState().deleteNote(id);
-
-    expect(useDataStore.getState().notes[id]).toBeUndefined();
-    const remaining = Object.values(useDataStore.getState().snippets).filter(
-      (s) => s.noteId === id,
-    );
-    expect(remaining).toHaveLength(0);
-  });
-
-  it("deleteNote returns the next most recent note id", () => {
-    const id1 = useDataStore.getState().createNote();
-    const id2 = useDataStore.getState().createNote();
-    // id2 was created after id1, so it has a higher updatedAt
-    const nextId = useDataStore.getState().deleteNote(id2);
-    expect(nextId).toBe(id1);
-  });
-
-  it("deleteNote returns null when no notes remain", () => {
-    const id = useDataStore.getState().createNote();
-    const nextId = useDataStore.getState().deleteNote(id);
-    expect(nextId).toBeNull();
-  });
-
-  it("setNotes hydrates from an array", () => {
-    const notes = [
-      {
-        id: "a",
-        title: "A",
-        content: "",
-        goal: "",
-        audience: "",
-        tone: "",
-        remember: "",
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      {
-        id: "b",
-        title: "B",
-        content: "",
-        goal: "",
-        audience: "",
-        tone: "",
-        remember: "",
-        createdAt: 2,
-        updatedAt: 2,
-      },
-    ];
-    useDataStore.getState().setNotes(notes);
-    expect(Object.keys(useDataStore.getState().notes)).toHaveLength(2);
-    expect(useDataStore.getState().notes["a"].title).toBe("A");
-  });
-});
-
-describe("data-store — snippets", () => {
-  beforeEach(resetStore);
+describe("data-store: snips", () => {
+  beforeEach(resetStores);
 
   it("addSnippet appends to the end by default", () => {
-    const noteId = useDataStore.getState().createNote();
+    const { pieceId } = seedFragment();
 
-    const s1 = useDataStore.getState().addSnippet(noteId, "first");
-    const s2 = useDataStore.getState().addSnippet(noteId, "second");
+    const s1 = useDataStore.getState().addSnippet(pieceId, "first");
+    const s2 = useDataStore.getState().addSnippet(pieceId, "second");
 
     const snippets = useDataStore.getState().snippets;
     expect(snippets[s1].order).toBe(0);
     expect(snippets[s2].order).toBe(1);
   });
 
-  it("addSnippet at index shifts existing snippets", () => {
-    const noteId = useDataStore.getState().createNote();
+  it("addSnippet at an index shifts the snips already at or after it", () => {
+    const { pieceId } = seedFragment();
 
-    const s1 = useDataStore.getState().addSnippet(noteId, "first");
-    const s2 = useDataStore.getState().addSnippet(noteId, "second");
-    const s3 = useDataStore.getState().addSnippet(noteId, "inserted", 1);
+    const s1 = useDataStore.getState().addSnippet(pieceId, "first");
+    const s2 = useDataStore.getState().addSnippet(pieceId, "second");
+    const s3 = useDataStore.getState().addSnippet(pieceId, "inserted", 1);
 
     const snippets = useDataStore.getState().snippets;
     expect(snippets[s1].order).toBe(0);
@@ -155,15 +89,52 @@ describe("data-store — snippets", () => {
     expect(snippets[s2].order).toBe(2);
   });
 
-  it("addSnippet sets labelStatus to loading", () => {
-    const noteId = useDataStore.getState().createNote();
-    const id = useDataStore.getState().addSnippet(noteId, "text");
+  it("a fresh snip starts out waiting for its label", () => {
+    const { pieceId } = seedFragment();
+    const id = useDataStore.getState().addSnippet(pieceId, "text");
     expect(useDataStore.getState().snippets[id].labelStatus).toBe("loading");
   });
 
-  it("updateSnippetLabel updates label and status", () => {
-    const noteId = useDataStore.getState().createNote();
-    const id = useDataStore.getState().addSnippet(noteId, "text");
+  it("a snip cut out of a fragment is filed against that fragment", () => {
+    const { ideaId, pieceId } = seedFragment();
+    const id = useDataStore.getState().addSnippet(pieceId, "cut from the draft", undefined, ideaId);
+
+    const snippet = useDataStore.getState().snippets[id];
+    expect(snippet.pieceId).toBe(pieceId);
+    expect(snippet.ideaId).toBe(ideaId);
+    // Nothing created after the switchover fills the retired note column in.
+    expect(snippet.noteId).toBeNull();
+  });
+
+  it("a snip cut with no fragment open is filed against the idea", () => {
+    const id = useDataStore.getState().addSnippet(null, "cut in the feed", undefined, "idea-1");
+
+    const snippet = useDataStore.getState().snippets[id];
+    expect(snippet.pieceId).toBeUndefined();
+    expect(snippet.ideaId).toBe("idea-1");
+  });
+
+  it("a snip with neither home is refused rather than written somewhere it can never be read back", () => {
+    expect(useDataStore.getState().addSnippet(null, "homeless")).toBe("");
+    expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
+  });
+
+  it("order runs within a home, not across homes", () => {
+    const { pieceId } = seedFragment();
+
+    const p1 = useDataStore.getState().addSnippet(pieceId, "fragment first");
+    const i1 = useDataStore.getState().addSnippet(null, "idea first", undefined, "idea-1");
+    const p2 = useDataStore.getState().addSnippet(pieceId, "fragment second");
+    const i2 = useDataStore.getState().addSnippet(null, "idea second", undefined, "idea-1");
+
+    const snippets = useDataStore.getState().snippets;
+    expect([snippets[p1].order, snippets[p2].order]).toEqual([0, 1]);
+    expect([snippets[i1].order, snippets[i2].order]).toEqual([0, 1]);
+  });
+
+  it("updateSnippetLabel records the label and its status", () => {
+    const { pieceId } = seedFragment();
+    const id = useDataStore.getState().addSnippet(pieceId, "text");
 
     useDataStore.getState().updateSnippetLabel(id, "Introduction", "done");
     const snippet = useDataStore.getState().snippets[id];
@@ -171,23 +142,47 @@ describe("data-store — snippets", () => {
     expect(snippet.labelStatus).toBe("done");
   });
 
-  it("updateSnippetLabel on non-existent id is a no-op", () => {
+  it("updateSnippetLabel on an unknown id changes nothing", () => {
     useDataStore.getState().updateSnippetLabel("fake", "label", "done");
     expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
   });
 
-  it("removeSnippet removes from state", () => {
-    const noteId = useDataStore.getState().createNote();
-    const id = useDataStore.getState().addSnippet(noteId, "text");
+  it("updateSnippetContent rewrites the words and leaves everything else", () => {
+    const { pieceId } = seedFragment();
+    const id = useDataStore.getState().addSnippet(pieceId, "first thought");
+    useDataStore.getState().updateSnippetLabel(id, "A thought", "done");
+    const before = useDataStore.getState().snippets[id];
+
+    useDataStore.getState().updateSnippetContent(id, "a better thought");
+
+    const after = useDataStore.getState().snippets[id];
+    expect(after.content).toBe("a better thought");
+    // The label is the caller's problem, not the store's: re-labelling edited
+    // words is a decision the card makes (see snippet-card.tsx).
+    expect(after).toEqual({ ...before, content: "a better thought" });
+  });
+
+  it("updateSnippetContent on an unknown id changes nothing", () => {
+    useDataStore.getState().updateSnippetContent("fake", "text");
+    expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
+  });
+
+  it("removeSnippet takes it off the bar; restoreSnippet puts it back as it was", () => {
+    const { pieceId } = seedFragment();
+    const id = useDataStore.getState().addSnippet(pieceId, "text");
+    const snapshot = useDataStore.getState().snippets[id];
 
     useDataStore.getState().removeSnippet(id);
     expect(useDataStore.getState().snippets[id]).toBeUndefined();
+
+    useDataStore.getState().restoreSnippet(snapshot);
+    expect(useDataStore.getState().snippets[id]).toEqual(snapshot);
   });
 
-  it("reorderSnippets updates order values", () => {
-    const noteId = useDataStore.getState().createNote();
-    const s1 = useDataStore.getState().addSnippet(noteId, "a");
-    const s2 = useDataStore.getState().addSnippet(noteId, "b");
+  it("reorderSnippets applies the new order in bulk", () => {
+    const { pieceId } = seedFragment();
+    const s1 = useDataStore.getState().addSnippet(pieceId, "a");
+    const s2 = useDataStore.getState().addSnippet(pieceId, "b");
 
     useDataStore.getState().reorderSnippets([
       { id: s1, order: 1 },
@@ -199,65 +194,195 @@ describe("data-store — snippets", () => {
     expect(snippets[s2].order).toBe(0);
   });
 
-  it("addSnippet files a piece's snip against the idea when there is no note", () => {
-    const id = useDataStore.getState().addSnippet(null, "cut from a piece", undefined, "idea-1");
-
-    const snippet = useDataStore.getState().snippets[id];
-    expect(snippet).toBeDefined();
-    expect(snippet.noteId).toBeNull();
-    expect(snippet.ideaId).toBe("idea-1");
-  });
-
-  it("addSnippet refuses a snippet with no home rather than losing it", () => {
-    expect(useDataStore.getState().addSnippet(null, "homeless")).toBe("");
-    expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
-  });
-
-  it("addSnippet orders within a home, not across homes", () => {
-    const noteId = useDataStore.getState().createNote();
-
-    const n1 = useDataStore.getState().addSnippet(noteId, "note first");
-    const i1 = useDataStore.getState().addSnippet(null, "idea first", undefined, "idea-1");
-    const n2 = useDataStore.getState().addSnippet(noteId, "note second");
-    const i2 = useDataStore.getState().addSnippet(null, "idea second", undefined, "idea-1");
-
-    const snippets = useDataStore.getState().snippets;
-    expect([snippets[n1].order, snippets[n2].order]).toEqual([0, 1]);
-    expect([snippets[i1].order, snippets[i2].order]).toEqual([0, 1]);
-  });
-
   it("setSnippets hydrates from an array", () => {
-    const snippets = [
-      { id: "x", noteId: "n1", content: "text", label: null, labelStatus: "idle" as const, createdAt: 1, order: 0 },
-    ];
-    useDataStore.getState().setSnippets(snippets);
-    expect(useDataStore.getState().snippets["x"]).toBeDefined();
+    useDataStore.getState().setSnippets([
+      {
+        id: "x",
+        noteId: null,
+        pieceId: "piece-1",
+        content: "text",
+        label: null,
+        labelStatus: "idle",
+        createdAt: 1,
+        order: 0,
+      },
+    ]);
     expect(useDataStore.getState().snippets["x"].content).toBe("text");
   });
-});
 
-describe("data-store — versions", () => {
-  beforeEach(resetStore);
-
-  it("createVersion uses live editor content when available for the same note", () => {
-    const noteId = useDataStore.getState().createNote();
-    useDataStore.getState().updateNoteContent(noteId, "saved content");
-    useAppStore.getState().setLiveEditorContent(noteId, "saved content\n\n\u00A0\n\nlatest line");
-
-    const versionId = useDataStore.getState().createVersion(noteId, "Quick save", "manual");
-    const version = useDataStore.getState().versions[versionId];
-
-    expect(version.content).toBe("saved content\n\n\u00A0\n\nlatest line");
-  });
-
-  it("createVersion falls back to note content when live editor content is for another note", () => {
-    const noteId = useDataStore.getState().createNote();
-    useDataStore.getState().updateNoteContent(noteId, "note content");
-    useAppStore.getState().setLiveEditorContent("other-note", "other content");
-
-    const versionId = useDataStore.getState().createVersion(noteId, "Quick save", "manual");
-    const version = useDataStore.getState().versions[versionId];
-
-    expect(version.content).toBe("note content");
+  it("nothing is cut before hydration, when the bar's contents are still unknown", () => {
+    useDataStore.setState({ hydrated: false });
+    expect(useDataStore.getState().addSnippet("piece-1", "too early")).toBe("");
+    expect(Object.keys(useDataStore.getState().snippets)).toHaveLength(0);
   });
 });
+
+describe("data-store: versions", () => {
+  beforeEach(resetStores);
+
+  it("createVersion snapshots the fragment's words and its brief", () => {
+    const { pieceId } = seedFragment();
+    useContentStore.getState().updatePiece(pieceId, {
+      title: "Two roadmaps",
+      subtitle: "A dek",
+      body: "saved content",
+      goal: "Convince skeptical CTOs",
+      audience: "Engineering leaders",
+      tone: "Direct",
+      remember: "Never name a vendor",
+      voiceId: "voice-1",
+    });
+
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+    const version = useDataStore.getState().versions[versionId];
+
+    expect(version.pieceId).toBe(pieceId);
+    expect(version.title).toBe("Two roadmaps");
+    expect(version.subtitle).toBe("A dek");
+    expect(version.content).toBe("saved content");
+    expect(version.goal).toBe("Convince skeptical CTOs");
+    expect(version.audience).toBe("Engineering leaders");
+    expect(version.tone).toBe("Direct");
+    expect(version.remember).toBe("Never name a vendor");
+    expect(version.voiceId).toBe("voice-1");
+    expect(version.trigger).toBe("manual");
+    expect(version.wordCount).toBe(2);
+  });
+
+  it("createVersion reads the live editor buffer for the fragment being typed in", () => {
+    const { pieceId } = seedFragment();
+    useContentStore.getState().updatePiece(pieceId, { body: "saved content" });
+    useAppStore.getState().setLiveEditorContent(pieceId, "saved content\n\n \n\nlatest line");
+
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+
+    expect(useDataStore.getState().versions[versionId].content).toBe(
+      "saved content\n\n \n\nlatest line",
+    );
+  });
+
+  it("createVersion falls back to the saved text when the live buffer belongs to another fragment", () => {
+    const { pieceId } = seedFragment();
+    useContentStore.getState().updatePiece(pieceId, { body: "fragment content" });
+    useAppStore.getState().setLiveEditorContent("another-piece", "other content");
+
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+
+    expect(useDataStore.getState().versions[versionId].content).toBe("fragment content");
+  });
+
+  it("createVersion refuses a fragment that is not there", () => {
+    expect(useDataStore.getState().createVersion("missing", "Quick save", "manual")).toBe("");
+    expect(Object.keys(useDataStore.getState().versions)).toHaveLength(0);
+  });
+
+  it("removeVersion takes the entry off the timeline", () => {
+    const { pieceId } = seedFragment();
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+
+    useDataStore.getState().removeVersion(versionId);
+    expect(useDataStore.getState().versions[versionId]).toBeUndefined();
+  });
+
+  it("restoreVersion writes the snapshot back onto the fragment", () => {
+    const { pieceId } = seedFragment();
+    useContentStore.getState().updatePiece(pieceId, { title: "First", body: "first draft" });
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+    useContentStore.getState().updatePiece(pieceId, { title: "Second", body: "rewritten" });
+
+    useDataStore.getState().restoreVersion(versionId);
+
+    const piece = useContentStore.getState().pieces[pieceId];
+    expect(piece.title).toBe("First");
+    expect(piece.body).toBe("first draft");
+  });
+
+  it("restoreVersion snapshots what it is about to overwrite, so the restore itself can be undone", () => {
+    const { pieceId } = seedFragment();
+    useContentStore.getState().updatePiece(pieceId, { body: "first draft" });
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+    useContentStore.getState().updatePiece(pieceId, { body: "rewritten" });
+
+    useDataStore.getState().restoreVersion(versionId);
+
+    const contents = Object.values(useDataStore.getState().versions).map((v) => v.content);
+    expect(contents).toContain("rewritten");
+  });
+
+  it("restoreVersion leaves everything alone when the fragment is gone", () => {
+    const { pieceId } = seedFragment();
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+    useContentStore.setState({ pieces: {} });
+
+    useDataStore.getState().restoreVersion(versionId);
+
+    expect(Object.keys(useDataStore.getState().versions)).toEqual([versionId]);
+  });
+
+  it("duplicateFromVersion makes a new fragment in the same idea, carrying the brief with the words", () => {
+    const { ideaId, pieceId } = seedFragment("substack");
+    useContentStore.getState().updatePiece(pieceId, {
+      title: "Two roadmaps",
+      subtitle: "A dek",
+      body: "the words",
+      goal: "Convince skeptical CTOs",
+      audience: "Engineering leaders",
+      tone: "Direct",
+      remember: "Never name a vendor",
+      voiceId: "voice-1",
+    });
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+
+    const copyId = useDataStore.getState().duplicateFromVersion(versionId);
+    const copy = useContentStore.getState().pieces[copyId];
+
+    expect(copyId).not.toBe(pieceId);
+    expect(copy.ideaId).toBe(ideaId);
+    expect(copy.format).toBe("substack");
+    expect(copy.title).toBe("Two roadmaps copy");
+    expect(copy.body).toBe("the words");
+    expect(copy.subtitle).toBe("A dek");
+    expect(copy.goal).toBe("Convince skeptical CTOs");
+    expect(copy.audience).toBe("Engineering leaders");
+    expect(copy.tone).toBe("Direct");
+    expect(copy.remember).toBe("Never name a vendor");
+    expect(copy.voiceId).toBe("voice-1");
+    // A copy you made on purpose is already picked up.
+    expect(copy.status).toBe("in-progress");
+    expect(copy.seen).toBe(true);
+  });
+
+  it("duplicateFromVersion refuses when the fragment it came out of is gone", () => {
+    const { pieceId } = seedFragment();
+    const versionId = useDataStore.getState().createVersion(pieceId, "Quick save", "manual");
+    useContentStore.setState({ pieces: {} });
+
+    expect(useDataStore.getState().duplicateFromVersion(versionId)).toBe("");
+  });
+
+  it("setVersions hydrates from an array, keyed by version id", () => {
+    const version: PieceVersion = {
+      id: "v1",
+      pieceId: "piece-1",
+      title: "T",
+      content: "c",
+      goal: "",
+      audience: "",
+      tone: "",
+      remember: "",
+      name: "Aug 9, 10:00",
+      trigger: "manual",
+      wordCount: 1,
+      createdAt: 1,
+    };
+    useDataStore.getState().setVersions([version]);
+    expect(useDataStore.getState().versions["v1"]).toEqual(version);
+  });
+});
+
+// The editor's "Publish to Substack" used to stamp an in-memory
+// pendingSubstackPublish map here. It now stamps the persisted
+// ContentPiece.publishAttemptedAt, the same field the feed's Share menu uses,
+// so that both surfaces reach the one verification branch that actually writes
+// a publish record. Coverage for the awaiting-confirmation state lives with
+// that field: publishPendingState in publish-verify.test.ts.

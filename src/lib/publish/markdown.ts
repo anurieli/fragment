@@ -1,5 +1,7 @@
 import MarkdownIt from "markdown-it";
 
+import { preserveWhitespace } from "./whitespace";
+
 // `src/lib/export.ts` already ships markdown-flavored export (copyAsHtml,
 // downloadAsHtml), but it works from a live Tiptap `Editor` instance
 // (`editor.getHTML()`) rather than a plain markdown string, so it can't be
@@ -25,7 +27,7 @@ const markdownRenderer = new MarkdownIt({
  * rules. No raw HTML in the source is passed through (html: false).
  */
 export function markdownToCleanHtml(markdown: string): string {
-  return markdownRenderer.render(markdown).trim();
+  return markdownRenderer.render(preserveWhitespace(markdown)).trim();
 }
 
 // Same engine, one difference: `breaks: true`. For the on-screen preview of a
@@ -47,7 +49,13 @@ const previewRenderer = new MarkdownIt({
  * markup into the page.
  */
 export function markdownToPreviewHtml(markdown: string): string {
-  return previewRenderer.render(markdown).trim();
+  // blankLines "literal": the piece read view renders paragraphs with zero
+  // margins (globals.css .shortform-piece-rendered p), so every blank line
+  // the author typed has to become its own rendered line for the read view
+  // to look exactly like the textarea it replaces.
+  return previewRenderer
+    .render(preserveWhitespace(markdown, { blankLines: "literal" }))
+    .trim();
 }
 
 // Order matters: strip the widest-reaching syntax first (bold+italic before

@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Note, Snippet, AppSettings, NoteVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview, OutboxEntry, SyncStateRow } from "./types";
+import type { Note, Snippet, AppSettings, NoteVersion, PieceVersion, StoredImage, ApiLog, FeedbackQueueItem, BrandVoice, VoiceSample, StoredReview, OutboxEntry, SyncStateRow, Comment, MigrationRecord } from "./types";
 import type { Idea, ContentPiece, Resource } from "./content-engine";
 
 class FragmentDB extends Dexie {
@@ -7,6 +7,7 @@ class FragmentDB extends Dexie {
   snippets!: Table<Snippet, string>;
   settings!: Table<AppSettings, string>;
   noteVersions!: Table<NoteVersion, string>;
+  pieceVersions!: Table<PieceVersion, string>;
   images!: Table<StoredImage, string>;
   apiLogs!: Table<ApiLog, string>;
   feedbackQueue!: Table<FeedbackQueueItem, string>;
@@ -18,6 +19,8 @@ class FragmentDB extends Dexie {
   reviews!: Table<StoredReview, string>;
   outbox!: Table<OutboxEntry, [string, string]>;
   syncState!: Table<SyncStateRow, string>;
+  comments!: Table<Comment, string>;
+  migrations!: Table<MigrationRecord, string>;
 
   constructor() {
     super("fragment");
@@ -319,6 +322,67 @@ class FragmentDB extends Dexie {
       reviews: "id, noteId, receivedAt",
       outbox: "[collection+id], collection, updatedAt",
       syncState: "id",
+    });
+
+    // v20 — comments: note-first commentary units that can be "turned into
+    // an idea" (ARI feedback, see comment-scope.ts). promotedIdeaId is
+    // indexed so the idea view can look up its originating comment directly
+    // rather than scanning every row.
+    this.version(20).stores({
+      notes: "id, updatedAt",
+      snippets: "id, noteId, order, ideaId",
+      settings: "id",
+      noteVersions: "id, noteId, createdAt",
+      images: "id, noteId, createdAt",
+      apiLogs: "id, timestamp, route, provider, status, noteId, synced",
+      feedbackQueue: "id, status, createdAt",
+      voices: "id, updatedAt",
+      voiceSamples: "id, voiceId, createdAt",
+      ideas: "id, parentId, pinnedAt, priority, updatedAt, createdAt",
+      contentPieces:
+        "id, ideaId, noteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
+      resources: "id, ownerId, ownerType, createdAt",
+      reviews: "id, noteId, receivedAt",
+      outbox: "[collection+id], collection, updatedAt",
+      syncState: "id",
+      comments: "id, noteId, ideaId, promotedIdeaId, createdAt",
+    });
+
+    // v21 (ARI-171): room for the one-entity model, where a piece holds its
+    // own text instead of pointing at a note.
+    //
+    // Purely additive. `notes` and `noteVersions` keep their tables and their
+    // indexes, and nothing is rewritten here: the data migration runs after
+    // the database is open, under its own verification gate, so a failure
+    // there cannot leave a half-upgraded schema behind. Snippets and reviews
+    // gain a pieceId index alongside noteId because both keys are live at once
+    // until every device has moved across.
+    //
+    // This lands as v21 rather than v20 because this repo already shipped a
+    // v20 for comments; fragment-cloud, which has no comments table, numbered
+    // the same change v20 there.
+    this.version(21).stores({
+      notes: "id, updatedAt",
+      snippets: "id, noteId, order, ideaId, pieceId",
+      settings: "id",
+      noteVersions: "id, noteId, createdAt",
+      pieceVersions: "id, pieceId, createdAt",
+      images: "id, noteId, createdAt",
+      apiLogs: "id, timestamp, route, provider, status, noteId, synced",
+      feedbackQueue: "id, status, createdAt",
+      voices: "id, updatedAt",
+      voiceSamples: "id, voiceId, createdAt",
+      ideas: "id, parentId, pinnedAt, priority, updatedAt, createdAt",
+      contentPieces:
+        "id, ideaId, noteId, legacyNoteId, status, format, priority, scheduledAt, updatedAt, createdAt, [ideaId+status], [status+format], [status+priority]",
+      resources: "id, ownerId, ownerType, createdAt",
+      reviews: "id, noteId, receivedAt, pieceId",
+      outbox: "[collection+id], collection, updatedAt",
+      syncState: "id",
+      // Comments follow the text they were left on: in the one-entity model
+      // that is the piece, so the note key gives way to pieceId here.
+      comments: "id, pieceId, ideaId, promotedIdeaId, createdAt",
+      migrations: "id, status",
     });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Eye, EyeOff, LogIn, Check, Loader2, Zap, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, LogIn, Check, Loader2, Zap, RotateCcw, ChevronDown } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useAppStore } from "@/stores/app-store";
 import { PROVIDER_REGISTRY } from "@/lib/providers";
@@ -12,9 +12,13 @@ import { useProviderConnect } from "@/hooks/use-provider-connect";
 import { clearCodexSession } from "@/lib/codex-token-manager";
 import { useProviderModels } from "@/hooks/use-provider-models";
 import { CodexDeviceFlow } from "@/components/settings/codex-device-flow";
+import { isHosted } from "@/lib/edition";
 import type { AIProvider } from "@/lib/providers";
 
 const CODEX_CARD_TITLE = "ChatGPT (Codex)";
+
+// OpenRouter first: one key, hundreds of models, the recommended default.
+const BYOK_PROVIDERS: AIProvider[] = ["openrouter", "openai", "anthropic", "perplexity"];
 
 export function ProviderSettings() {
   const { settings } = useSettingsStore();
@@ -30,20 +34,50 @@ export function ProviderSettings() {
         <CodexAuthCard />
       </div>
 
-      {/* BYO API key — OpenRouter leads (one key, many models), then the rest */}
+      {/* BYO API key — one dropdown, one card for whichever provider is picked */}
       <div className="space-y-3">
         <SectionLabel>Or bring your own API key</SectionLabel>
-        <ApiKeyAuthCard providerId="openrouter" />
-        <ApiKeyAuthCard providerId="openai" />
-        <ApiKeyAuthCard providerId="anthropic" />
-        <ApiKeyAuthCard providerId="perplexity" />
+        <ApiKeyProviderPicker />
       </div>
 
-      {/* Local models — free, private, still in beta */}
-      <div className="space-y-3">
-        <SectionLabel>Run locally</SectionLabel>
-        <OllamaAuthCard />
+      {/* Local models — self-host only. Hosted visitors can't reach their own
+          localhost Ollama from a page served by someone else's infrastructure
+          in any way that reads as a supported product surface. */}
+      {!isHosted() && (
+        <div className="space-y-3">
+          <SectionLabel>Run locally</SectionLabel>
+          <OllamaAuthCard />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ApiKeyProviderPicker() {
+  const { settings } = useSettingsStore();
+  const firstConfigured = BYOK_PROVIDERS.find(
+    (id) => getProviderKey(id, settings.providerCredentials).length > 0,
+  );
+  const [selected, setSelected] = useState<AIProvider>(firstConfigured ?? "openrouter");
+
+  return (
+    <div className="space-y-3">
+      <div className="relative">
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value as AIProvider)}
+          className="w-full appearance-none bg-surface-3 border border-border-strong rounded-[var(--radius-default)] px-3 py-2.5 pr-9 text-xs text-text-primary outline-none focus:border-border-active transition-colors duration-150"
+        >
+          {BYOK_PROVIDERS.map((id) => (
+            <option key={id} value={id}>
+              {PROVIDER_REGISTRY[id].name}
+              {id === "openrouter" ? " (recommended)" : ""}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-muted" />
       </div>
+      <ApiKeyAuthCard providerId={selected} />
     </div>
   );
 }

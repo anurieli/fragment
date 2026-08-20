@@ -5,6 +5,7 @@ import {
   buildComposerUrl,
   charCount,
   countTweetThread,
+  destinationLabel,
   escapeLinkedInReserved,
   markdownToCleanHtml,
   markdownToPreviewHtml,
@@ -228,5 +229,61 @@ describe("publish — buildComposerUrl", () => {
   it("substack: strips a trailing slash from the publication base URL", () => {
     const url = buildComposerUrl("substack", { publicationUrl: "https://myblog.substack.com/" });
     expect(url).toBe("https://myblog.substack.com/publish/post?type=newsletter");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// destinationLabel — naming the place a piece went
+// ---------------------------------------------------------------------------
+
+describe("destinationLabel", () => {
+  it("names a known host by its product name rather than its hostname", () => {
+    expect(destinationLabel("https://ariel.substack.com/p/x", "essay")).toBe("Substack");
+    expect(destinationLabel("https://www.linkedin.com/feed/update/123", "linkedin")).toBe("LinkedIn");
+    expect(destinationLabel("https://x.com/ariel/status/1", "tweet")).toBe("X");
+    expect(destinationLabel("https://twitter.com/ariel/status/1", "tweet")).toBe("X");
+  });
+
+  // The bug this exists for: a long-form draft published to Substack carries
+  // the format "essay", so trusting the format renders "Essay", which names
+  // nowhere a reader can go. The URL overrides it.
+  it("prefers the URL's host over the piece's format", () => {
+    expect(destinationLabel("https://ariel.substack.com/p/x", "essay")).toBe("Substack");
+    expect(destinationLabel("https://ariel.substack.com/p/x", "other")).toBe("Substack");
+  });
+
+  it("falls back to the bare hostname for a place it does not know", () => {
+    expect(destinationLabel("https://blog.example.org/post", "essay")).toBe("blog.example.org");
+  });
+
+  it("strips a www. prefix, which nobody reads as part of the name", () => {
+    expect(destinationLabel("https://www.example.org/post", "other")).toBe("example.org");
+  });
+
+  // A self-hosted Substack runs on a custom domain, so a suffix match cannot be
+  // the only route to a name. A custom domain is still a place.
+  it("keeps a custom domain as the name", () => {
+    expect(destinationLabel("https://letters.arielnurieli.com/p/x", "substack")).toBe(
+      "letters.arielnurieli.com",
+    );
+  });
+
+  it("with no URL, uses the format only when the format is a real platform", () => {
+    expect(destinationLabel(undefined, "substack")).toBe("Substack");
+    expect(destinationLabel(undefined, "linkedin")).toBe("LinkedIn");
+    expect(destinationLabel(undefined, "tweet")).toBe("X");
+  });
+
+  // essay / script / other describe a shape of writing, not a destination.
+  // Naming one would invent a location the record does not have.
+  it("with no URL and a shape-only format, names nothing", () => {
+    expect(destinationLabel(undefined, "essay")).toBeNull();
+    expect(destinationLabel(undefined, "script")).toBeNull();
+    expect(destinationLabel(undefined, "other")).toBeNull();
+  });
+
+  it("an unparseable URL falls back to the format rather than dropping the receipt", () => {
+    expect(destinationLabel("not a url", "substack")).toBe("Substack");
+    expect(destinationLabel("not a url", "essay")).toBeNull();
   });
 });

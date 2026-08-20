@@ -18,11 +18,11 @@ export const CONTENT_FORMATS = [
 export type ContentFormat = (typeof CONTENT_FORMATS)[number];
 
 // Formats whose natural home is the long-form editor rather than a feed card.
-// This is about *shape*, not storage: an agent can push a substack draft as a
-// short-form piece (body), and it will land in the inbox like anything else —
-// but the app should offer to move it into a Note, because nobody edits an
-// essay in a card between two tweets. See convertPieceToDraft in
-// src/stores/content-store.ts.
+// This is about *shape* and nothing else: every fragment stores its text the
+// same way (`body`), so format decides which surface edits it, never where the
+// words live. A fragment in one of these formats is what the UI calls a draft;
+// changing its format moves it between the editor and the feed without touching
+// a byte of its text.
 export const LONGFORM_FORMATS = ["essay", "substack", "script"] as const;
 
 export function isLongformFormat(format: ContentFormat): boolean {
@@ -39,6 +39,9 @@ export type PieceStatus = (typeof PIECE_STATUSES)[number];
 
 export const PIECE_ORIGINS = ["agent", "user"] as const;
 export type PieceOrigin = (typeof PIECE_ORIGINS)[number];
+
+export const PIECE_REVIEW_QUEUES = ["extraction"] as const;
+export type PieceReviewQueue = (typeof PIECE_REVIEW_QUEUES)[number];
 
 // 0 = none, 1 = urgent, 2 = high, 3 = medium, 4 = low (Linear convention).
 export type Priority = 0 | 1 | 2 | 3 | 4;
@@ -85,9 +88,25 @@ export interface Idea {
   priority: Priority;
   pinnedAt?: number;
   voiceId?: string;
+  // The idea's writing brief: the middle tier between the voice's defaults and
+  // a single fragment's own. An idea aimed somewhere other than your usual
+  // audience says so once here rather than on every fragment inside it.
+  // Resolution order and the empty-means-inherit rule live in
+  // lib/brief-context.ts.
+  goal?: string;
+  audience?: string;
+  tone?: string;
+  remember?: string;
   origin: PieceOrigin;
   createdAt: number;
   updatedAt: number;
+  // Put away, not thrown away. An archived idea drops out of the sidebar and
+  // out of every count, and its pieces go with it, but the words are all
+  // still there and one click brings the whole thing back. Distinct from
+  // deletedAt on purpose: a tombstone says "this was a mistake", an archive
+  // says "this is finished". Conflating them would mean the only way to tidy
+  // the list is to tell the app you regret writing something.
+  archivedAt?: number;
   deletedAt?: number;
 }
 
@@ -97,13 +116,39 @@ export interface ContentPiece {
   format: ContentFormat;
   status: PieceStatus;
   origin: PieceOrigin;
+  // Internal generation never enters Inbox. It waits here until the writer
+  // accepts it into active work or tosses it. Inbox stays reserved for
+  // external arrivals such as MCP/API handoffs.
+  reviewQueue?: PieceReviewQueue;
   title?: string;
-  // Exactly one content home: long-form pieces link a Note (noteId), short-form
-  // pieces hold markdown inline (body). Never both, never neither.
-  noteId?: string;
-  body?: string;
+  // A fragment's text, and the only place it ever lives. Required rather than
+  // optional so "no words yet" is an empty string and never a missing field:
+  // there is exactly one content home now, so the absent case would mean
+  // nothing a reader could act on.
+  body: string;
+  // One-line dek under the title. Carried over from Note.subtitle.
+  subtitle?: string;
+  // The writing brief. Short-form fragments have never had one; long-form
+  // fragments inherit theirs from the note they absorbed.
+  goal?: string;
+  audience?: string;
+  tone?: string;
+  remember?: string;
+  // undefined = inherit the default voice, null = explicitly no voice, string =
+  // a specific voice id. Three states, and the migration preserves all three.
+  voiceId?: string | null;
+  // The note this fragment's text came from. Set once by the migration and
+  // never afterwards. Old share links, review threads and file backups are all
+  // keyed by note id, so this is how they keep resolving.
+  legacyNoteId?: string;
   seen: boolean;
   priority: Priority;
+  // Held at the top of its idea's feed regardless of order or status. Ideas
+  // have had this since the sidebar existed; pieces need it for the same
+  // reason, which is that the one you keep coming back to should not sink
+  // under the twenty you wrote after it. Drafts have no pin: an idea's drafts
+  // are few and already listed by hand.
+  pinnedAt?: number;
   order: number;
   scheduledAt?: number;
   publish?: PublishRecord;
@@ -115,9 +160,27 @@ export interface ContentPiece {
   // (see src/lib/publish/substack-verify.ts's publishPendingState and
   // src/hooks/use-publish-verification.ts).
   publishAttemptedAt?: number;
+  // When a published piece's text was first changed after it went live.
+  //
+  // Publishing closes a piece's text: the editor and the card go read-only and
+  // say so, because what shipped is a fact and quietly rewriting it makes the
+  // publish record a lie. But a typo is not a reason to duplicate a piece and
+  // split its history, so "Edit anyway" unlocks it and this records that it
+  // happened. Set once, by the first body change while published (see
+  // updatePiece in content-store), and never cleared while the piece stays
+  // published: the point is that the piece no longer matches what was
+  // distributed, which one later edit does not undo.
+  //
+  // Undefined on a published piece means its text is still exactly what
+  // shipped. Meaningless on an unpublished one, where it is always undefined.
+  editedAfterPublishAt?: number;
   agentMeta?: AgentMeta;
   createdAt: number;
   updatedAt: number;
+  // See Idea.archivedAt. Archiving an idea stamps its pieces too, so a piece
+  // can be archived on its own or as part of its idea; unarchiving the idea
+  // only lifts the stamps that idea put there (see restoreIdeaArchive).
+  archivedAt?: number;
   deletedAt?: number;
 }
 
@@ -376,57 +439,65 @@ export function parsePieceHandoffJson(input: unknown): PieceHandoff {
 // Stored-entity validation
 // ---------------------------------------------------------------------------
 
-export const contentPieceSchema = z
-  .object({
-    id: idSchema,
-    ideaId: idSchema,
-    format: z.enum(CONTENT_FORMATS),
-    status: z.enum(PIECE_STATUSES),
-    origin: z.enum(PIECE_ORIGINS),
-    title: z.string().optional(),
-    noteId: idSchema.optional(),
-    body: z.string().optional(),
-    seen: z.boolean(),
-    priority: prioritySchema,
-    order: z.number(),
-    scheduledAt: z.number().optional(),
-    publishAttemptedAt: z.number().optional(),
-    publish: z
-      .object({
-        platform: z.enum(CONTENT_FORMATS),
-        method: z.enum(PUBLISH_METHODS),
-        publishedAt: z.number(),
-        url: z.string().optional(),
-        verified: z.boolean(),
-      })
-      .optional(),
-    agentMeta: z
-      .object({
-        agent: z.string(),
-        model: z.string().optional(),
-        pushedAt: z.number(),
-        supersedes: idSchema.optional(),
-      })
-      .optional(),
-    createdAt: z.number(),
-    updatedAt: z.number(),
-    deletedAt: z.number().optional(),
-  })
-  .refine((piece) => (piece.noteId === undefined) !== (piece.body === undefined), {
-    message: "a piece has exactly one content home: noteId (long-form) or body (short-form)",
-  });
-
-// Exactly-one-content-home rule as a standalone check for store-layer writes.
-export function pieceContentHome(piece: Pick<ContentPiece, "noteId" | "body">): "note" | "body" {
-  const hasNote = piece.noteId !== undefined;
-  const hasBody = piece.body !== undefined;
-  if (hasNote === hasBody) {
-    throw new ContractError(
-      "a piece has exactly one content home: noteId (long-form) or body (short-form)",
-    );
+export const contentPieceSchema = z.object({
+  id: idSchema,
+  ideaId: idSchema,
+  format: z.enum(CONTENT_FORMATS),
+  status: z.enum(PIECE_STATUSES),
+  origin: z.enum(PIECE_ORIGINS),
+  reviewQueue: z.enum(PIECE_REVIEW_QUEUES).optional(),
+  title: z.string().optional(),
+  body: z.string(),
+  subtitle: z.string().optional(),
+  goal: z.string().optional(),
+  audience: z.string().optional(),
+  tone: z.string().optional(),
+  remember: z.string().optional(),
+  voiceId: z.string().nullable().optional(),
+  legacyNoteId: idSchema.optional(),
+  seen: z.boolean(),
+  priority: prioritySchema,
+  pinnedAt: z.number().optional(),
+  order: z.number(),
+  scheduledAt: z.number().optional(),
+  publishAttemptedAt: z.number().optional(),
+  editedAfterPublishAt: z.number().optional(),
+  publish: z
+    .object({
+      platform: z.enum(CONTENT_FORMATS),
+      method: z.enum(PUBLISH_METHODS),
+      publishedAt: z.number(),
+      url: z.string().optional(),
+      verified: z.boolean(),
+    })
+    .optional(),
+  agentMeta: z
+    .object({
+      agent: z.string(),
+      model: z.string().optional(),
+      pushedAt: z.number(),
+      supersedes: idSchema.optional(),
+    })
+    .optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  archivedAt: z.number().optional(),
+  deletedAt: z.number().optional(),
+}).superRefine((piece, ctx) => {
+  if (piece.reviewQueue !== "extraction") return;
+  if (piece.status !== "in-progress") {
+    ctx.addIssue({ code: "custom", path: ["status"], message: "extraction review must stay in progress until accepted" });
   }
-  return hasNote ? "note" : "body";
-}
+  if (piece.origin !== "user") {
+    ctx.addIssue({ code: "custom", path: ["origin"], message: "extraction review is internal user-initiated work" });
+  }
+  if (isLongformFormat(piece.format)) {
+    ctx.addIssue({ code: "custom", path: ["format"], message: "extraction review belongs in the short-form review feed" });
+  }
+  if (piece.publish !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["publish"], message: "extraction review cannot be published before acceptance" });
+  }
+});
 
 // Max depth 2: a parent must itself be a root idea. Call before persisting any
 // idea whose parentId is set.

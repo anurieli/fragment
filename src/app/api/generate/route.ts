@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
   // ── Non-streaming path ──
   if (isChatRequestError(chatRequest)) {
     const durationMs = Date.now() - startTime;
-    const errorLabel = chatRequest.error;
+    const errorLabel = chatRequest.reason === "no-key" ? "No API key configured" : "Provider not authenticated";
     logGenerate("warn", "request:failed", { requestId, provider, modelToRun, statusCode: chatRequest.status, durationMs, failureReason: chatRequest.error });
     return NextResponse.json(
       {

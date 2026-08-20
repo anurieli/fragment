@@ -114,7 +114,12 @@ describe("POST /api/generate", () => {
     expect(prompt).toContain("(end of document)");
   });
 
-  it("returns 401 when no API key for openrouter", async () => {
+  /**
+   * The message has to name the actual problem. Missing and rejected keys both
+   * answer 401, so a route that tells them apart by status code sends someone
+   * who never added a key off to re-authenticate.
+   */
+  it("returns 401 and says the key is missing, not that auth failed", async () => {
     delete process.env.OPENROUTER_API_KEY;
 
     const req = makeReq({

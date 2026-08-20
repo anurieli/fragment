@@ -60,10 +60,14 @@ describe("filterPieces / filterCounts", () => {
     makePiece({ id: "d", status: "ready" }),
     makePiece({ id: "e", status: "published" }),
     makePiece({ id: "f", status: "ready", deletedAt: 5000 }),
+    makePiece({ id: "g", status: "ready", archivedAt: 6000 }),
+    makePiece({ id: "h", status: "in-progress", reviewQueue: "extraction" }),
   ];
 
-  it("'all' keeps every live piece regardless of status", () => {
+  it("keeps extracted results in their own review filter", () => {
     expect(filterPieces(pieces, "all").map((p) => p.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(filterPieces(pieces, "in-progress").map((p) => p.id)).toEqual(["c"]);
+    expect(filterPieces(pieces, "extracted").map((p) => p.id)).toEqual(["h"]);
   });
 
   it("narrows to a single status and excludes deleted pieces", () => {
@@ -71,13 +75,57 @@ describe("filterPieces / filterCounts", () => {
     expect(filterPieces(pieces, "ready").map((p) => p.id)).toEqual(["d"]);
   });
 
+  it("keeps archived pieces out of every filter but their own", () => {
+    // The point of archiving is that the piece stops appearing where you
+    // work. A status filter that still surfaced it would make the gesture
+    // meaningless, and "all" is the one most likely to leak it.
+    expect(filterPieces(pieces, "all").map((p) => p.id)).not.toContain("g");
+    expect(filterPieces(pieces, "ready").map((p) => p.id)).not.toContain("g");
+    expect(filterPieces(pieces, "archived").map((p) => p.id)).toEqual(["g"]);
+  });
+
   it("computes counts per filter chip over the live set", () => {
     expect(filterCounts(pieces)).toEqual({
       all: 5,
       inbox: 2,
+      extracted: 1,
       "in-progress": 1,
       ready: 1,
+      archived: 1,
     });
+  });
+});
+
+describe("sortPieces — pinned pieces", () => {
+  it("floats pinned pieces above the rest without reordering either group", () => {
+    const pieces = [
+      makePiece({ id: "newest", createdAt: 3000 }),
+      makePiece({ id: "pinned-old", createdAt: 1000, pinnedAt: 500 }),
+      makePiece({ id: "middle", createdAt: 2000 }),
+      makePiece({ id: "pinned-new", createdAt: 2500, pinnedAt: 900 }),
+    ];
+    expect(sortPieces(pieces, "newest").map((p) => p.id)).toEqual([
+      "pinned-new",
+      "pinned-old",
+      "newest",
+      "middle",
+    ]);
+  });
+
+  it("leaves manual order alone, pins included", () => {
+    // Manual order is the writer's own arrangement, made by dragging. A pin
+    // that jumped a card to the top would overrule a decision they took by
+    // hand, in a mode whose whole promise is that it does not.
+    const pieces = [
+      makePiece({ id: "first", order: 0 }),
+      makePiece({ id: "second", order: 1, pinnedAt: 900 }),
+      makePiece({ id: "third", order: 2 }),
+    ];
+    expect(sortPieces(pieces, "manual").map((p) => p.id)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
   });
 });
 
@@ -210,14 +258,14 @@ describe("roving focus next/prev", () => {
 });
 
 describe("nextStatus — the 'S' key cycle", () => {
-  it("cycles inbox -> in-progress -> ready -> inbox, never landing on published", () => {
+  it("accepts Inbox work and toggles active work without sending it back to Inbox", () => {
     expect(nextStatus("inbox")).toBe("in-progress");
     expect(nextStatus("in-progress")).toBe("ready");
-    expect(nextStatus("ready")).toBe("inbox");
+    expect(nextStatus("ready")).toBe("in-progress");
   });
 
-  it("a published piece (reached only via the future Share flow) cycles back to inbox rather than erroring", () => {
-    expect(nextStatus("published")).toBe("inbox");
+  it("a published piece returns to active work rather than entering Inbox", () => {
+    expect(nextStatus("published")).toBe("in-progress");
   });
 });
 
@@ -235,6 +283,7 @@ describe("content-store interactions used by the feed", () => {
       ideaId,
       format: "other",
       origin: "user",
+      status: "inbox",
       body: "draft",
     });
     expect(useContentStore.getState().pieces[id].seen).toBe(false);
@@ -253,6 +302,7 @@ describe("content-store interactions used by the feed", () => {
       ideaId,
       format: "other",
       origin: "user",
+      status: "inbox",
       body: "draft",
     });
     const expected = [1, 2, 3, 4, 0];
@@ -268,6 +318,7 @@ describe("content-store interactions used by the feed", () => {
       ideaId,
       format: "other",
       origin: "user",
+      status: "inbox",
       body: "draft",
     });
     expect(() => useContentStore.getState().setPieceStatus(id, "published")).toThrow(

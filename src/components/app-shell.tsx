@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Puzzle } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
 import { useDataStore } from "@/stores/data-store";
@@ -22,6 +22,7 @@ import { Sidebar } from "./sidebar/sidebar";
 import { IdeaPanel, IdeaPanelToggle } from "./idea/idea-panel";
 import { Editor } from "./editor/editor";
 import { HelperBar } from "./helper-bar/helper-bar";
+import { CommentsPanel } from "./comments/comments-panel";
 import { SpaceToggle } from "./shortform/space-toggle";
 import { ShortformView } from "./shortform/shortform-view";
 import { TimelinePanel } from "./timeline/timeline-panel";
@@ -36,16 +37,30 @@ import { AccountSection } from "./settings/account-section";
 import { GlobalSearch } from "./search/global-search";
 import { ToastContainer } from "./ui/toast";
 import { HelpOverlay } from "./help/help-overlay";
+import { ContentCalendar } from "./calendar/content-calendar";
 import { FloatingDragCard } from "./floating-drag-card";
 import { OnboardingFlow } from "./onboarding/onboarding-flow";
+import { MigrationFailed } from "@/components/migration/migration-failed";
 import { ConnectGate } from "./ai-connect/connect-gate";
+import { MobilePieceEditor } from "./mobile/mobile-piece-editor";
 import { useToastStore } from "@/hooks/use-toast";
+import { useHoverPeek } from "@/hooks/use-hover-peek";
 
 const COMPACT_BREAKPOINT = 960;
-const MIN_SUPPORTED_WIDTH = 768;
+const MOBILE_BREAKPOINT = 768;
+
+// Panel widths, in one place. The left column never collapses to nothing any
+// more: it becomes a rail, so there is always something to click back.
+const SIDEBAR_WIDTH = 300;
+const SIDEBAR_RAIL_WIDTH = 44;
+const SETTINGS_NAV_WIDTH = 220;
+const RIGHT_PANEL_WIDTH = 340;
+// The shell's own p-3 padding, in pixels — the peeked sidebar is absolutely
+// positioned, so it has to be told where the rail starts.
+const SHELL_PADDING = 12;
 
 export function AppShell() {
-  usePersistence();
+  const { migrationFailed, migrationRecord, retryMigration } = usePersistence();
   useAutoSave();
   const deviceId = useDeviceId();
   useLogSync();
@@ -58,7 +73,7 @@ export function AppShell() {
   // `ingressAvailable` are intentionally unused here — no UI affordance yet
   // (see ARI-154); the hook stays consumable for whoever adds one.
   useAgentInbox();
-  // Polls the user's Substack RSS feed while any piece/note is awaiting
+  // Polls the user's Substack RSS feed while any fragment is awaiting
   // publish confirmation (see src/lib/publish/substack-verify.ts).
   usePublishVerification();
   useEmptyCreationCleanup();
@@ -117,10 +132,14 @@ export function AppShell() {
   }, [hydrated, deviceId]);
 
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const sidebarPinned = useAppStore((s) => s.sidebarPinned);
+  const peekSidebar = useAppStore((s) => s.peekSidebar);
   const helperBarOpen = useAppStore((s) => s.helperBarOpen);
   const helperBarPinned = useAppStore((s) => s.helperBarPinned);
   const timelineOpen = useAppStore((s) => s.timelineOpen);
-  const activeNoteId = useAppStore((s) => s.activeNoteId);
+  const commentsPanelOpen = useAppStore((s) => s.commentsPanelOpen);
+  const closeCommentsPanel = useAppStore((s) => s.closeCommentsPanel);
+  const activePieceId = useAppStore((s) => s.activePieceId);
   const activeIdeaId = useAppStore((s) => s.activeIdeaId);
   const ideaSpace = useAppStore((s) => (activeIdeaId ? s.ideaSpaces[activeIdeaId] ?? "write" : "write"));
   const setIdeaSpace = useAppStore((s) => s.setIdeaSpace);
@@ -150,18 +169,19 @@ export function AppShell() {
   });
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("fragment:onboardingComplete") !== "true";
   });
   const [isCompact, setIsCompact] = useState(false);
-  const [isTooSmall, setIsTooSmall] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Compact + minimum-size detection — runs on mount and resize (avoids SSR mismatch)
+  // Compact + mobile detection runs on mount and resize (avoids SSR mismatch).
   useEffect(() => {
     const handleResize = () => {
       setIsCompact(window.innerWidth < COMPACT_BREAKPOINT);
-      setIsTooSmall(window.innerWidth < MIN_SUPPORTED_WIDTH);
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
@@ -174,9 +194,11 @@ export function AppShell() {
     if (saved !== null) setSidebarOpen(saved === "true");
   }, [setSidebarOpen]);
 
+  // What is worth remembering is the deliberate choice, not a hover that
+  // happened to be in flight when the tab closed.
   useEffect(() => {
-    localStorage.setItem("fragment:sidebarOpen", String(sidebarOpen));
-  }, [sidebarOpen]);
+    localStorage.setItem("fragment:sidebarOpen", String(sidebarPinned));
+  }, [sidebarPinned]);
 
   // Same treatment for the idea workspace column
   useEffect(() => {
@@ -184,13 +206,16 @@ export function AppShell() {
     if (saved !== null) setIdeaPanelOpen(saved === "true");
   }, [setIdeaPanelOpen]);
 
-  // A narrow window can't hold sidebar + idea workspace + editor without
-  // crushing the editor, so opening an idea there hands the left rail to the
-  // workspace. ⌘\ brings the sidebar back; this only fires when the idea or
-  // compactness changes, never fighting a deliberate re-open.
+  // The sidebar navigates across ideas; the idea workspace and the Snip Bar are
+  // for working inside one. When either of those opens, the sidebar has done
+  // its job and steps back to the rail rather than competing for width. It is
+  // still one hover away, and ⌘\ or the rail's button pins it back.
+  //
+  // Deps are what the rule reacts to, so it fires when a panel opens and never
+  // again — a deliberate re-open while the idea panel is still open sticks.
   useEffect(() => {
-    if (isCompact && activeIdeaId && ideaPanelOpen) setSidebarOpen(false);
-  }, [isCompact, activeIdeaId, ideaPanelOpen, setSidebarOpen]);
+    if ((activeIdeaId && ideaPanelOpen) || helperBarPinned) setSidebarOpen(false);
+  }, [activeIdeaId, ideaPanelOpen, helperBarPinned, setSidebarOpen]);
 
   useEffect(() => {
     localStorage.setItem("fragment:ideaPanelOpen", String(ideaPanelOpen));
@@ -215,6 +240,30 @@ export function AppShell() {
   // Dragging from the editor sets isDraggingToHelper, which keeps the panel
   // open as the drop target regardless of helperBarOpen state.
   // ────────────────────────────────────────────────────────────────────────────
+  // The sidebar peeks on the same terms the Snip Bar does: hover the rail to
+  // look, click to pin. Both go through useHoverPeek so the two edges of the
+  // window cannot drift apart in feel.
+  const sidebarPeek = useHoverPeek({
+    pinned: sidebarPinned,
+    onOpen: useCallback(() => peekSidebar(true), [peekSidebar]),
+    onClose: useCallback(() => peekSidebar(false), [peekSidebar]),
+  });
+
+  const sidebarHandlers = useMemo(
+    () => ({
+      onOpenSettings: () => setShowSettings(true),
+      onOpenAccount: () => { setSettingsSection("account"); setShowSettings(true); },
+      onOpenAI: () => { setSettingsSection("ai"); setShowSettings(true); },
+      onOpenHelp: () => setShowHelp(true),
+      onOpenCalendar: () => setShowCalendar(true),
+      onOpenLogs: () => { setSettingsSection("logs"); setShowSettings(true); },
+    }),
+    // setShowSettings is a stable useCallback defined below; the setters are
+    // React state setters and never change identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -287,8 +336,8 @@ export function AppShell() {
 
       if (meta && e.key === "s" && !e.shiftKey) {
         e.preventDefault();
-        if (activeNoteId) {
-          createVersion(activeNoteId, "Quick save", "manual");
+        if (activePieceId) {
+          createVersion(activePieceId, "Quick save", "manual");
           useToastStore.getState().showToast("Snapshot saved");
         }
         return;
@@ -336,21 +385,24 @@ export function AppShell() {
         if (showOnboarding) { completeOnboarding(); return; }
         if (useAppStore.getState().aiGate) { useAppStore.getState().closeAiGate(); return; }
         if (isFeedbackOpen) { closeFeedback(); return; }
+        if (showCalendar) { setShowCalendar(false); return; }
         if (showHelp) { setShowHelp(false); return; }
         const previewId = useAppStore.getState().timelinePreviewVersionId;
         if (previewId) { setTimelinePreviewVersionId(null); return; }
         if (showSettings) { setShowSettings(false); return; }
         if (showGlobalSearch) { setShowGlobalSearch(false); return; }
+        if (commentsPanelOpen) { closeCommentsPanel(); return; }
         if (isCompact && helperBarOpen) { closeHelperBar(); return; }
       }
     },
     [
-      toggleHelperBar, toggleTimeline, toggleSidebar, activeNoteId, createVersion,
-      setTimelinePreviewVersionId, showSettings, showGlobalSearch, showHelp,
+      toggleHelperBar, toggleTimeline, toggleSidebar, activePieceId, createVersion,
+      setTimelinePreviewVersionId, showSettings, showGlobalSearch, showHelp, showCalendar,
       showOnboarding, completeOnboarding,
       isCompact, helperBarOpen, closeHelperBar,
       isFeedbackOpen, closeFeedback,
       activeIdeaId, setIdeaSpace,
+      commentsPanelOpen, closeCommentsPanel,
     ],
   );
 
@@ -358,6 +410,13 @@ export function AppShell() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  // A migration that refused to finish left the library in its old shape, so
+  // rendering the app would show a library missing everything not carried
+  // across. Nothing was hydrated; nothing gets drawn but this.
+  if (migrationFailed) {
+    return <MigrationFailed record={migrationRecord} onRetry={retryMigration} />;
+  }
 
   if (!hydrated) {
     return (
@@ -377,23 +436,16 @@ export function AppShell() {
     );
   }
 
-  if (isTooSmall) {
-    return (
-      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-bg px-8 text-center">
-        <h1 className="font-[family-name:var(--font-heading)] text-2xl text-text">
-          Fragment is designed for desktop
-        </h1>
-        <p className="max-w-sm text-sm text-text-muted leading-relaxed">
-          This app needs a wider screen to work properly. Please resize your browser window or switch to a desktop device.
-        </p>
-        <p className="font-[family-name:var(--font-mono)] text-[11px] text-text-faint tracking-wider">
-          Minimum width: {MIN_SUPPORTED_WIDTH}px
-        </p>
-      </div>
-    );
-  }
+  if (isMobile) return <MobilePieceEditor />;
 
-  const showRightPanelCompact = !showSettings && (helperBarOpen || timelineOpen || isDraggingToHelper);
+  // The right panel takes width in the flex row only when it was opened
+  // deliberately. A drag reveals it as an overlay instead (see below), so
+  // starting a drag never reflows the draft.
+  const rightPanelInFlow = !showSettings && (helperBarOpen || timelineOpen);
+  const dragRevealOverlay = !showSettings && isDraggingToHelper && !rightPanelInFlow;
+  const showRightPanelOverlay = isCompact
+    ? !showSettings && (helperBarOpen || timelineOpen || isDraggingToHelper)
+    : dragRevealOverlay;
 
   return (
     <>
@@ -402,7 +454,15 @@ export function AppShell() {
           {/* Left panel: sidebar or settings nav */}
           <div
             className="transition-all duration-300 ease-out overflow-hidden shrink-0"
-            style={{ width: showSettings ? 220 : sidebarOpen ? 300 : 0 }}
+            style={{
+              width: showSettings
+                ? SETTINGS_NAV_WIDTH
+                : sidebarOpen && sidebarPinned
+                  ? SIDEBAR_WIDTH
+                  : SIDEBAR_RAIL_WIDTH,
+            }}
+            onMouseEnter={sidebarPeek.onTriggerEnter}
+            onMouseLeave={sidebarPeek.onTriggerLeave}
           >
             {showSettings ? (
               <SettingsNav
@@ -411,13 +471,7 @@ export function AppShell() {
                 onClose={() => setShowSettings(false)}
               />
             ) : (
-              <Sidebar
-                onOpenSettings={() => setShowSettings(true)}
-                onOpenAccount={() => { setSettingsSection("account"); setShowSettings(true); }}
-                onOpenAI={() => { setSettingsSection("ai"); setShowSettings(true); }}
-                onOpenHelp={() => setShowHelp(true)}
-                onOpenLogs={() => { setSettingsSection("logs"); setShowSettings(true); }}
-              />
+              <Sidebar rail={!(sidebarOpen && sidebarPinned)} {...sidebarHandlers} />
             )}
           </div>
 
@@ -467,13 +521,17 @@ export function AppShell() {
           {/* Right panel (non-compact): timeline or helper bar as flex child.
               Width animates open/closed. Mouse enter/leave trigger the same
               hover-reveal logic as the compact overlay so the panel behaves
-              consistently at any window size. isDraggingToHelper auto-reveals
-              the panel when the user drags from the editor, even if it was
-              closed, so there is always a visible drop target. */}
+              consistently at any window size.
+
+              A drag no longer widens this column. It used to, so that there
+              was always a visible drop target — but widening it narrows the
+              editor, and the passage you are dragging slides out from under
+              the cursor mid-gesture. Now dragging reveals the bar as an
+              overlay instead; nothing reflows. */}
           {!isCompact && (
             <div
-              className={`overflow-hidden shrink-0 ${isDraggingToHelper ? "" : "transition-all duration-300 ease-out"}`}
-              style={{ width: !showSettings && (helperBarOpen || timelineOpen || isDraggingToHelper) ? 340 : 0 }}
+              className="overflow-hidden shrink-0 transition-all duration-300 ease-out"
+              style={{ width: rightPanelInFlow ? RIGHT_PANEL_WIDTH : 0 }}
               onMouseEnter={handleOverlayMouseEnter}
               onMouseLeave={handleOverlayMouseLeave}
             >
@@ -490,16 +548,51 @@ export function AppShell() {
             isDraggingToHelper keeps the overlay visible as the drop target;
             once the drag ends the overlay collapses if helperBarOpen is still
             false. */}
-        {isCompact && (
+        {(isCompact || dragRevealOverlay) && (
           <div
             ref={overlayRef}
-            className={`absolute top-3 right-3 bottom-3 z-20 w-[340px] overflow-hidden rounded-[var(--radius-xl)] shadow-2xl transition-transform duration-300 ease-out ${
-              showRightPanelCompact ? "translate-x-0" : "translate-x-[120%]"
-            }`}
+            className={`absolute top-3 right-3 bottom-3 z-20 w-[340px] overflow-hidden rounded-[var(--radius-xl)] shadow-2xl ${
+              isCompact ? "transition-transform duration-300 ease-out" : ""
+            } ${showRightPanelOverlay ? "translate-x-0" : "translate-x-[120%]"}`}
             onMouseEnter={handleOverlayMouseEnter}
             onMouseLeave={handleOverlayMouseLeave}
           >
             {(timelineOpen && !helperBarPinned && !isDraggingToHelper) ? <TimelinePanel /> : <HelperBar />}
+          </div>
+        )}
+
+        {/* Peeked sidebar: the rail growing into the panel. It sits at the
+            rail's own left edge and animates its width up from the rail's, so
+            hovering reads as one strip expanding — not as a second panel
+            appearing beside a strip that lists the same four things.
+
+            An overlay rather than a width change in the flex row, because
+            pushing the editor sideways every time the pointer grazes the left
+            edge would reflow the text under the cursor.
+
+            Mounted whether or not it is showing, so the retraction animates
+            too. While closed it is transparent and pointer-events-none, which
+            leaves the rail underneath free to receive the hover that opens
+            it; opening flips pointer-events back on, and the browser hands the
+            pointer over — the rail's mouseleave schedules a close and this
+            panel's mouseenter cancels it, in that order.
+
+            `inert` is what keeps a closed panel from being a second, invisible
+            copy of the library: transparent is not gone, and without it every
+            button in here would still take tab focus and still answer to the
+            accessibility tree while clipped to 44px of nothing. */}
+        {!showSettings && !sidebarPinned && (
+          <div
+            inert={!sidebarOpen}
+            aria-hidden={!sidebarOpen}
+            className={`absolute top-3 bottom-3 z-30 overflow-hidden rounded-[var(--radius-xl)] transition-all duration-300 ease-out ${
+              sidebarOpen ? "opacity-100 shadow-2xl" : "opacity-0 pointer-events-none"
+            }`}
+            style={{ left: SHELL_PADDING, width: sidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_RAIL_WIDTH }}
+            onMouseEnter={sidebarPeek.onPanelEnter}
+            onMouseLeave={sidebarPeek.onPanelLeave}
+          >
+            <Sidebar peeking {...sidebarHandlers} />
           </div>
         )}
 
@@ -528,6 +621,19 @@ export function AppShell() {
             <Puzzle size={13} className="text-text-muted" />
           </div>
         )}
+
+        {/* Comments panel: a drawer that pops up from the bottom rather than
+            squeezing the editor like the side panels do — toggled from the
+            sidebar (see sidebar.tsx), independent of helper bar / timeline. */}
+        {!showSettings && (
+          <div
+            className={`absolute left-3 right-3 bottom-3 z-20 h-[320px] overflow-hidden shadow-2xl transition-transform duration-300 ease-out ${
+              commentsPanelOpen ? "translate-y-0" : "translate-y-[calc(100%+0.75rem)]"
+            }`}
+          >
+            <CommentsPanel />
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -539,6 +645,9 @@ export function AppShell() {
       )}
       {showHelp && (
         <HelpOverlay onClose={() => setShowHelp(false)} />
+      )}
+      {showCalendar && (
+        <ContentCalendar onClose={() => setShowCalendar(false)} />
       )}
 
       <ToastContainer />

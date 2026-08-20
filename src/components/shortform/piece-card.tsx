@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Portal } from "@/components/common/portal";
 import { useMenuPlacement } from "@/hooks/use-menu-placement";
-import { Flag, MoreHorizontal, ChevronDown } from "lucide-react";
-import type { ContentFormat, ContentPiece, Priority } from "@/lib/content-engine";
-import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml, publishPendingState } from "@/lib/publish";
+import { Z_FLOATING } from "@/lib/z-layers";
+import { Flag, MoreHorizontal, Pin } from "lucide-react";
+import type { ContentFormat, ContentPiece } from "@/lib/content-engine";
+import { PLATFORM_CHAR_LIMITS, TWEET_CHAR_LIMIT, charCount, countTweetThread, markdownToPreviewHtml } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useAppStore } from "@/stores/app-store";
@@ -12,12 +14,15 @@ import { useToastStore } from "@/hooks/use-toast";
 import { useInlineEdit } from "@/hooks/use-inline-edit";
 import { useSlashCommand } from "@/hooks/use-slash-command";
 import { useSnipLabeler } from "@/hooks/use-snip-labeler";
+import { useResolvedBrief } from "@/hooks/use-brief";
 import {
   buildRefineContext,
   buildFlowContext,
-  findLinkedNoteContent,
   FORMAT_TO_PLATFORM,
 } from "@/lib/piece-ai";
+import { buildIdeaBrief } from "@/lib/ai-context";
+import { PRIORITY_META } from "@/lib/priority";
+import { effectiveResourcesForIdea } from "@/stores/resources-selectors";
 import {
   moveTextareaSelection,
   offsetAtPoint,
@@ -25,22 +30,20 @@ import {
   selectionDragDestination,
   textareaSelectionRange,
 } from "@/lib/textarea-selection";
+import { titleFromText } from "@/lib/derive-title";
 import { formatDate } from "@/lib/utils";
 import { ageLabel, scheduleLabel, scheduleOverdue, stalenessLevel } from "./feed-logic";
 import { PieceResourcesPopover } from "./piece-resources-popover";
 import { PieceShareMenu } from "./piece-share-menu";
-import { PieceRefineMenu } from "./piece-refine-menu";
+import { isPieceRefineMenuTarget, PieceRefineMenu } from "./piece-refine-menu";
 import { PieceTriageBar } from "./piece-triage";
+import { PieceMenuItems } from "./piece-menu-items";
+import { ContextMenu, useContextMenu } from "@/components/common/context-menu";
+import { PublishReceipt } from "@/components/publish/publish-receipt";
+import { PublishedLock, isPieceLocked } from "@/components/publish/published-lock";
+import { PublishPendingPrompt } from "@/components/publish/publish-pending-prompt";
+import { FORMAT_LABELS } from "@/lib/format-labels";
 import { LiveMarkdownTextarea } from "./live-markdown-textarea";
-
-const FORMAT_LABELS: Record<ContentFormat, string> = {
-  tweet: "X",
-  linkedin: "LinkedIn",
-  substack: "Substack",
-  essay: "Essay",
-  script: "Script",
-  other: "Other",
-};
 
 const STATUS_LABELS: Record<ContentPiece["status"], string> = {
   inbox: "in inbox",
@@ -55,21 +58,6 @@ const STATUS_META: Record<ContentPiece["status"], { label: string; dotClass: str
   ready: { label: "Ready", dotClass: "bg-gold" },
   published: { label: "Published", dotClass: "bg-green" },
 };
-
-const PRIORITY_META: Record<1 | 2 | 3 | 4, { label: string; className: string }> = {
-  1: { label: "Urgent", className: "text-red" },
-  2: { label: "High", className: "text-gold" },
-  3: { label: "Medium", className: "text-blue" },
-  4: { label: "Low", className: "text-text-muted" },
-};
-
-const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
-  { value: 1, label: "Urgent" },
-  { value: 2, label: "High" },
-  { value: 3, label: "Medium" },
-  { value: 4, label: "Low" },
-  { value: 0, label: "No priority" },
-];
 
 function platformChip(format: ContentFormat): string {
   if (format === "tweet") return `X · ${TWEET_CHAR_LIMIT}`;
@@ -136,12 +124,13 @@ export function PieceCard({
   onDelete,
 }: PieceCardProps) {
   const updatePiece = useContentStore((s) => s.updatePiece);
+  const duplicatePiece = useContentStore((s) => s.duplicatePiece);
   const markPieceSeen = useContentStore((s) => s.markPieceSeen);
   const cyclePiecePriority = useContentStore((s) => s.cyclePiecePriority);
-  const setPiecePriority = useContentStore((s) => s.setPiecePriority);
   const ideas = useContentStore((s) => s.ideas);
   const allPieces = useContentStore((s) => s.pieces);
-  const notes = useDataStore((s) => s.notes);
+  const allIdeas = useContentStore((s) => s.ideas);
+  const allResources = useContentStore((s) => s.resources);
   const addSnippet = useDataStore((s) => s.addSnippet);
   const pinHelperBar = useAppStore((s) => s.pinHelperBar);
   const setHoveredPiece = useAppStore((s) => s.setHoveredPiece);
@@ -150,6 +139,9 @@ export function PieceCard({
   const { generateStream, abort: abortFlow, enabled: slashEnabled } = useSlashCommand();
   const labelSnip = useSnipLabeler();
   const idea = ideas[piece.ideaId];
+  // Fragment → idea → voice. Short-form used to send empty audience and tone,
+  // so a piece drafted here ignored the persona entirely.
+  const brief = useResolvedBrief(piece);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -159,20 +151,42 @@ export function PieceCard({
   const overflowMenuRef = useRef<HTMLDivElement>(null);
   // The footer this hangs off is pinned to the bottom of the page.
   const menuPlacement = useMenuPlacement(menuOpen, overflowAnchorRef, overflowMenuRef);
-  const [priorityMenuOpen, setPriorityMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
+  // Right-click anywhere on the card opens the same list of actions the ⋯
+  // button holds, at the pointer. The one exception is inside the textarea,
+  // where the browser's own menu still owns spellcheck, cut and paste.
+  const { point: contextPoint, openAt: openContextMenu, close: closeContextMenu } = useContextMenu();
   // Flow (⌘⏎ / "Draft with Flow"): streamedBody mirrors the long-form
   // editor's streamingContent pattern (editor.tsx) — chunks accumulate in
   // local state and only commit to the store (updatePiece) once generation
   // finishes, so IndexedDB isn't written on every animation frame.
   const [flowGenerating, setFlowGenerating] = useState(false);
   const [streamedBody, setStreamedBody] = useState<string | null>(null);
+  // Flow asks before it writes. It used to fire the moment ⌘⏎ was pressed,
+  // with a canned instruction nobody typed, so opening a piece and reaching
+  // for a keyboard shortcut produced a page of text out of nowhere. The
+  // shortcut opens this line instead; generation needs words in it.
+  const [flowPrompt, setFlowPrompt] = useState<string | null>(null);
+  const flowPromptRef = useRef<HTMLInputElement>(null);
 
   // The one string this card is about, from whichever source is live.
   const body = flowGenerating ? streamedBody ?? "" : piece.body ?? "";
   // Flow streams into the textarea, so a generating card counts as editing
   // even if the user never clicked in.
   const isEditing = editing || flowGenerating;
+  // "Edit anyway" on a published card. Holds the piece id rather than a boolean
+  // so switching cards re-locks by itself, with no effect resetting anything:
+  // the unlock is transient on purpose, because publishing is why the text is
+  // closed and reading a different piece does not change that.
+  const [unlockedPieceId, setUnlockedPieceId] = useState<string | null>(null);
+  const locked = isPieceLocked(piece, unlockedPieceId === piece.id);
+  const reviewingExtraction = piece.reviewQueue === "extraction";
+  const statusMeta = piece.reviewQueue === "extraction"
+    ? { label: "Extracted", dotClass: "bg-gold" }
+    : STATUS_META[piece.status];
+  const statusAge = piece.reviewQueue === "extraction"
+    ? "awaiting review"
+    : STATUS_LABELS[piece.status];
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -201,8 +215,22 @@ export function PieceCard({
 
   const enterEditing = useCallback(() => {
     if (!piece.seen) markPieceSeen(piece.id);
+    // A published card is read-only, so clicking its text marks it seen and
+    // then does nothing else. The notice above it says why, and offers the two
+    // ways forward, rather than a click silently failing to put a caret in.
+    if (locked || reviewingExtraction) return;
     onEnterEdit();
-  }, [piece.seen, piece.id, markPieceSeen, onEnterEdit]);
+  }, [piece.seen, piece.id, markPieceSeen, onEnterEdit, locked, reviewingExtraction]);
+
+  const handleTextareaBlur = useCallback(
+    (event: React.FocusEvent<HTMLTextAreaElement>) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && cardRef.current?.contains(next)) return;
+      if (isPieceRefineMenuTarget(next)) return;
+      onExitEdit();
+    },
+    [onExitEdit],
+  );
 
   // Focus is reading, not just a prelude to editing: now that a card shows
   // its formatted text, landing on one (click, J/K, or a jump from the idea
@@ -223,16 +251,41 @@ export function PieceCard({
   // long-form editor's "/" trigger uses, just with a piece-shaped context;
   // see buildFlowContext in piece-ai.ts). Triggered by ⌘⏎ in the textarea or
   // the ⋯ menu's "Draft with Flow" item.
-  const handleFlowGenerate = useCallback(() => {
-    if (flowGenerating) return;
+  /** Open the prompt line. Flow never starts from a keystroke alone. */
+  const openFlowPrompt = useCallback(() => {
+    if (flowGenerating || reviewingExtraction) return;
     // Silence was the worst answer here: ⌘⏎ with Flow switched off did
     // nothing at all, which reads as a broken feature rather than an off one.
     if (!slashEnabled) {
-      showToast("Flow is off — turn on slash commands in Settings → AI.");
+      showToast("Flow is off. Turn on slash commands in Settings, AI.");
       return;
     }
-    const linkedNoteContent = findLinkedNoteContent(piece.ideaId, Object.values(allPieces), notes);
-    const ctx = buildFlowContext({ format: piece.format, idea, linkedNoteContent });
+    setFlowPrompt("");
+    requestAnimationFrame(() => flowPromptRef.current?.focus());
+  }, [flowGenerating, reviewingExtraction, slashEnabled, showToast]);
+
+  const handleFlowGenerate = useCallback((instruction: string) => {
+    if (flowGenerating || reviewingExtraction) return;
+    if (!slashEnabled) return;
+    if (!instruction.trim()) return;
+    setFlowPrompt(null);
+    // Everything the idea holds: its title and summary, what is already
+    // written in it, and the sources attached to it. Flow used to receive
+    // only "the idea's long-form draft", which assumed each idea has exactly
+    // one long piece that counts, and left a model writing blind whenever it
+    // did not.
+    const ideaBrief = buildIdeaBrief({
+      idea: idea ? { title: idea.title ?? "", summary: idea.summary } : null,
+      siblings: Object.values(allPieces).filter(
+        (p) => p.ideaId === piece.ideaId && p.id !== piece.id && p.deletedAt === undefined,
+      ),
+      resources: effectiveResourcesForIdea(
+        piece.ideaId,
+        Object.values(allIdeas),
+        Object.values(allResources),
+      ),
+    });
+    const ctx = buildFlowContext({ format: piece.format, idea, ideaBrief, instruction, brief });
     const baseBody = piece.body ?? "";
 
     setFlowGenerating(true);
@@ -242,8 +295,8 @@ export function PieceCard({
       ctx.contextAbove,
       "",
       ctx.goal,
-      "",
-      "",
+      ctx.audience,
+      ctx.tone,
       ctx.remember,
       ctx.instruction,
       {
@@ -271,13 +324,15 @@ export function PieceCard({
   }, [
     slashEnabled,
     flowGenerating,
+    reviewingExtraction,
     piece,
     allPieces,
-    notes,
+    allIdeas,
+    allResources,
     idea,
+    brief,
     generateStream,
     updatePiece,
-    showToast,
   ]);
 
   /** Stop mid-generation and keep what already streamed — the same bargain the
@@ -306,17 +361,32 @@ export function PieceCard({
         onExitEdit();
       } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        handleFlowGenerate();
+        openFlowPrompt();
+      } else if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // "/" at the start of a line opens Flow, the same gesture the
+        // long-form editor has had all along. In a piece it did nothing at
+        // all, so the shortcut a writer had already learned looked broken
+        // here. Mid-word and mid-sentence slashes are left alone: dates and
+        // and/or are ordinary typing.
+        const el = e.currentTarget;
+        const before = el.value.slice(0, el.selectionStart ?? 0);
+        const atLineStart = before === "" || before.endsWith("\n");
+        if (atLineStart && el.selectionStart === el.selectionEnd) {
+          e.preventDefault();
+          openFlowPrompt();
+        }
       }
     },
-    [onExitEdit, handleFlowGenerate],
+    [onExitEdit, openFlowPrompt],
   );
 
   // Refine: context-aware edit of the current textarea selection, routed
   // through the existing useInlineEdit flow. See buildRefineContext in
   // piece-ai.ts for how before/after context, the idea's title/summary, the
-  // voice chain (idea.voiceId -> default — a piece has no voiceId of its
-  // own), and the platform/char-limit hint are assembled.
+  // voice chain (fragment.voiceId -> idea.voiceId -> default) and the
+  // platform/char-limit hint are assembled. Goal, audience and tone come from
+  // the resolved brief, so a short-form fragment sees the same persona the
+  // editor does; they used to be passed as empty strings from here.
   const handleRefineEdit = useCallback(
     async (instruction: string, selectionStart: number, selectionEnd: number): Promise<string | null> => {
       if (!inlineEditEnabled) return null;
@@ -331,21 +401,22 @@ export function PieceCard({
         selectionStart: selection.start,
         selectionEnd: selection.end,
         idea,
+        brief,
       });
       return inlineEdit(
         selectedText,
         ctx.contextBefore,
         ctx.contextAfter,
         ctx.goal,
-        "",
-        "",
+        ctx.audience,
+        ctx.tone,
         ctx.remember,
         instruction,
         piece.id,
         ctx.voiceId,
       );
     },
-    [inlineEditEnabled, piece, idea, inlineEdit],
+    [inlineEditEnabled, piece, idea, brief, inlineEdit],
   );
 
   // Snip out: lifts the selection into the Snip Bar, filed against this
@@ -371,7 +442,7 @@ export function PieceCard({
 
       const snippetId = addSnippet(null, selectedText, atIndex, piece.ideaId);
       if (!snippetId) return;
-      labelSnip(snippetId, selectedText, { noteId: null, ideaId: piece.ideaId });
+      labelSnip(snippetId, selectedText, { pieceId: null, ideaId: piece.ideaId });
 
       updatePiece(piece.id, {
         body: body.slice(0, selection.start) + body.slice(selection.end),
@@ -388,6 +459,36 @@ export function PieceCard({
   const handleRefineSnip = useCallback(
     (selectionStart: number, selectionEnd: number) => snipOut(selectionStart, selectionEnd),
     [snipOut],
+  );
+
+  /**
+   * Lift the selection into a piece of its own, in the same idea. Unlike Snip
+   * it takes nothing away from this card: a second post hiding inside the one
+   * you are writing should become its own card without gutting this one.
+   */
+  const handleCapturePiece = useCallback(
+    (selectionStart: number, selectionEnd: number) => {
+      const selectedText = (piece.body ?? "").slice(selectionStart, selectionEnd).trim();
+      if (!selectedText) return;
+
+      const content = useContentStore.getState();
+      const newId = content.createPiece({
+        ideaId: piece.ideaId,
+        format: "other",
+        origin: "user",
+        // Yours, written just now: already triaged by the act of writing it.
+        status: "in-progress",
+        body: selectedText,
+        seen: true,
+      });
+      if (!newId) return;
+
+      showToast(`Piece created: ${titleFromText(selectedText) || "Untitled"}`, {
+        label: "Open",
+        onClick: () => useAppStore.getState().revealPiece(newId),
+      });
+    },
+    [piece.body, piece.ideaId, showToast],
   );
 
   // Kept in a ref because the drag's mouseup fires from a document listener
@@ -516,6 +617,12 @@ export function PieceCard({
     [flowGenerating, piece.body, piece.id, updatePiece],
   );
 
+  const flowDisabledReason = !slashEnabled
+    ? "Flow is off. Turn on slash commands in Settings, AI"
+    : flowGenerating
+      ? "Already generating"
+      : undefined;
+
   const footer = charFooter(piece);
   const stale = stalenessLevel(piece, now);
   const staleClass =
@@ -536,8 +643,17 @@ export function PieceCard({
       onBlurCapture={(event) => {
         if (!isEditing) return;
         const next = event.relatedTarget;
+        if (isPieceRefineMenuTarget(next)) return;
         if (next instanceof Node && event.currentTarget.contains(next)) return;
         onExitEdit();
+      }}
+      onContextMenu={(e) => {
+        // Text fields keep the browser's menu: inside the textarea a
+        // right-click is about the words (paste, spellcheck), not the piece.
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "TEXTAREA" || tag === "INPUT") return;
+        onFocusCard();
+        openContextMenu(e);
       }}
       onMouseEnter={() => setHoveredPiece(piece.id)}
       onMouseLeave={() => setHoveredPiece(null)}
@@ -551,41 +667,56 @@ export function PieceCard({
         <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full bg-gold/50" />
       )}
 
+      {contextPoint && (
+        <ContextMenu point={contextPoint} onClose={closeContextMenu}>
+          <PieceMenuItems
+            piece={piece}
+            onClose={closeContextMenu}
+            onDelete={onDelete}
+            onWriteWithFlow={openFlowPrompt}
+            flowDisabledReason={flowDisabledReason}
+            onOpenResources={() => setResourcesOpen(true)}
+          />
+        </ContextMenu>
+      )}
+
       {/* Meta row — pinned to the top of the page */}
       <div className="shrink-0 flex items-center gap-2.5 mb-2 flex-wrap">
+        {piece.pinnedAt !== undefined && (
+          <span title="Pinned to the top of this idea's feed" className="shrink-0 text-gold">
+            <Pin size={10} fill="currentColor" />
+          </span>
+        )}
+
+        {piece.archivedAt !== undefined && (
+          <span
+            title="Archived. It only shows under the Archived filter"
+            className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-text-faint px-1.5 py-0.5 rounded-[4px] bg-surface-2 border border-border"
+          >
+            Archived
+          </span>
+        )}
+
         <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-wider text-text-muted px-1.5 py-0.5 rounded-[4px] bg-surface-2 border border-border">
           {platformChip(piece.format)}
         </span>
 
         <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
-          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_META[piece.status].dotClass}`} />
-          {STATUS_META[piece.status].label}
+          <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
+          {statusMeta.label}
         </span>
 
-        {/* Substack verified-publish loop: "awaiting confirmation" / "did
-            this go live?" badge — see publishPendingState. */}
-        {(() => {
-          const pending = publishPendingState(piece.publishAttemptedAt, now);
-          if (pending === "none") return null;
-          return (
-            <span
-              title={
-                pending === "nudge"
-                  ? "Attempted over 24h ago — did this go live on Substack?"
-                  : "Copied — waiting for Fragment to confirm this went live on Substack"
-              }
-              className={`text-[10px] px-1.5 py-0.5 rounded-[4px] border ${
-                pending === "nudge"
-                  ? "text-gold border-gold/40 bg-gold/10"
-                  : "text-text-faint border-border bg-surface-2"
-              }`}
-            >
-              {pending === "nudge" ? "did this go live?" : "awaiting confirmation"}
-            </span>
-          );
-        })()}
+        {/* Where it went and when, linked when a URL is on file. "Published" on
+            its own never answered either question. */}
+        {piece.publish && <PublishReceipt publish={piece.publish} />}
 
-        {piece.priority !== 0 && (
+        {/* Between pressing publish and the piece being live. Opens a field for
+            the published link, because the publish itself happened in another
+            tab and pasting the URL beats inferring it. See
+            PublishPendingPrompt. */}
+        <PublishPendingPrompt piece={piece} now={now} />
+
+        {piece.reviewQueue === undefined && piece.priority !== 0 && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -631,7 +762,7 @@ export function PieceCard({
               style={{ animation: "pulse-gold 2s ease-in-out infinite" }}
             />
           )}
-          {STATUS_LABELS[piece.status]} {ageLabel(piece, now)}
+          {statusAge} {ageLabel(piece, now)}
         </span>
       </div>
 
@@ -643,6 +774,50 @@ export function PieceCard({
           follows streamedBody (local state) instead of the store, matching
           the long-form editor's streamingContent pattern — see
           handleFlowGenerate. */}
+      {flowPrompt !== null && (
+        <div className="px-1 pb-2">
+          <div className="flex items-center gap-2 rounded-[var(--radius-default)] border border-gold/50 bg-gold-muted/10 px-3 py-2">
+            <span className="text-[11px] font-medium text-gold shrink-0">Flow</span>
+            <input
+              ref={flowPromptRef}
+              value={flowPrompt}
+              onChange={(e) => setFlowPrompt(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setFlowPrompt(null);
+                  textareaRef.current?.focus();
+                } else if (e.key === "Enter" && flowPrompt.trim()) {
+                  e.preventDefault();
+                  handleFlowGenerate(flowPrompt);
+                }
+              }}
+              placeholder="What should Flow write here?"
+              className="flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-faint outline-none"
+            />
+            <span className="text-[10px] text-text-faint shrink-0 font-[family-name:var(--font-mono)]">
+              enter to write, esc to cancel
+            </span>
+          </div>
+        </div>
+      )}
+
+      {locked && (
+        <div className="shrink-0">
+          <PublishedLock
+            piece={piece}
+            variant="inline"
+            onEditAnyway={() => setUnlockedPieceId(piece.id)}
+            onDuplicate={() => {
+              const copyId = duplicatePiece(piece.id);
+              if (copyId) showToast("Duplicated. The copy is unpublished and open to edit.");
+            }}
+          />
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-y-auto pr-3 -mr-1">
         {isEditing ? (
           <>
@@ -653,16 +828,19 @@ export function PieceCard({
               value={flowGenerating ? streamedBody ?? "" : piece.body ?? ""}
               onChange={handleBodyChange}
               onFocus={enterEditing}
+              onBlur={handleTextareaBlur}
               onKeyDown={handleTextareaKeyDown}
-              readOnly={flowGenerating}
-              placeholder={slashEnabled ? "Write, or press ⌘⏎ to draft with Flow" : "Write the piece..."}
+              readOnly={flowGenerating || locked || reviewingExtraction}
+              placeholder={reviewingExtraction ? "Review, then accept or toss" : slashEnabled ? "Write, or press / to ask Flow" : "Write the piece..."}
             />
-            {inlineEditEnabled && !flowGenerating && (
+            {inlineEditEnabled && !flowGenerating && !reviewingExtraction && (
               <PieceRefineMenu
                 textareaRef={textareaRef}
                 containerRef={cardRef}
                 onEdit={handleRefineEdit}
                 onSnip={handleRefineSnip}
+                onCapturePiece={handleCapturePiece}
+                onExitEdit={onExitEdit}
               />
             )}
           </>
@@ -686,8 +864,8 @@ export function PieceCard({
         )}
       </div>
 
-      {/* Triage — only while the piece is still sitting in the inbox. */}
-      {piece.status === "inbox" && !flowGenerating && (
+      {/* External arrivals and internal extracted results each need a decision. */}
+      {(piece.status === "inbox" || piece.reviewQueue === "extraction") && !flowGenerating && (
         <div className="shrink-0">
           <PieceTriageBar piece={piece} onDismiss={onDelete} />
         </div>
@@ -711,14 +889,13 @@ export function PieceCard({
         )}
 
         <div className="ml-auto flex items-center gap-1.5">
-          <PieceShareMenu piece={piece} />
+          {piece.reviewQueue === undefined && <PieceShareMenu piece={piece} />}
 
           <div ref={overflowAnchorRef} className="relative">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
-                setPriorityMenuOpen(false);
               }}
               className="p-1.5 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-2 transition-all duration-150"
             >
@@ -726,81 +903,23 @@ export function PieceCard({
             </button>
 
             {menuOpen && (
-              <div
-                ref={overflowMenuRef}
-                className={`absolute right-0 ${menuPlacement.className} z-20 w-40 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
-                style={{ maxHeight: menuPlacement.maxHeight || undefined }}
-                onMouseLeave={() => { setMenuOpen(false); setPriorityMenuOpen(false); }}
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(false);
-                    setPriorityMenuOpen(false);
-                    setResourcesOpen(true);
-                  }}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                  title="Reference links, notes, and assets for this piece — including inherited from its idea"
+              <Portal>
+                <div
+                  ref={overflowMenuRef}
+                  className={`fixed ${Z_FLOATING} w-48 bg-surface-3 border border-border-strong rounded-[var(--radius-default)] shadow-xl py-1 overflow-y-auto`}
+                  style={menuPlacement.style}
+                  onMouseLeave={() => setMenuOpen(false)}
                 >
-                  Resources
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setPriorityMenuOpen((v) => !v); }}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                >
-                  Set priority
-                  <ChevronDown size={10} />
-                </button>
-                {priorityMenuOpen && (
-                  <div className="border-t border-border py-1">
-                    {PRIORITY_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPiecePriority(piece.id, opt.value);
-                          setMenuOpen(false);
-                          setPriorityMenuOpen(false);
-                        }}
-                        className="block w-full text-left px-4 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuOpen(false);
-                    setPriorityMenuOpen(false);
-                    handleFlowGenerate();
-                  }}
-                  disabled={!slashEnabled || flowGenerating}
-                  className="flex items-center justify-between w-full px-3 py-1.5 text-[12px] text-text-secondary hover:bg-surface-hover transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
-                  title={
-                    !slashEnabled
-                      ? "Flow is off — turn on slash commands in Settings → AI"
-                      : flowGenerating
-                        ? "Already generating"
-                        : "Generate a first draft for this piece with AI (⌘⏎)"
-                  }
-                >
-                  Draft with Flow
-                </button>
-                <div className="border-t border-border mt-1 pt-1">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      onDelete();
-                    }}
-                    className="block w-full text-left px-3 py-1.5 text-[12px] text-red hover:bg-red-muted transition-colors duration-150"
-                  >
-                    Delete
-                  </button>
+                  <PieceMenuItems
+                    piece={piece}
+                    onClose={() => setMenuOpen(false)}
+                    onDelete={onDelete}
+                    onWriteWithFlow={openFlowPrompt}
+                    flowDisabledReason={flowDisabledReason}
+                    onOpenResources={() => setResourcesOpen(true)}
+                  />
                 </div>
-              </div>
+              </Portal>
             )}
 
             {resourcesOpen && (

@@ -26,7 +26,7 @@ export function useInlineEdit() {
       tone: string,
       remember: string,
       instruction: string,
-      noteId?: string,
+      pieceId?: string,
       voiceId?: string | null,
     ): Promise<string | null> => {
       if (!settings.inlineEdit.enabled) return null;
@@ -96,7 +96,7 @@ export function useInlineEdit() {
 
         if (data._meta) {
           const modelUsed = (data._meta.modelUsed as string | undefined) || model;
-          logApiCall("edit", "refine", provider, modelUsed, data._meta, noteId).catch(() => {});
+          logApiCall("edit", "refine", provider, modelUsed, data._meta, pieceId).catch(() => {});
         }
 
         if (!res.ok) {

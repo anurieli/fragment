@@ -1,20 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { PanelRightClose, Puzzle } from "lucide-react";
+import { ChevronDown, ChevronUp, Info, Layers, PanelRightClose, Puzzle } from "lucide-react";
 import { useAppStore } from "@/stores/app-store";
+import { useContentStore } from "@/stores/content-store";
 import { useDataStore } from "@/stores/data-store";
 import { useSnipLabeler } from "@/hooks/use-snip-labeler";
 import { visibleSnippets } from "@/lib/snip-scope";
 import { SnippetCard } from "./snippet-card";
+import { PieceChip } from "./piece-chip";
 
 export function HelperBar() {
-  const { activeNoteId, activeIdeaId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
-  const { notes, snippets, addSnippet, reorderSnippets } = useDataStore();
+  const { activePieceId, activeIdeaId, closeHelperBar, isDraggingToHelper, isDraggingToEditor } = useAppStore();
+  const { snippets, addSnippet, reorderSnippets } = useDataStore();
+  const allPieces = useContentStore((s) => s.pieces);
   const labelSnip = useSnipLabeler();
   const [dragOver, setDragOver] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [draggingSnippetId, setDraggingSnippetId] = useState<string | null>(null);
+  // "Also in this idea" shelf, expanded up to show every piece at once.
+  // Deliberately local, not store state: this is a view preference for the
+  // panel in front of you right now, not something to carry across ideas.
+  const [piecesExpanded, setPiecesExpanded] = useState(false);
+  // Land on a new idea collapsed, not however the last one was left. Adjusted
+  // during render (React's documented pattern for resetting state off a prop
+  // change) rather than in an effect, so there is no extra render pass.
+  const [expandedForIdea, setExpandedForIdea] = useState(activeIdeaId);
+  if (activeIdeaId !== expandedForIdea) {
+    setExpandedForIdea(activeIdeaId);
+    setPiecesExpanded(false);
+  }
   const listRef = useRef<HTMLDivElement>(null);
   const prevDraggingHelperRef = useRef(isDraggingToHelper);
   const prevDraggingEditorRef = useRef(isDraggingToEditor);
@@ -30,15 +45,33 @@ export function HelperBar() {
     prevDraggingEditorRef.current = isDraggingToEditor;
   }, [isDraggingToHelper, isDraggingToEditor]);
 
-  const note = activeNoteId ? notes[activeNoteId] : null;
-
-  // Everything cut in the place you're standing: the open draft's snips and
-  // the open idea's (see snip-scope.ts). A piece has no note behind it, so
-  // scoping the bar to the active note alone made snips off a piece invisible.
+  // Everything cut in the place you're standing: the open fragment's snips and
+  // the open idea's (see snip-scope.ts). Scoping the bar to the open fragment
+  // alone would empty it the moment you crossed from Write to the feed.
   const barSnippets = useMemo(
-    () => visibleSnippets(snippets, activeNoteId, activeIdeaId),
-    [snippets, activeNoteId, activeIdeaId],
+    () => visibleSnippets(snippets, activePieceId, activeIdeaId),
+    [snippets, activePieceId, activeIdeaId],
   );
+
+  /**
+   * The idea's other pieces, so the draft can reach them without leaving it.
+   * Rolled to this idea only (not its children): the bar is about what is
+   * within arm's reach, and a child idea's feed is a different room. Empty
+   * ones are left out because there is nothing to drag out of them, which is
+   * also why the count is of what you can actually use.
+   */
+  const ideaPieces = useMemo(() => {
+    if (!activeIdeaId) return [];
+    return Object.values(allPieces)
+      .filter(
+        (piece) =>
+          piece.ideaId === activeIdeaId &&
+          piece.id !== activePieceId &&
+          piece.deletedAt === undefined &&
+          piece.body.trim().length > 0,
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [allPieces, activeIdeaId, activePieceId]);
 
   const getDropIndex = useCallback(
     (clientY: number) => {
@@ -109,8 +142,8 @@ export function HelperBar() {
       const draggedId = draggingSnippetId;
       setDraggingSnippetId(null);
 
-      // Somewhere to file it: the open draft, or the open idea.
-      if (!activeNoteId && !activeIdeaId) return;
+      // Somewhere to file it: the open fragment, or the open idea.
+      if (!activePieceId && !activeIdeaId) return;
 
       // Handle drag-back of pending snippet (reversible drop cancel)
       const pendingReturnData = e.dataTransfer.getData(
@@ -173,10 +206,10 @@ export function HelperBar() {
       if (!content.trim()) return;
 
       // Add snippet first to get its ID for undo tracking. Text dropped in
-      // from the editor is the note's; anything else with no note open is the
-      // idea's.
-      const home = { noteId: activeNoteId && note ? activeNoteId : null, ideaId: activeIdeaId ?? undefined };
-      const snippetId = addSnippet(home.noteId, content, targetIndex, home.ideaId);
+      // from the editor belongs to the open fragment; anything dropped with no
+      // fragment open belongs to the idea.
+      const home = { pieceId: activePieceId, ideaId: activeIdeaId ?? undefined };
+      const snippetId = addSnippet(home.pieceId, content, targetIndex, home.ideaId);
       if (!snippetId) return;
 
       // Tell editor to delete the source text (pass snippetId for undo/redo sync)
@@ -196,9 +229,8 @@ export function HelperBar() {
       useAppStore.getState().setFloatingDragCard(null);
     },
     [
-      activeNoteId,
+      activePieceId,
       activeIdeaId,
-      note,
       barSnippets,
       dropIndex,
       addSnippet,
@@ -288,6 +320,52 @@ export function HelperBar() {
           </div>
         )}
       </div>
+
+      {/* The idea's other pieces. Below the snips rather than beside them: the
+          snip list is the working surface with the drop zone, and this is a
+          shelf you reach for. Expand pushes it up to meet the header above
+          (3.5rem = the header's own h-14) so every piece is visible at once;
+          collapsing hands the flex-1 drop zone above it back its room. */}
+      {ideaPieces.length > 0 && (
+        <div
+          className="shrink-0 border-t border-border flex flex-col overflow-hidden transition-[max-height] duration-300 ease-out"
+          style={{ maxHeight: piecesExpanded ? "calc(100% - 3.5rem)" : "38%" }}
+        >
+          <div className="flex items-center gap-2.5 px-5 h-11 shrink-0">
+            <Layers size={13} className="text-text-muted" />
+            <span className="text-[12px] font-medium text-text-secondary">
+              Also in this idea
+            </span>
+            <span className="text-[11px] text-text-faint font-[family-name:var(--font-mono)]">
+              {ideaPieces.length}
+            </span>
+            <button
+              type="button"
+              title="Pieces inside of this idea"
+              className="p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150 cursor-help"
+            >
+              <Info size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPiecesExpanded((expanded) => !expanded)}
+              title={piecesExpanded ? "Collapse" : "Expand up"}
+              className="ml-auto p-1 rounded-[var(--radius-sm)] text-text-faint hover:text-text-secondary hover:bg-surface-hover transition-all duration-150"
+            >
+              {piecesExpanded ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-1.5">
+            {ideaPieces.map((piece) => (
+              <PieceChip
+                key={piece.id}
+                piece={piece}
+                onInteractionStart={() => setPiecesExpanded(false)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

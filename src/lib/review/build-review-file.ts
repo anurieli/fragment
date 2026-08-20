@@ -1,5 +1,6 @@
 import markdownit from "markdown-it";
 import { generateId } from "@/lib/utils";
+import { preserveWhitespace } from "@/lib/publish/whitespace";
 import { renderReviewTemplate, escapeHtml } from "./template";
 
 // Same options used for the app's other markdown -> HTML preview path
@@ -36,7 +37,7 @@ function sanitizeFilename(title: string): string {
 export function buildReviewFile(note: ReviewNoteInput, opts: BuildReviewFileOptions = {}): string {
   const docId = generateId();
   const title = note.title.trim() || "Untitled";
-  const bodyHtml = md.render(note.markdown ?? "");
+  const bodyHtml = md.render(preserveWhitespace(note.markdown ?? ""));
 
   return renderReviewTemplate({
     docId,
@@ -100,7 +101,7 @@ export function buildHostedReviewPage(
     titleHtml: escapeHtml(title),
     authorName: opts.authorName?.trim() ?? "",
     authorEmail: opts.authorEmail?.trim() ?? "",
-    bodyHtml: md.render(note.markdown ?? ""),
+    bodyHtml: md.render(preserveWhitespace(note.markdown ?? "")),
     filenameStem: sanitizeFilename(title),
     submitUrl: opts.submitUrl,
     revision: opts.revision,

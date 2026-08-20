@@ -21,12 +21,10 @@ export interface Note {
 export interface Snippet {
   id: string;
   /**
-   * The note this snippet was cut from, or null when it was cut from a
-   * short-form piece — a piece's text lives in the piece, not in any note, so
-   * an idea is the only home such a snippet has. Exactly one of noteId /
-   * ideaId is the snippet's *home* (see snippetHome in snip-scope.ts); a
-   * note-scoped snippet may still carry ideaId so it stays on screen when you
-   * cross from an idea's draft to its pieces.
+   * Retired. The note this snippet was cut from, before fragments held their
+   * own text. Kept so snips written before the one-entity migration can still
+   * be traced back, and so the migration has something to re-key from. New
+   * snips set `pieceId` instead and leave this null.
    */
   noteId: string | null;
   content: string;
@@ -36,6 +34,29 @@ export interface Snippet {
   order: number;
   /** The idea this snippet belongs to. Optional — existing rows are not backfilled. */
   ideaId?: string;
+  /** The fragment this snippet was cut from, once fragments hold their own
+   * text. Replaces noteId; both are present during the migration window. */
+  pieceId?: string;
+}
+
+/**
+ * A single note-first comment left against a note or an idea. Exactly one of
+ * `noteId` / `ideaId` is set — whichever surface was active when it was
+ * written (see commentHome in comment-scope.ts) — mirroring the two-home shape
+ * of Snippet.noteId/ideaId, but without a snippet's dual-carry: a comment
+ * has one home for its whole life.
+ *
+ * `promotedIdeaId` is set once "Turn into an idea" fires. The comment stays
+ * in place — this is a forward pointer to the Idea it seeded, not a move.
+ */
+export interface Comment {
+  id: string;
+  pieceId: string | null;
+  ideaId: string | null;
+  body: string;
+  createdAt: number;
+  updatedAt: number;
+  promotedIdeaId: string | null;
 }
 
 export type VersionTrigger = "manual" | "export-md" | "export-html" | "download-md" | "download-html" | "download-pdf" | "download-docx";
@@ -57,6 +78,54 @@ export interface NoteVersion {
   trigger: VersionTrigger;
   wordCount: number;
   createdAt: number;
+}
+
+/**
+ * A version snapshot of a fragment.
+ *
+ * The same record as NoteVersion, keyed to the fragment that now holds the
+ * text rather than to a note. Rows carried over by the one-entity migration
+ * keep `legacyNoteId` so the timeline of a fragment that used to be a note is
+ * continuous rather than starting over on migration day.
+ */
+export interface PieceVersion {
+  id: string;
+  pieceId: string;
+  legacyNoteId?: string;
+  title: string;
+  subtitle?: string;
+  content: string;
+  goal: string;
+  audience: string;
+  tone: string;
+  remember: string;
+  voiceId?: string | null;
+  name: string;
+  trigger: VersionTrigger;
+  wordCount: number;
+  createdAt: number;
+}
+
+export type MigrationStatus = "running" | "complete" | "failed";
+
+/**
+ * Bookkeeping for a one-off data migration.
+ *
+ * Local-only and never synced: whether *this device* has finished reshaping
+ * its own copy is not a fact other devices need, and syncing it would let one
+ * device's failure look like everyone's.
+ */
+export interface MigrationRecord {
+  id: string;
+  status: MigrationStatus;
+  startedAt: number;
+  finishedAt?: number;
+  /** Plan counts, so a support conversation can start from what was attempted. */
+  counts?: Record<string, number>;
+  /** Why the verification gate refused, when it did. */
+  failures?: { code: string; subject: string; detail: string }[];
+  /** Id of the pre-migration snapshot taken before this attempt. */
+  snapshotId?: string;
 }
 
 export interface FeatureProviderConfig {
@@ -82,6 +151,11 @@ export interface SlashCommandSettings extends AIProcessSettings {
 export interface InlineEditSettings extends AIProcessSettings {
   maxContextChars: number;
 }
+
+/** The idea extractor has no context window of its own to tune: it reads the
+ * whole idea by definition, and the ceiling on that lives in lib/agents/extract.ts
+ * where the source is assembled. */
+export type IdeaExtractorSettings = AIProcessSettings;
 
 export interface ProviderModel {
   id: string;
@@ -154,6 +228,17 @@ export interface BrandVoice {
   description: string;
   /** Structure guide, injected verbatim into generation prompts. */
   template: string;
+  /**
+   * The brief this voice writes to by default. A voice is a persona, and a
+   * persona already implies who it is talking to and how it sounds, so these
+   * travel with it: pick the voice and the audience and tone come along.
+   * Inherited by ideas and fragments that have not set their own — see
+   * resolveBrief in lib/brief-context.ts. Goal is deliberately absent: what a
+   * given piece is trying to achieve is the piece's business, not the persona's.
+   */
+  defaultAudience?: string;
+  defaultTone?: string;
+  defaultRemember?: string;
   profile: VoiceProfile | null;
   profileStale: boolean;
   profileUpdatedAt: number | null;
@@ -255,7 +340,7 @@ export interface FeedbackMetadata {
   userAgent: string;
   timestamp: string;
   screenResolution: string;
-  activeNoteId?: string;
+  activePieceId?: string;
 }
 
 export interface FeedbackSubmission {
@@ -309,6 +394,9 @@ export interface ReviewReturn {
 export interface StoredReview extends ReviewReturn {
   id: string;
   noteId: string;
+  /** The fragment this review is about. Replaces noteId; both are present
+   * during the migration window so old share links keep resolving. */
+  pieceId?: string;
   /** When this review file was imported into Fragment (not the reviewer's own timestamp). */
   receivedAt: number;
 }
@@ -359,6 +447,7 @@ export interface AppSettings {
     snippetLabeling: FeatureProviderConfig;
     slashCommand: FeatureProviderConfig;
     inlineEdit: FeatureProviderConfig;
+    ideaExtractor: FeatureProviderConfig;
   };
   userProfile: UserProfile;
   writingStyle: WritingStyleSettings;
@@ -367,5 +456,6 @@ export interface AppSettings {
   snippetLabeling: SnippetLabelingSettings;
   slashCommand: SlashCommandSettings;
   inlineEdit: InlineEditSettings;
+  ideaExtractor: IdeaExtractorSettings;
 }
 

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef } from "react";
 import { isTauri } from "@/lib/ai-client";
 import { fuzzyTitleMatch, markdownToPlainText, parseSubstackFeed } from "@/lib/publish";
 import { useContentStore } from "@/stores/content-store";
-import { useDataStore } from "@/stores/data-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useToastStore } from "@/hooks/use-toast";
 
@@ -46,25 +45,26 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "";
 }
 
-/** Best-effort "what would this piece/note be titled on Substack" guess. */
+/** Best-effort "what would this fragment be titled on Substack" guess. */
 function titleOrFirstLine(title: string | undefined, body: string): string {
   if (title && title.trim()) return title.trim();
   return firstLine(markdownToPlainText(body));
 }
 
 /**
- * The Substack verified-publish loop's polling half. While any short-form
- * piece (`ContentPiece.publishAttemptedAt` set, status not yet
- * "published") or long-form note (`data-store`'s in-memory
- * `pendingSubstackPublish` map) is awaiting confirmation, fetches the
- * user's Substack RSS feed on mount and every 3 minutes (visibility-gated,
- * same pattern as `useAgentInbox`) and fuzzy-matches titles against it. A
- * match:
- *   - short-form piece: moves status -> "published" with a verified publish
- *     record (via `setPieceStatus`, which also clears `publishAttemptedAt`).
- *   - long-form note: just clears the pending flag — long-form notes have
- *     no dedicated publish-record field yet (see the ARI-158 execution
- *     notes on `pendingSubstackPublish`).
+ * The Substack verified-publish loop's polling half. While any fragment is
+ * awaiting confirmation, fetches the user's Substack RSS feed on mount and
+ * every 3 minutes (visibility-gated, same pattern as `useAgentInbox`) and
+ * fuzzy-matches titles against it. A match moves the fragment to "published"
+ * with a verified publish record carrying the live URL off the feed.
+ *
+ * One field marks a fragment as awaiting confirmation, whichever surface fired
+ * the publish: the persisted `ContentPiece.publishAttemptedAt`, stamped by both
+ * the feed's Share menu and the editor's publish menu. It has to be persisted
+ * because a fragment must still look pending tomorrow. (The editor used to
+ * stamp an in-memory map whose match branch only fired a toast, so a draft
+ * confirmed live on Substack never recorded the publish at all.)
+ *
  * No-ops entirely (never even fetches) when the user hasn't set a Substack
  * publication URL in Settings, or nothing is pending.
  */
@@ -83,10 +83,7 @@ export function usePublishVerification(): void {
       (p) => p.publishAttemptedAt !== undefined && p.status !== "published" && p.deletedAt === undefined,
     );
 
-    const dataState = useDataStore.getState();
-    const pendingNoteIds = Object.keys(dataState.pendingSubstackPublish);
-
-    if (pendingPieces.length === 0 && pendingNoteIds.length === 0) return;
+    if (pendingPieces.length === 0) return;
 
     runningRef.current = true;
     try {
@@ -99,7 +96,7 @@ export function usePublishVerification(): void {
       const showToast = useToastStore.getState().showToast;
 
       for (const piece of pendingPieces) {
-        const guess = titleOrFirstLine(piece.title, piece.body ?? "");
+        const guess = titleOrFirstLine(piece.title, piece.body);
         if (!guess || !fuzzyTitleMatch(guess, feedTitles)) continue;
         const matched = items.find((item) => fuzzyTitleMatch(guess, [item.title]));
         contentState.setPieceStatus(piece.id, "published", {
@@ -110,18 +107,6 @@ export function usePublishVerification(): void {
           verified: true,
         });
         showToast(`"${piece.title || guess}" is live on Substack.`);
-      }
-
-      for (const noteId of pendingNoteIds) {
-        const note = dataState.notes[noteId];
-        if (!note) {
-          dataState.clearNotePublishPending(noteId);
-          continue;
-        }
-        const guess = titleOrFirstLine(note.title, note.content ?? "");
-        if (!guess || !fuzzyTitleMatch(guess, feedTitles)) continue;
-        dataState.clearNotePublishPending(noteId);
-        showToast(`"${note.title || guess}" is live on Substack.`);
       }
     } finally {
       runningRef.current = false;

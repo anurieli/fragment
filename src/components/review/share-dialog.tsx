@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, Link2, Loader2, RefreshCw, X } from "lucide-react";
 
+import type { ContentPiece } from "@/lib/content-engine";
 import {
   createShare,
   listShares,
@@ -13,10 +14,12 @@ import {
   ShareError,
   type ShareSummary,
 } from "@/lib/sharing/client";
+import { shareKeyFor } from "@/lib/sharing/share-key";
 import { useToastStore } from "@/hooks/use-toast";
 
 interface ShareDialogProps {
-  noteId: string;
+  /** The fragment being shared. Links are keyed by `shareKeyFor(piece)`. */
+  piece: Pick<ContentPiece, "id" | "legacyNoteId">;
   title: string;
   /** Read lazily, so the link always freezes what is on screen right now. */
   getMarkdown: () => string;
@@ -40,8 +43,9 @@ interface InvitedLink {
  * configured. When one is, this component keeps its shape and the links stop
  * being shown.
  */
-export function ShareDialog({ noteId, title, getMarkdown, onClose }: ShareDialogProps) {
+export function ShareDialog({ piece, title, getMarkdown, onClose }: ShareDialogProps) {
   const showToast = useToastStore((s) => s.showToast);
+  const shareKey = shareKeyFor(piece);
 
   const [existing, setExisting] = useState<ShareSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,7 +61,7 @@ export function ShareDialog({ noteId, title, getMarkdown, onClose }: ShareDialog
 
   useEffect(() => {
     let cancelled = false;
-    listShares(noteId)
+    listShares(shareKey)
       .then((shares) => {
         if (!cancelled) setExisting(shares);
       })
@@ -71,7 +75,7 @@ export function ShareDialog({ noteId, title, getMarkdown, onClose }: ShareDialog
     return () => {
       cancelled = true;
     };
-  }, [noteId]);
+  }, [shareKey]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -104,7 +108,7 @@ export function ShareDialog({ noteId, title, getMarkdown, onClose }: ShareDialog
         .filter(Boolean);
 
       const result = await createShare({
-        noteId,
+        shareKey,
         title,
         markdown: getMarkdown(),
         allowEdits,

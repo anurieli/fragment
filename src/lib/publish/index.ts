@@ -3,6 +3,8 @@ export type { PublishPlatform } from "./platform";
 
 export { markdownToCleanHtml, markdownToPlainText, markdownToPreviewHtml } from "./markdown";
 
+export { preserveEmptyParagraphs, preserveWhitespace } from "./whitespace";
+
 export { buildClipboardPayload, copyForPlatform } from "./clipboard";
 export type { ClipboardPayload } from "./clipboard";
 
@@ -20,6 +22,8 @@ export {
 export type { TweetSegmentCount } from "./limits";
 
 export { escapeLinkedInReserved } from "./linkedin";
+
+export { destinationLabel } from "./destination-label";
 
 export {
   parseSubstackFeed,

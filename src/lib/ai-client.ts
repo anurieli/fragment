@@ -236,6 +236,32 @@ function buildAnalyzeVoicePrompt(body: AnalyzeVoiceBody): string {
   );
 }
 
+interface ExtractBody extends ProviderBodyBase {
+  source?: string;
+  goal?: string;
+  audience?: string;
+  tone?: string;
+  remember?: string;
+  promptTemplate?: string;
+}
+
+function buildExtractPrompt(body: ExtractBody): string {
+  // Single-pass, function-replacer substitution, mirroring /api/extract: the
+  // source is raw draft content and may contain $-sequences or a literal
+  // {source} of its own.
+  const substitutions: Record<string, string> = {
+    "{source}": body.source || "(nothing written in this idea yet)",
+    "{goal}": body.goal || "No specific goal set",
+    "{audience}": body.audience || "General audience",
+    "{tone}": body.tone || "Match the source material",
+    "{remember}": body.remember || "None",
+  };
+  return (body.promptTemplate || "").replace(
+    /\{source\}|\{goal\}|\{audience\}|\{tone\}|\{remember\}/g,
+    (m) => substitutions[m] ?? m,
+  );
+}
+
 interface GenerateBody extends ProviderBodyBase {
   contextAbove?: string;
   contextBelow?: string;
@@ -377,6 +403,38 @@ export async function postAnalyzeVoice(
   });
 }
 
+/** POST /api/extract — the idea extractor (non-streaming) */
+export async function postExtract(
+  bodyJson: string,
+  options?: { signal?: AbortSignal },
+): Promise<Response> {
+  if (!isTauri()) {
+    return fetch("/api/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: bodyJson,
+      signal: options?.signal,
+    });
+  }
+  const body = JSON.parse(bodyJson) as ExtractBody;
+  if (!isAIProvider(body.provider)) {
+    return jsonResponse(
+      { error: "Invalid provider", _meta: { durationMs: 0, statusCode: 400, error: "Invalid provider" } },
+      400,
+    );
+  }
+  const fallback = await tryDevServerFallback("/api/extract", body.provider, body.apiKey, bodyJson, options?.signal);
+  if (fallback) return fallback;
+  return directChat({
+    prompt: buildExtractPrompt(body),
+    requestedModel: body.model || "",
+    provider: body.provider,
+    apiKey: body.apiKey,
+    codexToken: body.codexToken,
+    signal: options?.signal,
+  });
+}
+
 /** POST /api/generate — Flow (slash command generation, non-streaming) */
 export async function postGenerate(
   bodyJson: string,
@@ -502,6 +560,12 @@ export async function getModels(
   const startTime = Date.now();
   if (!isAIProvider(provider)) {
     return jsonResponse({ models: [], _meta: { durationMs: 0, statusCode: 400, error: "Invalid provider" } }, 400);
+  }
+
+  // No credential, no catalogue (mirrors /api/models).
+  if (isApiKeyProvider(provider) && !headers["x-api-key"]?.trim()) {
+    const error = "Missing API key";
+    return jsonResponse({ models: [], error, _meta: { durationMs: Date.now() - startTime, statusCode: 401, error } }, 401);
   }
 
   const staticModels = getStaticModels(provider);

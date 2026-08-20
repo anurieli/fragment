@@ -140,7 +140,8 @@ export function moveTextareaSelection(
 /**
  * Builds one ProseMirror transaction that moves a selected slice in-place.
  * Using a Slice rather than textBetween preserves marks and block structure;
- * the transaction mapping accounts for the source deletion on forward drops.
+ * the selection's native replacement semantics keep unlike block boundaries
+ * valid, and transaction mapping accounts for deletion on forward drops.
  */
 export function moveEditorSelection(
   state: EditorState,
@@ -154,12 +155,14 @@ export function moveEditorSelection(
   if (from < 0 || to > docSize || from >= to) return null;
   if (dropPos < 0 || dropPos > docSize) return null;
   if (dropPos >= from && dropPos <= to) return null;
+  if (state.selection.from !== from || state.selection.to !== to) return null;
 
   // Match ProseMirror's native drag path: retain the selected nodes' parent
-  // context and find a schema-valid insertion point before deleting source.
-  const slice = state.doc.slice(from, to, true);
+  // context, find a schema-valid insertion point, and use the selection's own
+  // replacement semantics when deleting across unlike block types.
+  const slice = state.selection.content();
   const insertPos = dropPoint(state.doc, dropPos, slice) ?? dropPos;
-  const tr = state.tr.delete(from, to);
+  const tr = state.tr.deleteSelection();
   const insertAt = tr.mapping.map(insertPos);
   const beforeInsert = tr.doc;
   tr.replaceRange(insertAt, insertAt, slice);

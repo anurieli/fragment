@@ -1,193 +1,34 @@
 import { db } from "./db";
-import type { Note, Snippet, NoteVersion, BrandVoice, VoiceSample, StoredReview } from "./types";
-import { logPersistence, summarizeNotes } from "./persistence-logger";
-import { backupNoteToFs, removeNoteFromFs, loadNotesFromFs } from "./fs-backup";
+import type { Snippet, PieceVersion, BrandVoice, VoiceSample, StoredReview, Comment } from "./types";
+import { logPersistence } from "./persistence-logger";
+import { backupPieceToFs } from "./fs-backup";
 import {
   ContractError,
-  pieceContentHome,
   assertIdeaParentAllowed,
+  isLongformFormat,
   type Idea,
   type ContentPiece,
   type Resource,
 } from "./content-engine";
 
 // ---------------------------------------------------------------------------
-// localStorage backup keys for notes (belt-and-suspenders)
+// Snips
+//
+// A snip belongs either to the fragment it was cut out of or, when it was cut
+// somewhere no single fragment owns, to the idea. Both loaders exist because
+// the store holds a window onto the snippets table rather than all of it: the
+// fragment's snips and the idea's snips are on screen together, and neither
+// query alone fills the bar.
 // ---------------------------------------------------------------------------
 
-const NOTE_BACKUP_PREFIX = "fragment:note:";
-const NOTES_INDEX_KEY = "fragment:notes:index";
-
-function noteBackupKey(id: string): string {
-  return `${NOTE_BACKUP_PREFIX}${id}`;
-}
-
-/** Write a note to localStorage as a backup. Best-effort, never throws. */
-function backupNoteToLocal(note: Note): void {
+export async function loadSnippetsForPiece(pieceId: string): Promise<Snippet[]> {
   try {
-    localStorage.setItem(noteBackupKey(note.id), JSON.stringify(note));
-    // Update the index of known note IDs
-    const index = loadNoteIndex();
-    if (!index.includes(note.id)) {
-      index.push(note.id);
-      localStorage.setItem(NOTES_INDEX_KEY, JSON.stringify(index));
-    }
-  } catch {
-    // localStorage full or unavailable — silent
-  }
-}
-
-/** Remove a note's localStorage backup. */
-function removeNoteBackup(noteId: string): void {
-  try {
-    localStorage.removeItem(noteBackupKey(noteId));
-    const index = loadNoteIndex().filter((id) => id !== noteId);
-    localStorage.setItem(NOTES_INDEX_KEY, JSON.stringify(index));
-  } catch {
-    // silent
-  }
-}
-
-/** Remove recovery copies when cloud sync applies a note tombstone. */
-export async function removeNoteBackupArtifacts(noteId: string): Promise<void> {
-  removeNoteBackup(noteId);
-  await removeNoteFromFs(noteId);
-}
-
-/** Load the index of backed-up note IDs from localStorage. */
-function loadNoteIndex(): string[] {
-  try {
-    const raw = localStorage.getItem(NOTES_INDEX_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as string[];
+    return await db.snippets.where("pieceId").equals(pieceId).sortBy("order");
   } catch {
     return [];
   }
 }
 
-/** Load all notes from localStorage backup. Used as fallback when IndexedDB fails. */
-function loadNotesFromLocalBackup(): Note[] {
-  const index = loadNoteIndex();
-  const notes: Note[] = [];
-  for (const id of index) {
-    try {
-      const raw = localStorage.getItem(noteBackupKey(id));
-      if (raw) {
-        notes.push(JSON.parse(raw) as Note);
-      }
-    } catch {
-      // corrupt entry — skip
-    }
-  }
-  return notes.sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-// ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
-
-export async function loadAllNotes(): Promise<Note[]> {
-  logPersistence("hydrate_start", {});
-
-  try {
-    const notes = await db.notes.orderBy("updatedAt").reverse().toArray();
-
-    // Reconcile: merge notes from localStorage backup that are either missing
-    // from IndexedDB or have newer content (e.g. if the last IndexedDB write
-    // didn't complete before page unload).
-    const dbMap = new Map(notes.map((n) => [n.id, n]));
-    const localNotes = loadNotesFromLocalBackup();
-    let merged = false;
-    for (const ln of localNotes) {
-      const dbNote = dbMap.get(ln.id);
-      if (!dbNote) {
-        // Note missing from IndexedDB — restore it
-        notes.push(ln);
-        try { await db.notes.put(ln); } catch { /* best-effort */ }
-        merged = true;
-      } else if (ln.updatedAt > dbNote.updatedAt) {
-        // localStorage has a newer version — the IndexedDB write likely
-        // didn't complete before the page unloaded. Use localStorage version.
-        const staleTimestamp = dbNote.updatedAt;
-        Object.assign(dbNote, ln);
-        try { await db.notes.put(ln); } catch { /* best-effort */ }
-        logPersistence("note_recovery", {
-          noteId: ln.id,
-          reason: "localStorage newer than IndexedDB",
-          localUpdatedAt: new Date(ln.updatedAt).toISOString(),
-          dbUpdatedAt: new Date(staleTimestamp).toISOString(),
-          contentLength: ln.content.length,
-        });
-        merged = true;
-      }
-    }
-
-    // Last-resort: if both IndexedDB and localStorage are empty, try FS backup
-    if (notes.length === 0) {
-      const fsNotes = await loadNotesFromFs();
-      for (const fn of fsNotes) {
-        notes.push(fn);
-        try { await db.notes.put(fn); } catch { /* best-effort */ }
-        backupNoteToLocal(fn);
-      }
-      if (fsNotes.length > 0) merged = true;
-    }
-
-    if (merged) {
-      notes.sort((a, b) => b.updatedAt - a.updatedAt);
-    }
-
-    // Refresh localStorage backup to match the authoritative set
-    for (const note of notes) {
-      backupNoteToLocal(note);
-    }
-
-    logPersistence("hydrate_complete", {
-      source: "indexeddb",
-      localRecovered: localNotes.filter((ln) => !dbMap.has(ln.id)).length,
-      ...summarizeNotes(notes),
-    });
-
-    return notes;
-  } catch {
-    // IndexedDB completely unavailable — fall back to localStorage
-    const localNotes = loadNotesFromLocalBackup();
-
-    // If localStorage is also empty, try FS backup
-    if (localNotes.length === 0) {
-      const fsNotes = await loadNotesFromFs();
-      if (fsNotes.length > 0) {
-        logPersistence("hydrate_complete", {
-          source: "fs_backup",
-          ...summarizeNotes(fsNotes),
-        });
-        return fsNotes;
-      }
-    }
-
-    logPersistence("hydrate_complete", {
-      source: "localstorage_fallback",
-      ...summarizeNotes(localNotes),
-    });
-    return localNotes;
-  }
-}
-
-export async function loadSnippetsForNote(noteId: string): Promise<Snippet[]> {
-  try {
-    return await db.snippets.where("noteId").equals(noteId).sortBy("order");
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Snippets cut inside an idea — off its pieces (noteId null) as well as off
- * its drafts. The store holds a window onto the snippets table rather than
- * all of it (see use-persistence), and until this existed that window was the
- * active note alone: a snippet taken in the pieces feed was written to disk
- * and then dropped from memory the next time the active note changed.
- */
 export async function loadSnippetsForIdea(ideaId: string): Promise<Snippet[]> {
   try {
     return await db.snippets.where("ideaId").equals(ideaId).sortBy("order");
@@ -196,68 +37,12 @@ export async function loadSnippetsForIdea(ideaId: string): Promise<Snippet[]> {
   }
 }
 
-export async function saveNote(note: Note): Promise<void> {
-  // Always write to localStorage backup first (synchronous, reliable)
-  backupNoteToLocal(note);
-
-  // Then write to IndexedDB (async, may fail)
-  try {
-    await db.notes.put(note);
-  } catch {
-    logPersistence("note_save_fail", {
-      noteId: note.id,
-      title: note.title.slice(0, 50),
-      contentLength: note.content.length,
-    });
-    // IndexedDB write failed — the localStorage backup is the safety net.
-    // The caller (data-store) may choose to surface this to the user.
-    throw new Error("Failed to save note to database");
-  }
-
-  // Write to file-system backup (Tauri only, fire-and-forget)
-  backupNoteToFs(note);
-}
-
-export async function deleteNoteAndSnippets(noteId: string): Promise<void> {
-  logPersistence("note_delete", { noteId });
-  void removeNoteBackupArtifacts(noteId);
-
-  try {
-    await db.transaction(
-      "rw",
-      db.notes,
-      db.snippets,
-      db.noteVersions,
-      db.contentPieces,
-      async () => {
-        await db.notes.delete(noteId);
-        await db.snippets.where("noteId").equals(noteId).delete();
-        await db.noteVersions.where("noteId").equals(noteId).delete();
-
-        // A content piece whose content home is this Note loses its home.
-        // Tombstone it (deletedAt) rather than hard-deleting — the piece row
-        // (and its history) survives for undo, same as a rejected piece.
-        const now = Date.now();
-        await db.contentPieces
-          .where("noteId")
-          .equals(noteId)
-          .modify((piece) => {
-            piece.deletedAt = now;
-            piece.updatedAt = now;
-          });
-      },
-    );
-  } catch {
-    // Best-effort — the note is already removed from the in-memory store
-  }
-}
-
 export async function saveSnippet(snippet: Snippet): Promise<void> {
   try {
     await db.snippets.put(snippet);
   } catch {
-    // Snippet persistence failure is non-critical since snippets are derived
-    // from note content and can be recreated.
+    // Snippet persistence failure is non-critical since snippets are cut from
+    // a fragment's text and can be cut again.
   }
 }
 
@@ -269,25 +54,83 @@ export async function deleteSnippet(id: string): Promise<void> {
   }
 }
 
-export async function loadVersionsForNote(noteId: string): Promise<NoteVersion[]> {
+/** A home's comments, oldest first. See commentHome in comment-scope.ts. */
+export async function loadCommentsForPiece(pieceId: string): Promise<Comment[]> {
   try {
-    return await db.noteVersions.where("noteId").equals(noteId).reverse().sortBy("createdAt");
+    return await db.comments.where("pieceId").equals(pieceId).sortBy("createdAt");
   } catch {
     return [];
   }
 }
 
-export async function saveVersion(version: NoteVersion): Promise<void> {
+export async function loadCommentsForIdea(ideaId: string): Promise<Comment[]> {
   try {
-    await db.noteVersions.put(version);
+    return await db.comments.where("ideaId").equals(ideaId).sortBy("createdAt");
   } catch {
-    // Version persistence failure — non-critical
+    return [];
   }
 }
 
-export async function deleteVersion(id: string): Promise<void> {
+export async function saveComment(comment: Comment): Promise<void> {
   try {
-    await db.noteVersions.delete(id);
+    await db.comments.put(comment);
+  } catch {
+    // Comment persistence failure is non-critical, mirrors saveSnippet.
+  }
+}
+
+/**
+ * The comment that seeded this idea, if any — powers the idea view's
+ * "Started from a comment" backlink. A direct indexed lookup rather than a
+ * scoped in-memory read: the store only ever holds the comments for
+ * whichever piece/idea is currently active, and the source comment usually
+ * lives under a different one.
+ */
+export async function findOriginComment(ideaId: string): Promise<Comment | null> {
+  try {
+    const match = await db.comments.where("promotedIdeaId").equals(ideaId).first();
+    return match ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Versions
+//
+// One row per snapshot, keyed to the piece it was taken from. Rows carried
+// over by the one-entity migration keep their original id and their
+// legacyNoteId, so a piece that used to be a note has one continuous
+// timeline rather than one that restarts on migration day.
+// ---------------------------------------------------------------------------
+
+export async function loadAllPieceVersions(): Promise<PieceVersion[]> {
+  try {
+    return await db.pieceVersions.toArray();
+  } catch {
+    return [];
+  }
+}
+
+export async function loadVersionsForPiece(pieceId: string): Promise<PieceVersion[]> {
+  try {
+    return await db.pieceVersions.where("pieceId").equals(pieceId).reverse().sortBy("createdAt");
+  } catch {
+    return [];
+  }
+}
+
+export async function savePieceVersion(version: PieceVersion): Promise<void> {
+  try {
+    await db.pieceVersions.put(version);
+  } catch {
+    // Version persistence failure: non-critical, the fragment itself is saved.
+  }
+}
+
+export async function deletePieceVersion(id: string): Promise<void> {
+  try {
+    await db.pieceVersions.delete(id);
   } catch {
     // best-effort
   }
@@ -388,6 +231,23 @@ export function assertPublishGuard(piece: Pick<ContentPiece, "status" | "publish
   }
 }
 
+/** Internal extraction stays review-only until the dedicated accept action
+ * removes reviewQueue. This backs every write path, including direct imports
+ * and any UI path that forgets to hide an ordinary piece action. */
+export function assertReviewQueueGuard(
+  piece: Pick<ContentPiece, "reviewQueue" | "status" | "origin" | "format" | "publish">,
+): void {
+  if (piece.reviewQueue !== "extraction") return;
+  if (
+    piece.status !== "in-progress" ||
+    piece.origin !== "user" ||
+    isLongformFormat(piece.format) ||
+    piece.publish !== undefined
+  ) {
+    throw new ContractError("an extraction-review piece must remain unpublished short-form work until accepted");
+  }
+}
+
 /**
  * Throws on a read failure rather than returning [].
  *
@@ -448,18 +308,22 @@ export async function loadAllContentPieces(): Promise<ContentPiece[]> {
  * destroys the last durable copy of a piece that only ever existed in memory.
  */
 export async function savePiece(piece: ContentPiece): Promise<boolean> {
-  // Exactly-one-content-home guard (noteId XOR body).
-  pieceContentHome(piece);
-  // Publish-record guard.
+  // Stored lifecycle guards.
   assertPublishGuard(piece);
+  assertReviewQueueGuard(piece);
 
   try {
     await db.contentPieces.put(piece);
-    return true;
   } catch {
     logPersistence("piece_save_fail", { id: piece.id });
     return false;
   }
+
+  // File-system backup (Tauri only, fire-and-forget). A fragment holds the
+  // writing itself now, so it inherits the safety net that used to sit under
+  // notes: WebView storage can be evicted, a file on disk cannot.
+  backupPieceToFs(piece);
+  return true;
 }
 
 /** Hard delete. The store's normal delete path (reject) tombstones (deletedAt) instead. */
@@ -496,14 +360,35 @@ export async function deleteResourceRow(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Pass (ARI-165) — review history. Each imported `.fragment-review.json`
-// becomes one row, keyed by the note it was returned for.
+// Pass (ARI-165): review history. Each imported `.fragment-review.json`
+// becomes one row, filed under the id the share it came back from was minted
+// with (see src/lib/sharing/share-key.ts).
 // ---------------------------------------------------------------------------
 
-export async function loadReviewsForNote(noteId: string): Promise<StoredReview[]> {
+/**
+ * Every review that belongs to a fragment, newest first.
+ *
+ * Two keys have to be tried, not one. Reviews returned before the one-entity
+ * migration carry only the note id the share was minted with, and shares stay
+ * filed under that id forever so links already in someone's inbox keep
+ * resolving. So a fragment's history is the union of what came back under its
+ * own id and what came back under the note it used to be, deduplicated because
+ * the migration stamps `pieceId` onto the old rows and they answer both
+ * queries.
+ */
+export async function loadReviewsForPiece(pieceId: string): Promise<StoredReview[]> {
   try {
-    return await db.reviews.where("noteId").equals(noteId).reverse().sortBy("receivedAt");
+    const piece = await db.contentPieces.get(pieceId);
+    const shareKeys = piece?.legacyNoteId ? [pieceId, piece.legacyNoteId] : [pieceId];
+
+    const [byPiece, byShareKey] = await Promise.all([
+      db.reviews.where("pieceId").equals(pieceId).toArray(),
+      db.reviews.where("noteId").anyOf(shareKeys).toArray(),
+    ]);
+
+    const byId = new Map<string, StoredReview>();
+    for (const review of [...byPiece, ...byShareKey]) byId.set(review.id, review);
+    return [...byId.values()].sort((a, b) => b.receivedAt - a.receivedAt);
   } catch {
     return [];
   }

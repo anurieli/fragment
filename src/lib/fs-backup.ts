@@ -1,16 +1,16 @@
 /**
- * Tauri file-system backup for notes.
+ * Tauri file-system backup for fragments.
  *
- * Writes notes as individual JSON files to the app's local data directory.
- * Immune to WebView storage eviction — files persist until explicitly deleted.
+ * Writes fragments as individual JSON files to the app's local data directory.
+ * Immune to WebView storage eviction: files persist until explicitly deleted.
  * Only active when running inside a Tauri webview; no-ops in browser.
  */
 
-import type { Note } from "./types";
+import type { ContentPiece } from "./content-engine";
 import { isTauri } from "./ai-client";
 import { logPersistence } from "./persistence-logger";
 
-const NOTES_DIR = "notes";
+const PIECES_DIR = "pieces";
 
 /** Lazy-loaded Tauri FS module. Null in browser. */
 async function getTauriFs() {
@@ -22,14 +22,14 @@ async function getTauriFs() {
   }
 }
 
-/** Ensure the notes backup directory exists. */
-async function ensureNotesDir(): Promise<boolean> {
+/** Ensure the fragments backup directory exists. */
+async function ensurePiecesDir(): Promise<boolean> {
   const fs = await getTauriFs();
   if (!fs) return false;
   try {
-    const exists = await fs.exists(NOTES_DIR, { baseDir: fs.BaseDirectory.AppLocalData });
+    const exists = await fs.exists(PIECES_DIR, { baseDir: fs.BaseDirectory.AppLocalData });
     if (!exists) {
-      await fs.mkdir(NOTES_DIR, { baseDir: fs.BaseDirectory.AppLocalData, recursive: true });
+      await fs.mkdir(PIECES_DIR, { baseDir: fs.BaseDirectory.AppLocalData, recursive: true });
     }
     return true;
   } catch {
@@ -37,39 +37,39 @@ async function ensureNotesDir(): Promise<boolean> {
   }
 }
 
-/** Save a single note to the file system. Best-effort, never throws. */
-export async function backupNoteToFs(note: Note): Promise<void> {
+/** Save a single fragment to the file system. Best-effort, never throws. */
+export async function backupPieceToFs(piece: ContentPiece): Promise<void> {
   if (!isTauri()) return;
   try {
-    const dirReady = await ensureNotesDir();
+    const dirReady = await ensurePiecesDir();
     if (!dirReady) return;
 
     const fs = await getTauriFs();
     if (!fs) return;
 
-    const filePath = `${NOTES_DIR}/${note.id}.json`;
-    await fs.writeTextFile(filePath, JSON.stringify(note), {
+    const filePath = `${PIECES_DIR}/${piece.id}.json`;
+    await fs.writeTextFile(filePath, JSON.stringify(piece), {
       baseDir: fs.BaseDirectory.AppLocalData,
     });
 
-    logPersistence("fs_backup_save", { noteId: note.id, contentLength: note.content.length });
+    logPersistence("fs_backup_save", { pieceId: piece.id, contentLength: piece.body.length });
   } catch (err) {
     logPersistence("fs_backup_fail", {
       op: "save",
-      noteId: note.id,
+      pieceId: piece.id,
       error: err instanceof Error ? err.message : String(err),
     });
   }
 }
 
-/** Remove a note's file-system backup. Best-effort, never throws. */
-export async function removeNoteFromFs(noteId: string): Promise<void> {
+/** Remove a fragment's file-system backup. Best-effort, never throws. */
+export async function removePieceFromFs(pieceId: string): Promise<void> {
   if (!isTauri()) return;
   try {
     const fs = await getTauriFs();
     if (!fs) return;
 
-    const filePath = `${NOTES_DIR}/${noteId}.json`;
+    const filePath = `${PIECES_DIR}/${pieceId}.json`;
     const exists = await fs.exists(filePath, { baseDir: fs.BaseDirectory.AppLocalData });
     if (exists) {
       await fs.remove(filePath, { baseDir: fs.BaseDirectory.AppLocalData });
@@ -80,38 +80,38 @@ export async function removeNoteFromFs(noteId: string): Promise<void> {
 }
 
 /**
- * Load all notes from the file-system backup.
- * Used as a last-resort fallback when both IndexedDB and localStorage are empty.
+ * Load all fragments from the file-system backup.
+ * The last-resort restore path, for a library whose IndexedDB is gone.
  */
-export async function loadNotesFromFs(): Promise<Note[]> {
+export async function loadPiecesFromFs(): Promise<ContentPiece[]> {
   if (!isTauri()) return [];
   try {
     const fs = await getTauriFs();
     if (!fs) return [];
 
-    const dirExists = await fs.exists(NOTES_DIR, { baseDir: fs.BaseDirectory.AppLocalData });
+    const dirExists = await fs.exists(PIECES_DIR, { baseDir: fs.BaseDirectory.AppLocalData });
     if (!dirExists) return [];
 
-    const entries = await fs.readDir(NOTES_DIR, { baseDir: fs.BaseDirectory.AppLocalData });
-    const notes: Note[] = [];
+    const entries = await fs.readDir(PIECES_DIR, { baseDir: fs.BaseDirectory.AppLocalData });
+    const pieces: ContentPiece[] = [];
 
     for (const entry of entries) {
       if (!entry.name?.endsWith(".json")) continue;
       try {
-        const content = await fs.readTextFile(`${NOTES_DIR}/${entry.name}`, {
+        const content = await fs.readTextFile(`${PIECES_DIR}/${entry.name}`, {
           baseDir: fs.BaseDirectory.AppLocalData,
         });
-        const note = JSON.parse(content) as Note;
-        notes.push(note);
+        const piece = JSON.parse(content) as ContentPiece;
+        pieces.push(piece);
       } catch {
-        // corrupt file — skip
+        // corrupt file, skip
       }
     }
 
-    notes.sort((a, b) => b.updatedAt - a.updatedAt);
+    pieces.sort((a, b) => b.updatedAt - a.updatedAt);
 
-    logPersistence("fs_backup_load", { count: notes.length });
-    return notes;
+    logPersistence("fs_backup_load", { count: pieces.length });
+    return pieces;
   } catch (err) {
     logPersistence("fs_backup_fail", {
       op: "load",

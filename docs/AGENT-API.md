@@ -9,7 +9,7 @@ Claude Code users: the repo ships an agent skill for this workflow at `.claude/s
 ## The data model in 30 seconds
 
 - **Idea** — a container for one line of thinking. Ideas can nest one level deep (a "North Star" idea with sub-ideas; max depth 2). Ideas have priority (0 none / 1 urgent / 2 high / 3 medium / 4 low) and can be pinned.
-- **ContentPiece** — one unit inside an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; `status` flows `inbox → in-progress → ready → published`. A piece can never exist without an idea — an idea is the relatable, learnable thought a piece is built on, and every piece names its idea. `script` is long-form content that is used elsewhere rather than published from Fragment (video scripts, talk notes); the publish menu does not apply to it. Agent-pushed pieces always start in `inbox`. A piece's `created_at` is its canonical age — the inbox surfaces how long a piece has been waiting.
+- **ContentPiece** — one unit inside an idea: `format` is `linkedin`, `tweet`, `substack`, `essay`, `script`, or `other`; external work flows `inbox → in-progress → ready → published`. Fragment's internal Extract Ideas action uses a separate review queue before joining active work at `in-progress`, so it never enters the external inbox. A piece can never exist without an idea — an idea is the relatable, learnable thought a piece is built on, and every piece names its idea. `script` is long-form content that is used elsewhere rather than published from Fragment (video scripts, talk notes); the publish menu does not apply to it. Agent-pushed pieces always start in `inbox`. A piece's `created_at` is its canonical age — the inbox surfaces how long a piece has been waiting.
 - **Resource** — a link, note, or asset attached to an idea or a piece (inspiration, sources). Children inherit their parents' resources at read time.
 
 ## Handoff format: markdown + YAML frontmatter
@@ -84,7 +84,7 @@ That's what we built. 🧵 below.
 
 - The body is **everything after the closing `---`**, preserved byte-exact: spaces, blank lines, and newlines survive import → edit → publish untouched.
 - Write plain markdown. For `tweet`, separate thread segments with a `---` line.
-- Long-form (`essay`, `substack`) bodies are imported into a full Fragment note; short-form bodies stay inline.
+- Every body is imported inline, whatever the format. `format` decides which surface edits the piece, the long-form editor or the feed, and never where its text is stored. This line previously claimed long-form bodies became separate Fragment notes; that was never true of the importer, and notes no longer exist.
 
 ## Import semantics
 
@@ -103,9 +103,12 @@ That's what we built. 🧵 below.
 
 Each line: `{"id"?, "ownerType": "idea"|"piece", "ownerId", "kind": "link"|"note"|"asset", "title", "url"?, "note"?, "createdAt"?}\n`. `id` and `createdAt` are optional on the wire (a hand-written line still imports) — `fragment-mcp`'s `add_resource` tool always fills both, which is what makes re-importing the same file idempotent (a line whose `id` is already known is skipped). A whole `resources.jsonl` is read and imported in full on every poll — there's no `since` filter the way there is for piece files, because the idempotent-by-id upsert makes that safe and cheap.
 
-## How the import actually happens today (read this before assuming an HTTP push endpoint exists)
+## How a handoff reaches Fragment: two transports
 
-There is **no HTTP endpoint that accepts a piece body directly.** The only way to hand Fragment a piece today is to write a `.md` file into the inbox directory — via `fragment-mcp`'s tools/CLI (which write straight to disk), or by hand. What varies is how the **running Fragment app** notices those files and imports them into its store:
+There are two ways to hand Fragment a piece, and `fragment-mcp` speaks both behind the same six tools:
+
+- **Hosted (account) transport** — HTTPS against a Fragment server with a cloud database, authenticated by a per-account **agent token**. See "Hosted transport" below. Pushes are durable on response: they land in the account's cloud store and reach every signed-in device through normal sync, whether or not a Fragment tab is open anywhere.
+- **Local file transport** — write a `.md` file into the inbox directory (via the tools/CLI, or by hand) and let the **running Fragment app** import it. This is the only path for the open-source/self-hosted build with no database. What varies is how the running app notices the files:
 
 - **Desktop (Tauri):** the app reads `~/.fragment/inbox` directly off the filesystem. No HTTP involved.
 - **Browser / self-hosted server:** a browser can't read your local filesystem, so the app polls its own Next.js server every 10 seconds:
@@ -114,7 +117,37 @@ There is **no HTTP endpoint that accepts a piece body directly.** The only way t
 
 Both routes are gated identically by `gateAgentInbox` (`src/lib/agent-inbox/gate.ts`) — see the security section below. **fragment-mcp itself never calls either route** — its `FileTransport` writes and reads the inbox directory directly, the same directory the browser-mode app is polling over HTTP. The gated HTTP routes exist so the *browser tab* can see what an agent already wrote to disk, not so an agent can push over HTTP.
 
-**M2 seam:** `fragment-mcp`'s `HttpTransport` (`packages/fragment-mcp/src/http-transport.ts`) is a typed stub for a future hosted push API — every method currently throws `"not implemented yet"`. Until the hosted Fragment API ships, every `fragment-mcp` install talks to a local `FRAGMENT_INBOX_DIR`, full stop.
+## Hosted transport: connect an agent to a Fragment account (ARI-161)
+
+The hosted API is the six tools as HTTP routes, all bearer-authenticated with an **agent token** minted in **Settings → Account & Sync → Agent access** (hosted build, signed in). The plaintext is shown exactly once at mint time; the server stores only a SHA-256. Revoking a token in Settings cuts the agent off on its next request.
+
+| Route | Tool |
+|---|---|
+| `GET  /api/v1/agent/ping` | connection test (any live token) |
+| `POST /api/v1/agent/ideas` | `create_idea` |
+| `GET  /api/v1/agent/ideas?status=` | `list_ideas` |
+| `POST /api/v1/agent/pieces` | `add_piece` (body: the contract's JSON handoff) |
+| `GET  /api/v1/agent/pieces/:id` | `get_piece` |
+| `POST /api/v1/agent/pieces/:id/status` | `update_status` (`"published"` only) |
+| `POST /api/v1/agent/resources` | `add_resource` |
+
+Properties worth knowing:
+
+- **Account-scoped, bearer-only.** The token resolves to one user; every row read or written is scoped to that user in SQL. Session cookies carry zero authority on these routes, so there is no CSRF surface, and an agent token cannot call the token-management routes (a leaked agent credential cannot mint or revoke credentials).
+- **Scoped.** Tokens carry `content:read` / `content:write` scopes covering exactly the six tools — an agent connected this way can reach ideas, pieces and resources, never notes, snips, settings, or credentials.
+- **Same import rules as the local inbox.** Pushes run the identical pure upsert logic (`src/lib/content-engine/upsert.ts`): forced `status: inbox` and `origin: agent`, append-only with `supersedes`, last-write-wins that never clobbers a newer local edit, tombstones never resurrected.
+- **Delivered via sync.** A push writes the account's `documents` rows with a rev bump, so every signed-in device pulls it on its next sync tick. No Fragment tab needs to be open.
+
+Point `fragment-mcp` at an account by setting two environment variables (both, not one):
+
+```bash
+claude mcp add fragment \
+  --env FRAGMENT_API_URL=https://your-fragment-domain.example \
+  --env FRAGMENT_API_TOKEN=frg_agent_... \
+  -- node /path/to/fragment/packages/fragment-mcp/dist/bin.js
+```
+
+`fragment-mcp doctor` in this mode probes `/api/v1/agent/ping` and reports which account and scopes the token resolves to. When neither variable is set, `fragment-mcp` uses the local file transport below; setting exactly one is an error, never a silent fallback.
 
 ## Eventual consistency
 
@@ -141,12 +174,14 @@ Once published, the same thing becomes `claude mcp add fragment-mcp -- npx fragm
 |---|---|---|---|
 | `create_idea` | `title` (required), `summary?`, `agent?`, `parentId?` | `{ ideaId, title, parentId }` | `parentId` must point at an existing **root** idea — nesting is capped at depth 2, and Fragment rejects a `parentId` that's itself a child. |
 | `add_piece` | `ideaId?` or `ideaTitle?` (one required), `format` (required), `title?`, `content` (required — the markdown body), `priority?` (0-4), `supersedes?`, `resources?`, `scheduledAt?`, `agent?`, `model?` | `{ pieceId, ideaId }` | Append-only: always creates a **new** piece file, never edits an existing one. Lands with `status: inbox` no matter what's passed. A re-draft sets `supersedes` to the id of the piece it replaces, rather than overwriting it. |
-| `list_ideas` | `status?` (only return ideas with at least one piece in this status) | `{ ideas: [{ id, title, summary, parentId, priority, origin, createdAt, updatedAt, counts: {inbox, "in-progress", ready, published}, total }] }` | `counts` always shows the full per-status breakdown, even when `status` narrowed which ideas are returned. |
+| `list_ideas` | `status?` (only return ideas with at least one piece in this status) | `{ ideas: [{ id, title, summary, parentId, priority, origin, createdAt, updatedAt, counts: {inbox, "in-progress", ready, published}, total }] }` | `counts` always shows the full per-status breakdown, even when `status` narrowed which ideas are returned. Internal extraction review is not exposed as an API status. |
 | `get_piece` | `pieceId` (required) | The piece: `{ id, ideaId, format, status, origin, title, priority, scheduledAt, agent, model, supersedes, createdAt, updatedAt, body, resources }` | `status` is the *effective* status — `.status.jsonl` layered on top of the file's baked-in `inbox`. |
 | `update_status` | `pieceId` (required), `status` (required — must be `"published"`) | `{ pieceId, status }` | The **only** status transition an agent may make. Every other value is rejected with a clear error — every other status is a user verdict made inside Fragment. Errors loudly on an unknown `pieceId` rather than silently appending an orphaned log line. |
 | `add_resource` | `ownerType` (`idea`\|`piece`, required), `ownerId` (required), `kind` (`link`\|`note`\|`asset`, required), `title` (required), `url?`, `note?` | `{ resourceId, ideaId }` | Appends to the owning idea's `resources.jsonl` (never a new file per call). For a piece owner, the idea that piece belongs to is resolved automatically — `ideaId` in the response is that resolved idea, not the piece. |
 
 All tool inputs are validated against the contract's own zod schemas before anything touches disk — a malformed call fails with a descriptive error, not a partially-written file.
+
+Inside Fragment, external arrivals appear in the global sidebar Inbox and in the owning idea's collapsed Inbox below Pieces. Approve changes the arrival to `in-progress`; Toss soft-deletes it with Undo. Internally extracted options use a separate review queue and never enter this Inbox.
 
 ### CLI mode
 
@@ -231,4 +266,4 @@ Agent-pushed content is untrusted input, full stop. Fragment renders a piece's m
 
 The sharper edge: **once you pull an agent-pushed piece's text into your document, or otherwise treat it as material you're drafting from, it can become AI context.** Fragment's own AI features (Flow's slash-command generation, Refine's inline edits) send the surrounding document text to whatever provider you've configured, and that surrounding text can include content an agent wrote. A prompt-injection attempt embedded in a drafted piece ("ignore prior instructions and...") is just more markdown to Fragment and to any AI call that later includes it as context — it has no special authority, but it also isn't filtered out.
 
-The practical rule: **your review before a piece leaves `inbox` is the trust boundary**, not the moment it's imported (import itself is automatic — that's the inbox's whole point). Read a piece before promoting it, before dragging its content into a note you're actively drafting with AI assistance, and before publishing it anywhere. Never wire up automatic accept/promote/publish for agent-pushed content — the `update_status` tool intentionally only lets an agent report `"published"` after *it* posted something, precisely so "accept" always stays a human action taken inside Fragment.
+The practical rule: **your review before a piece leaves `inbox` is the trust boundary**, not the moment it's imported (import itself is automatic, that is the inbox's whole point). Read a piece before promoting it, before dragging its content into a draft you're actively writing with AI assistance, and before publishing it anywhere. Never wire up automatic accept/promote/publish for agent-pushed content: the `update_status` tool intentionally only lets an agent report `"published"` after *it* posted something, precisely so "accept" always stays a human action taken inside Fragment.
