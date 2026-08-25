@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { undoDepth, redoDepth } from "@tiptap/pm/history";
@@ -86,5 +88,43 @@ describe("editor undo history across fragments", () => {
     clearEditorHistory(editor);
     expect(editor.getHTML()).toContain("Change Management");
     expect(undoDepth(editor.state)).toBe(0);
+  });
+});
+
+/**
+ * In the hosted build this guard caught a real recurrence: the fix shipped for
+ * one editor and the same data loss happened again within the hour, because
+ * there was a second Tiptap instance nobody had accounted for.
+ *
+ * A source-level guard rather than a behavioural one, deliberately. What has
+ * to be true is not "this file behaves" but "every editor in the app scopes
+ * its history", and the only way another one gets added without anybody
+ * noticing is if nothing is watching for it.
+ */
+function editorSourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) {
+      if (name === "node_modules" || name === "__tests__") continue;
+      out.push(...editorSourceFiles(full));
+    } else if (name.endsWith(".tsx") || name.endsWith(".ts")) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+describe("every Tiptap editor in the app scopes its own history", () => {
+  it("each useEditor call site clears the history when it swaps documents", () => {
+    const offenders: string[] = [];
+    for (const file of editorSourceFiles(join(process.cwd(), "src"))) {
+      const source = readFileSync(file, "utf8");
+      if (!source.includes("useEditor(")) continue;
+      if (!source.includes("clearEditorHistory")) {
+        offenders.push(file.replace(process.cwd() + "/", ""));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
