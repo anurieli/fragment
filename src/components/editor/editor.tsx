@@ -10,6 +10,7 @@ import { Markdown } from "tiptap-markdown";
 import { TextSelection } from "@tiptap/pm/state";
 import { CommentHighlight } from "@/lib/editor/comment-highlight-extension";
 import { InsertHighlight } from "@/lib/editor/insert-highlight-extension";
+import { clearEditorHistory } from "@/lib/editor/history";
 import { isHistoryTransaction, undoDepth } from "@tiptap/pm/history";
 import {
   PanelRightOpen,
@@ -735,6 +736,20 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     // Flush any pending debounced save so the previous fragment's text is persisted
     debouncedSave.flush();
 
+    // Undo history belongs to a document, not to the editor widget. Drop it
+    // before this fragment's text goes in, so ⌘Z can never reach back into
+    // the fragment that was open a moment ago. Unconditional, ahead of the
+    // early return below: two fragments can hold identical text (two empty
+    // ones, most obviously) and the history would still be the other one's.
+    // See clearEditorHistory.
+    clearEditorHistory(editor);
+    // These maps are keyed by undo depth, and the depth just went back to
+    // zero. Entries left over from another fragment would fire against
+    // whatever lands at the same depth here.
+    snippetInsertMapRef.current.clear();
+    snippetRemoveMapRef.current.clear();
+    prevUndoDepthRef.current = 0;
+
     if (contentRef.current === piece.body) return;
 
     // Check for immediate localStorage backup that may be newer than DB
@@ -749,6 +764,8 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     isInternalUpdate.current = true;
     editor.commands.setContent(content || "");
     cleanupNbspParagraphs(editor);
+    clearEditorHistory(editor);
+    prevUndoDepthRef.current = 0;
     contentRef.current = content;
     setLiveEditorContent(piece.id, content);
     isInternalUpdate.current = false;
@@ -777,6 +794,11 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
           isInternalUpdate.current = true;
           editor.commands.setContent(version.content || "");
           cleanupNbspParagraphs(editor);
+          // A snapshot is a different document too. Without this, leaving the
+          // preview and pressing undo pulled the old version's text back into
+          // the live draft.
+          clearEditorHistory(editor);
+          prevUndoDepthRef.current = 0;
           isInternalUpdate.current = false;
           lastPreviewVersionIdRef.current = version.id;
         }
@@ -788,6 +810,8 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
         isInternalUpdate.current = true;
         editor.commands.setContent(piece.body || "");
         cleanupNbspParagraphs(editor);
+        clearEditorHistory(editor);
+        prevUndoDepthRef.current = 0;
         contentRef.current = piece.body;
         setLiveEditorContent(piece.id, piece.body);
         isInternalUpdate.current = false;
@@ -804,6 +828,12 @@ export function Editor({ onOpenAISettings, leftToolbarSlot }: EditorProps) {
     isInternalUpdate.current = true;
     editor.commands.setContent(streamingContent);
     cleanupNbspParagraphs(editor);
+    // Every streamed frame is a whole-document replacement. Left in the
+    // history they made undo a token-by-token rewind through half-written
+    // drafts, and any edit made before the generation was still sitting
+    // underneath them.
+    clearEditorHistory(editor);
+    prevUndoDepthRef.current = 0;
     contentRef.current = streamingContent;
     isInternalUpdate.current = false;
 
