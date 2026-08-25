@@ -2,6 +2,16 @@
 
 This changelog starts at the initial public release. Earlier history lives in the private development repo.
 
+## 2026-08-25 04:50 - Undo could reach out of the piece you were editing and overwrite it
+
+**Summary**: One editor instance serves every piece, and opening a piece replaced the document inside it. ProseMirror's history recorded that replacement as an ordinary edit, so the undo stack spanned every piece opened since the tab loaded. Pressing ⌘Z inside a piece could undo the *piece switch* rather than your last keystroke: the previously open piece's body appeared on screen, and because undo is a real editing transaction, autosave wrote it over the piece you were on. ⌘⇧Z walked forwards into the same swap. Undo then went dead, because the leftover history had its steps remapped through a whole-document replacement and had nothing left to apply. A draft could be silently replaced by a different draft, with no error and no way back short of a snapshot taken earlier.
+
+Undo and redo are now scoped to the piece on screen. The history is cleared whenever the document in the editor is swapped: opening a piece, entering or leaving a timeline preview (previously, leaving a preview and pressing undo pulled the old snapshot into the live draft), and each frame of a Flow generation (previously, undo after a generation was a token-by-token rewind through half-written text). Nothing about the editing surface changes; undo simply stops at the edge of the piece you are in. To go further back, the timeline is still there: ⌘S saves a snapshot, ⌘T opens the list.
+
+**Files**: `src/lib/editor/history.ts` (new), `src/components/editor/editor.tsx`, `src/__tests__/editor-history-isolation.test.ts` (new)
+
+**Verification**: 943 tests passed across 78 files, including a regression test that first asserts the original corruption so the fix is provable rather than assumed; `npx tsc --noEmit` is clean; eslint reports 0 errors on the changed files; production build is clean.
+
 ## 2026-08-20 03:57 - Empty new work disappears when abandoned (ARI-353)
 
 **Summary**: New notes, ideas, and short-form pieces were persisted as soon as their creation controls were clicked, with no distinction between an untouched placeholder and deliberate work. Fragment now tracks only blank entities created during the current browser session and removes them when navigation or editor blur leaves them. Existing blank records are never swept, and any title, body, writing context, metadata, child, piece, or resource keeps the new entity.
